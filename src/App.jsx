@@ -340,6 +340,11 @@ const brl = (n) =>
 const uid = () => Math.random().toString(36).slice(2, 9);
 
 const FEE = 7.9;
+
+// Fotos dos produtos (servidas de /public/img). A foto do produto usa o id
+// (ex.: p1.jpg). Enquanto uma foto não existir, o SmartImg cai para o emoji.
+const IMG_BASE = "img/products";
+const LOGO_ROUND = "assets/logo-round.png";
 // ============================================================
 // UTILITÁRIOS DE UI
 // ============================================================
@@ -369,30 +374,48 @@ const elapsed = (from, now) => {
   return `${String(Math.floor(s / 60)).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`;
 };
 
-function Logo({ size = 44, withText = true }) {
+function Logo({ size = 44, glow = false, style = {} }) {
   return (
-    <div className="flex items-center gap-3 select-none">
-      <div
-        className="relative flex items-center justify-center shrink-0"
-        style={{
-          width: size, height: size, borderRadius: "50%",
-          background: C.black, border: `2px solid ${C.orange}`,
-          boxShadow: `0 0 0 2px ${C.black}, 0 0 0 3px ${C.yellow}33`,
-        }}
+    <img
+      src={LOGO_ROUND}
+      alt="TÔ NO SARRO! Burgers & Açaí"
+      width={size}
+      height={size}
+      draggable={false}
+      className="shrink-0 select-none"
+      style={{
+        borderRadius: "50%", display: "block",
+        boxShadow: glow ? `0 0 0 1px ${C.black}, 0 8px 30px ${C.orange}59` : "none",
+        ...style,
+      }}
+    />
+  );
+}
+
+// Foto do produto com fallback para o emoji: enquanto a foto real não existir
+// (ou estiver carregando em conexão ruim), o card continua apresentável.
+function SmartImg({ id, emoji, alt = "", fs = 34, className = "", style = {} }) {
+  const [broken, setBroken] = useState(false);
+  if (!id || broken) {
+    return (
+      <span
+        className={`flex items-center justify-center w-full h-full ${className}`}
+        style={{ background: `linear-gradient(135deg, ${C.orange}2e, ${C.gray800})`, ...style }}
       >
-        <span style={{ fontSize: size * 0.52, lineHeight: 1 }}>😜</span>
-      </div>
-      {withText && (
-        <div style={{ lineHeight: 0.86 }}>
-          <div style={{ fontFamily: font.display, fontSize: size * 0.32, color: C.white, fontStyle: "italic", letterSpacing: "-0.02em" }}>
-            TÔ NO
-          </div>
-          <div style={{ fontFamily: font.display, fontSize: size * 0.42, color: C.orange, fontStyle: "italic", letterSpacing: "-0.02em" }}>
-            SARRO!
-          </div>
-        </div>
-      )}
-    </div>
+        <span style={{ fontSize: fs, lineHeight: 1 }}>{emoji}</span>
+      </span>
+    );
+  }
+  return (
+    <img
+      src={`${IMG_BASE}/${id}.jpg`}
+      alt={alt}
+      loading="lazy"
+      draggable={false}
+      onError={() => setBroken(true)}
+      className={`sarro-img ${className}`}
+      style={style}
+    />
   );
 }
 
@@ -567,51 +590,69 @@ function seedOrders() {
 function Hero({ store, onOrder }) {
   return (
     <div className="relative overflow-hidden" style={{ background: C.black }}>
+      {/* brilho quente + riscos de velocidade da marca */}
       <div
-        className="absolute inset-0"
+        className="absolute inset-0 pointer-events-none"
         style={{
-          background: `radial-gradient(120% 90% at 78% 8%, ${C.orange}3d 0%, transparent 58%), radial-gradient(90% 70% at 10% 100%, ${C.yellow}22 0%, transparent 60%)`,
+          background: `radial-gradient(120% 90% at 82% 0%, ${C.orange}40 0%, transparent 55%), radial-gradient(80% 60% at 0% 100%, ${C.yellow}1f 0%, transparent 60%)`,
         }}
       />
       <div
-        className="absolute"
-        style={{
-          left: "-12%", top: "42%", width: "130%", height: 26,
-          background: `linear-gradient(90deg, transparent, ${C.orange}, transparent)`,
-          transform: "rotate(-6deg)", filter: "blur(1px)", opacity: 0.55,
-        }}
+        className="absolute pointer-events-none"
+        style={{ left: "-14%", top: "13%", width: "68%", height: 3, background: `linear-gradient(90deg, transparent, ${C.orange}aa, transparent)`, transform: "rotate(-8deg)" }}
       />
-      <div className="relative px-5 pt-6 pb-8">
-        <div className="flex items-center justify-between mb-6">
-          <Logo size={46} />
+      <div
+        className="absolute pointer-events-none"
+        style={{ left: "-10%", top: "21%", width: "52%", height: 2, background: `linear-gradient(90deg, transparent, ${C.yellow}77, transparent)`, transform: "rotate(-8deg)" }}
+      />
+
+      <div className="relative px-5 pt-5 pb-7">
+        <div className="flex items-center justify-between mb-5 gap-2">
+          <Logo size={54} glow />
           <div
-            className="flex items-center gap-2 px-3 py-1.5 rounded-full"
+            className="flex items-center gap-2 px-3 py-1.5 rounded-full shrink-0"
             style={{ background: C.gray850, border: `1px solid ${store.open ? C.green : C.red}55` }}
           >
-            <span style={{ width: 8, height: 8, borderRadius: 99, background: store.open ? C.green : C.red, display: "inline-block" }} />
+            <span
+              style={{ width: 8, height: 8, borderRadius: 99, background: store.open ? C.green : C.red, display: "inline-block", animation: "sarropulse 1.8s infinite" }}
+            />
             <span style={{ fontSize: 11, fontWeight: 800, color: store.open ? C.green : C.red }}>
-              {store.open ? "Aberto agora" : "Fechado"}
+              {store.open ? "Aberto agora" : "Fechado · voltamos 18h"}
             </span>
           </div>
         </div>
 
         <div style={{ fontFamily: font.display, fontStyle: "italic", letterSpacing: "-0.03em" }}>
-          <div style={{ fontSize: 40, lineHeight: 0.92, color: C.white }}>BATEU A FOME?</div>
-          <div style={{ fontSize: 46, lineHeight: 0.92, color: C.orange, textShadow: `3px 3px 0 ${C.black}` }}>
+          <div style={{ fontSize: 38, lineHeight: 0.94, color: C.white }}>BATEU A FOME?</div>
+          <div style={{ fontSize: 43, lineHeight: 1, color: C.orange, textShadow: `3px 3px 0 ${C.black}, 0 0 36px ${C.orange}55` }}>
             ENTÃO TÁ NO SARRO! 🔥
           </div>
         </div>
 
-        <p style={{ color: "#bdbdbd", fontSize: 13, marginTop: 14, maxWidth: 420, lineHeight: 1.5 }}>
+        <p style={{ color: "#bdbdbd", fontSize: 13, marginTop: 12, maxWidth: 430, lineHeight: 1.55 }}>
           Burger artesanal na chapa e açaí batido na hora, saindo do Janga direto
           pra sua casa. {store.open ? "Entrega em 35–45 min." : "Voltamos às 18h."}
         </p>
 
-        <div className="flex items-center gap-3 mt-5">
-          <Btn onClick={onOrder} style={{ paddingLeft: 26, paddingRight: 26 }}>PEDIR AGORA</Btn>
-          <div className="flex items-center gap-2" style={{ color: "#8a8a8a", fontSize: 11 }}>
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-3 mt-5">
+          <Btn onClick={onOrder} style={{ paddingLeft: 28, paddingRight: 28, boxShadow: `0 10px 32px ${C.orange}45` }}>
+            PEDIR AGORA
+          </Btn>
+          <div className="flex items-center gap-2 flex-wrap" style={{ color: "#8a8a8a", fontSize: 11 }}>
             <span>⭐ 4,9</span><span>•</span><span>🛵 {brl(FEE)}</span><span>•</span><span>⏱ 35–45min</span>
           </div>
+        </div>
+
+        {/* foto hero: apetite vende pedido */}
+        <div
+          className="sarro-imgzoom rounded-2xl overflow-hidden mt-6"
+          style={{
+            height: 220,
+            border: `1px solid ${C.gray800}`,
+            boxShadow: `0 20px 60px rgba(0,0,0,.65), 0 0 0 1px ${C.orange}1f`,
+          }}
+        >
+          <SmartImg id="p1" emoji="🍔" alt="Sarro Burger — o queridinho da casa" fs={72} />
         </div>
       </div>
     </div>
@@ -627,14 +668,10 @@ function ProductCard({ p, onOpen }) {
       style={{ opacity: p.available ? 1 : 0.45, cursor: p.available ? "pointer" : "not-allowed" }}
     >
       <div
-        className="shrink-0 flex items-center justify-center rounded-xl"
-        style={{
-          width: 78, height: 78,
-          background: `linear-gradient(135deg, ${C.orange}2e, ${C.gray800})`,
-          border: `1px solid ${C.gray800}`, fontSize: 36,
-        }}
+        className="shrink-0 rounded-xl overflow-hidden sarro-imgzoom"
+        style={{ width: 88, height: 88, border: `1px solid ${p.promo ? `${C.orange}70` : C.gray800}` }}
       >
-        {p.emoji}
+        <SmartImg id={p.id} emoji={p.emoji} alt={p.name} fs={36} />
       </div>
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-1.5 flex-wrap mb-1">
@@ -705,11 +742,12 @@ function ProductModal({ p, onClose, onAdd }) {
         className="w-full sm:max-w-lg max-h-[92vh] overflow-y-auto"
         style={{ background: C.gray900, borderTop: `3px solid ${C.orange}`, borderRadius: "22px 22px 0 0" }}
       >
-        <div
-          className="relative flex items-center justify-center"
-          style={{ height: 150, background: `linear-gradient(135deg, ${C.orange}33, ${C.black})`, fontSize: 72 }}
-        >
-          {p.emoji}
+        <div className="relative sarro-imgzoom" style={{ height: 172, background: `linear-gradient(135deg, ${C.orange}33, ${C.black})` }}>
+          <SmartImg id={p.id} emoji={p.emoji} alt={p.name} fs={72} />
+          <div
+            className="absolute inset-x-0 bottom-0 pointer-events-none"
+            style={{ height: 90, background: `linear-gradient(180deg, transparent, ${C.gray900})` }}
+          />
           <button
             onClick={onClose}
             className="absolute top-3 right-3 rounded-full flex items-center justify-center"
@@ -975,12 +1013,9 @@ function HomeScreen({ store, onOpen, goMenu }) {
       </div>
       <div className="flex gap-3 overflow-x-auto px-4 pb-1" style={{ scrollbarWidth: "none" }}>
         {items.map((p) => (
-          <Card key={p.id} onClick={() => onOpen(p)} className="shrink-0 p-3" style={{ width: 168, cursor: "pointer" }}>
-            <div
-              className="rounded-xl flex items-center justify-center mb-2"
-              style={{ height: 96, background: `linear-gradient(135deg, ${C.orange}2e, ${C.gray800})`, fontSize: 44 }}
-            >
-              {p.emoji}
+          <Card key={p.id} onClick={() => onOpen(p)} className="shrink-0 p-2.5 sarro-imgzoom" style={{ width: 174, cursor: "pointer" }}>
+            <div className="rounded-xl overflow-hidden mb-2" style={{ height: 110, border: `1px solid ${C.gray800}` }}>
+              <SmartImg id={p.id} emoji={p.emoji} alt={p.name} fs={44} />
             </div>
             <div style={{ color: C.white, fontWeight: 800, fontSize: 13.5 }}>{p.name}</div>
             <div className="flex items-baseline gap-2 mt-1">
@@ -999,7 +1034,9 @@ function HomeScreen({ store, onOpen, goMenu }) {
 
       <div className="px-4 -mt-4 relative z-10">
         <Card className="p-4 flex items-center gap-3" style={{ borderColor: `${C.orange}55` }}>
-          <span style={{ fontSize: 30 }}>🛠️</span>
+          <div className="rounded-xl overflow-hidden shrink-0 sarro-imgzoom" style={{ width: 50, height: 50, border: `1px solid ${C.orange}55` }}>
+            <SmartImg id="p16" emoji="🛠️" alt="Monte seu Sarro" fs={24} />
+          </div>
           <div className="flex-1">
             <div style={{ color: C.white, fontWeight: 900, fontSize: 14 }}>Monte seu Sarro</div>
             <div style={{ color: "#9a9a9a", fontSize: 11.5 }}>Pão, carne, queijo e molho do seu jeito</div>
@@ -1081,11 +1118,8 @@ function CartScreen({ store, goCheckout, onOpen }) {
         {cart.map((i) => (
           <Card key={i.id} className="p-3">
             <div className="flex gap-3">
-              <div
-                className="shrink-0 rounded-xl flex items-center justify-center"
-                style={{ width: 52, height: 52, background: C.gray800, fontSize: 26 }}
-              >
-                {i.emoji}
+              <div className="shrink-0 rounded-xl overflow-hidden" style={{ width: 56, height: 56, border: `1px solid ${C.gray800}` }}>
+                <SmartImg id={i.productId} emoji={i.emoji} alt={i.name} fs={26} />
               </div>
               <div className="flex-1 min-w-0">
                 <div className="flex justify-between gap-2">
@@ -1116,9 +1150,9 @@ function CartScreen({ store, goCheckout, onOpen }) {
         <div style={{ color: C.white, fontWeight: 900, fontSize: 14, marginBottom: 10 }}>COMBINA COM SEU PEDIDO 🔥</div>
         <div className="flex gap-3 overflow-x-auto pb-1" style={{ scrollbarWidth: "none" }}>
           {upsell.map((p) => (
-            <Card key={p.id} className="shrink-0 p-3" style={{ width: 132 }}>
-              <div className="flex items-center justify-center rounded-lg mb-2" style={{ height: 60, background: C.gray800, fontSize: 30 }}>
-                {p.emoji}
+            <Card key={p.id} className="shrink-0 p-2.5 sarro-imgzoom" style={{ width: 138 }}>
+              <div className="rounded-lg overflow-hidden mb-2" style={{ height: 66, border: `1px solid ${C.gray800}` }}>
+                <SmartImg id={p.id} emoji={p.emoji} alt={p.name} fs={30} />
               </div>
               <div style={{ color: C.white, fontSize: 12, fontWeight: 700, lineHeight: 1.25 }}>{p.name}</div>
               <div style={{ color: C.yellowLight, fontWeight: 900, fontSize: 12.5, margin: "4px 0 8px" }}>{brl(p.promo || p.price)}</div>
@@ -1422,8 +1456,8 @@ function TrackScreen({ order, store, now }) {
         style={{ background: `linear-gradient(130deg, ${C.orange}, ${C.yellow})`, color: C.black }}
       >
         <div style={{ fontSize: 11, fontWeight: 800, opacity: 0.75 }}>Pedido #{order.code}</div>
-        <div style={{ fontFamily: font.display, fontStyle: "italic", fontSize: 26, lineHeight: 1.02, marginTop: 4 }}>
-          {done ? "SEU SARRO CHEGOU! 🔥" : order.type === "pickup" ? "SEU SARRO TÁ SAINDO!" : "SEU SARRO ESTÁ A CAMINHO!"}
+          <div style={{ fontFamily: font.display, fontStyle: "italic", fontSize: 26, lineHeight: 1.02, marginTop: 4 }}>
+            {done ? "SEU SARRO CHEGOU! 🔥" : order.type === "pickup" ? "SEU SARRO TÁ SAINDO!" : "SEU SARRO ESTÁ A CAMINHO!"}
         </div>
         <div style={{ fontSize: 12.5, fontWeight: 700, marginTop: 8 }}>
           {done ? "Bom apetite. Volta sempre!" : order.type === "pickup" ? "Pronto para retirada em ~20 min" : "Previsão: 35–45 minutos"}
@@ -1914,7 +1948,9 @@ function AdminProducts({ store }) {
         {store.products.map((p) => (
           <Card key={p.id} className="p-3">
             <div className="flex gap-3">
-              <div className="rounded-xl flex items-center justify-center shrink-0" style={{ width: 52, height: 52, background: C.gray800, fontSize: 26 }}>{p.emoji}</div>
+              <div className="rounded-xl overflow-hidden shrink-0" style={{ width: 56, height: 56, border: `1px solid ${C.gray800}` }}>
+                <SmartImg id={p.id} emoji={p.emoji} alt={p.name} fs={26} />
+              </div>
               <div className="flex-1 min-w-0">
                 <div style={{ color: C.white, fontWeight: 800, fontSize: 13.5 }}>{p.name}</div>
                 <div style={{ color: "#7a7a7a", fontSize: 11 }}>
@@ -2719,9 +2755,12 @@ export default function App() {
   };
 
   const css = `
-    @import url('https://fonts.googleapis.com/css2?family=Archivo+Black&family=Inter:wght@400;600;700;800;900&display=swap');
     @keyframes sarrofall { to { transform: translateY(105vh) rotate(720deg); opacity: 0 } }
     @keyframes sarropulse { 0%,100% { opacity: 1 } 50% { opacity: .55 } }
+    @keyframes sarrofloat { 0%,100% { transform: translateY(0) } 50% { transform: translateY(-8px) } }
+    .sarro-img { display: block; width: 100%; height: 100%; object-fit: cover; }
+    .sarro-imgzoom img { transition: transform .45s cubic-bezier(.2,.7,.3,1); }
+    .sarro-imgzoom:hover img { transform: scale(1.07); }
     .line-clamp-2 { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
     ::-webkit-scrollbar { height: 6px; width: 6px }
     ::-webkit-scrollbar-thumb { background: #2d2d2d; border-radius: 9px }
