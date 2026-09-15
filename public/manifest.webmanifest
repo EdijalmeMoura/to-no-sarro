@@ -1,0 +1,13 @@
+{
+  "name": "TÔ NO SARRO! Burgers & Açaí",
+  "short_name": "Tô no Sarro",
+  "description": "Peça burger artesanal e açaí direto no app.",
+  "start_url": "./",
+  "display": "standalone",
+  "background_color": "#050505",
+  "theme_color": "#F58200",
+  "orientation": "portrait",
+  "icons": [
+    { "src": "./assets/logo-to-no-sarro.jpeg", "sizes": "512x512", "type": "image/jpeg", "purpose": "any maskable" }
+  ]
+}
