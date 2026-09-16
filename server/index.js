@@ -22,9 +22,10 @@ import {
   db, audit, seedIfEmpty,
   getProducts, getOptionGroups, getBuilder, getCategories, getCoupons,
   getDrivers, getCustomers, getInventory, getPromos, getSettings,
-  getSetting, setSetting, getOrders,
+  getSetting, setSetting, getOrders, getPaymentSettings,
 } from "./db.js";
 import { attachUser, requireRole, login, logout, publicUser } from "./auth.js";
+import { createCheckoutLink, paymentCheck, cents } from "./payments/infinitepay.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = process.env.PORT || 3001;
@@ -159,7 +160,8 @@ app.post("/api/orders", (req, res) => {
   if (phone.replace(/\D/g, "").length < 10) return res.status(400).json({ error: "WhatsApp inválido." });
   if (!["delivery", "pickup"].includes(type)) return res.status(400).json({ error: "Tipo de pedido inválido." });
   if (type === "delivery" && addr.length < 8) return res.status(400).json({ error: "Informe o endereço de entrega." });
-  if (!["PIX", "Cartão", "Dinheiro"].includes(payment.split(" ")[0])) {
+  const PM_METHODS = new Set(["PIX", "CARTAO_ONLINE", "Cartão", "Dinheiro"]);
+  if (!PM_METHODS.has(payment)) {
     return res.status(400).json({ error: "Forma de pagamento inválida." });
   }
   if (!Array.isArray(items) || items.length < 1 || items.length > 60) {
@@ -244,15 +246,19 @@ app.post("/api/orders", (req, res) => {
   const id = crypto.randomUUID();
   const now = Date.now();
   const channel = isStaffChannel ? body.channel : "DIRECT";
-  const paymentLabel = payment + (/^Dinheiro/.test(payment) && body.changeFor ? ` (troco p/ ${String(body.changeFor).slice(0, 20)})` : "");
+  const paymentLabel = (payment === "CARTAO_ONLINE" ? "Cartão online" : payment)
+    + (/^Dinheiro/.test(payment) && body.changeFor ? ` (troco p/ ${String(body.changeFor).slice(0, 20)})` : "");
+
+  const onlinePay = ["PIX", "CARTAO_ONLINE"].includes(payment);
+  const paymentStatus = onlinePay ? "pendente" : "na_entrega";
 
   db.exec("BEGIN");
   try {
     db.prepare(`
-      INSERT INTO orders (id, code, channel, status, created_at, customer_name, customer_phone, customer_addr, payment, type, note, subtotal, fee, discount, total)
-      VALUES (?, ?, ?, 'NOVO', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO orders (id, code, channel, status, created_at, customer_name, customer_phone, customer_addr, payment, type, note, subtotal, fee, discount, total, payment_status)
+      VALUES (?, ?, ?, 'NOVO', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(id, code, channel, now, name, phone, type === "pickup" ? "Retirada na loja" : addr,
-      paymentLabel, type, note, subtotal, fee, discount, total);
+      paymentLabel, type, note, subtotal, fee, discount, total, paymentStatus);
 
     const insItem = db.prepare("INSERT INTO order_items (id, order_id, product_id, name, emoji, qty, unit, opts, note) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)");
     for (const it of cleanItems) {
@@ -338,7 +344,8 @@ app.patch("/api/orders/:id/status", requireRole("ADMIN", "GERENTE", "ATENDIMENTO
   }
 
   const startedAt = o.started_at ?? (status !== "NOVO" ? Date.now() : null);
-  db.prepare("UPDATE orders SET status = ?, started_at = ? WHERE id = ?").run(status, startedAt, o.id);
+  db.prepare("UPDATE orders SET status = ?, started_at = ?, payment_status = CASE WHEN payment_status = 'pendente' AND ? IN ('CONFIRMADO','PREPARO','PRONTO','EMBALADO','AGUARDANDO','ROTA','ENTREGUE') THEN 'pago' ELSE payment_status END WHERE id = ?")
+    .run(status, startedAt, status, o.id);
 
   // contador do entregador
   if (status === "ENTREGUE" && o.driver_id) {
@@ -367,6 +374,178 @@ app.patch("/api/orders/:id/driver", requireRole("ADMIN", "GERENTE", "EXPEDICAO")
   audit(req.user.username, "pedido_entregador", `#${o.code} → ${d.name}`);
   broadcast();
   res.json({ order: getOrders().find((x) => x.id === o.id) });
+});
+
+// ------------------------------------------------------------
+// PAGAMENTO ONLINE — InfinitePay (Pix e Cartão)
+// ------------------------------------------------------------
+
+const ONLINE_PAYMENTS = new Set(["PIX", "Cartão online"]);
+
+function publicBaseUrl(req) {
+  const ps = getPaymentSettings();
+  if (ps.appBaseUrl) return ps.appBaseUrl;
+  return (req.protocol || "http") + "://" + (req.get("host") || "localhost:3001");
+}
+
+function confirmPayment(orderId, { slug, transactionNsu, captureMethod, paidAmount, receiptUrl } = {}) {
+  const now = Date.now();
+  db.prepare(`
+    UPDATE payments SET status = 'pago', paid_at = ?,
+      invoice_slug = COALESCE(?, invoice_slug),
+      transaction_nsu = COALESCE(?, transaction_nsu),
+      capture_method = COALESCE(?, capture_method),
+      paid_amount = COALESCE(?, paid_amount),
+      receipt_url = COALESCE(?, receipt_url)
+    WHERE order_id = ?
+  `).run(now, slug ?? null, transactionNsu ?? null, captureMethod ?? null, paidAmount ?? null, receiptUrl ?? null, orderId);
+  db.prepare(`
+    UPDATE orders SET payment_status = 'pago',
+      status = CASE WHEN status = 'NOVO' THEN 'CONFIRMADO' ELSE status END
+    WHERE id = ?
+  `).run(orderId);
+  broadcast();
+}
+
+// Gera (ou reaproveita) o link de pagamento do pedido
+app.post("/api/orders/:id/pay", async (req, res) => {
+  const o = db.prepare("SELECT * FROM orders WHERE id = ?").get(req.params.id);
+  if (!o) return res.status(404).json({ error: "Pedido não encontrado." });
+  if (!ONLINE_PAYMENTS.has(o.payment)) {
+    return res.status(400).json({ error: "Este pedido não é pagamento online." });
+  }
+  if (o.payment_status === "pago") return res.json({ paid: true });
+
+  const ps = getPaymentSettings();
+  if (!ps.payHandle) {
+    return res.status(409).json({ error: "Pagamento online ainda não configurado. Informe a InfiniteTag da InfinitePay no admin (Configurações)." });
+  }
+
+  // Reaproveita link pendente para não gerar cobrança duplicada
+  const existing = db.prepare("SELECT * FROM payments WHERE order_id = ? AND status = 'pendente'").get(o.id);
+  if (existing?.url) return res.json({ url: existing.url });
+
+  // Itens do checkout — soma tem que bater com o total já calculado no servidor
+  const items = [];
+  if (o.discount > 0) {
+    items.push({ quantity: 1, price: cents(o.total), description: "Pedido #" + o.code + " — Tô no Sarro" });
+  } else {
+    for (const i of db.prepare("SELECT * FROM order_items WHERE order_id = ?").all(o.id)) {
+      items.push({ quantity: i.qty, price: cents(i.unit), description: i.name });
+    }
+    if (o.fee > 0) items.push({ quantity: 1, price: cents(o.fee), description: "Taxa de entrega" });
+  }
+
+  const base = publicBaseUrl(req);
+  const webhookUrl = base + "/api/payments/infinitepay/webhook?secret=" + ps.webhookSecret;
+
+  let url;
+  try {
+    url = await createCheckoutLink({
+      handle: ps.payHandle,
+      orderNsu: o.id,
+      items,
+      webhookUrl,
+      redirectUrl: base,
+    });
+  } catch (e) {
+    console.error("[pagamento]", e.message);
+    return res.status(502).json({ error: "InfinitePay indisponível agora. Tente de novo em instantes." });
+  }
+
+  db.prepare(`
+    INSERT INTO payments (id, order_id, provider, order_nsu, url, status, amount, created_at)
+    VALUES (?, ?, 'infinitepay', ?, ?, 'pendente', ?, ?)
+  `).run(crypto.randomUUID(), o.id, o.id, url, cents(o.total), Date.now());
+  db.prepare("UPDATE orders SET payment_status = 'pendente' WHERE id = ?").run(o.id);
+  audit(o.customer_name, "link_pagamento", "#" + o.code + " · " + o.payment);
+  broadcast();
+
+  res.json({ url });
+});
+
+// Webhook da InfinitePay — segredo na query + validação server-to-server
+app.post("/api/payments/infinitepay/webhook", async (req, res) => {
+  const ps = getPaymentSettings();
+  const given = String(req.query.secret || "");
+  const expected = ps.webhookSecret;
+  const ok = given.length === expected.length &&
+    crypto.timingSafeEqual(Buffer.from(given), Buffer.from(expected));
+  if (!ok) return res.status(401).json({ error: "Segredo inválido." });
+
+  const b = req.body || {};
+  const orderId = String(b.order_nsu || "");
+  const o = orderId && db.prepare("SELECT * FROM orders WHERE id = ?").get(orderId);
+  if (!o) return res.json({ ok: true }); // desconhecido: ack para não reenviar eternamente
+
+  const pay = db.prepare("SELECT * FROM payments WHERE order_id = ?").get(o.id);
+  if (pay && pay.status === "pago") return res.json({ ok: true, already: true });
+
+  // Guarda identificadores e valida direto na InfinitePay (não confiamos no corpo)
+  if (pay) {
+    db.prepare("UPDATE payments SET invoice_slug = COALESCE(?, invoice_slug), transaction_nsu = COALESCE(?, transaction_nsu) WHERE id = ?")
+      .run(b.invoice_slug ?? null, b.transaction_nsu ?? null, pay.id);
+  }
+
+  let paid = false;
+  let detail = {};
+  try {
+    detail = await paymentCheck({
+      handle: ps.payHandle,
+      orderNsu: o.id,
+      slug: b.invoice_slug || pay?.invoice_slug,
+      transactionNsu: b.transaction_nsu || pay?.transaction_nsu,
+    });
+    paid = detail.success !== false && detail.paid === true;
+  } catch (e) {
+    console.error("[webhook] payment_check falhou:", e.message);
+  }
+
+  if (paid) {
+    confirmPayment(o.id, {
+      slug: b.invoice_slug,
+      transactionNsu: b.transaction_nsu,
+      captureMethod: detail.capture_method,
+      paidAmount: detail.paid_amount,
+      receiptUrl: b.receipt_url,
+    });
+    audit("infinitepay", "pagamento_confirmado", "#" + o.code + " · " + (detail.capture_method || ""));
+    return res.json({ ok: true, verified: true });
+  }
+
+  res.json({ ok: true, verified: false });
+});
+
+// Consulta manual/automática (o acompanhamento do cliente chama isto)
+app.post("/api/orders/:id/payment_status", async (req, res) => {
+  const o = db.prepare("SELECT * FROM orders WHERE id = ?").get(req.params.id);
+  if (!o) return res.status(404).json({ error: "Pedido não encontrado." });
+  if (o.payment_status !== "pendente") {
+    return res.json({ paid: o.payment_status === "pago", paymentStatus: o.payment_status });
+  }
+
+  const ps = getPaymentSettings();
+  const pay = db.prepare("SELECT * FROM payments WHERE order_id = ?").get(o.id);
+  if (!ps.payHandle || !pay) return res.json({ paid: false, paymentStatus: o.payment_status });
+
+  try {
+    const d = await paymentCheck({
+      handle: ps.payHandle,
+      orderNsu: o.id,
+      slug: pay.invoice_slug,
+      transactionNsu: pay.transaction_nsu,
+    });
+    if (d.success !== false && d.paid === true) {
+      confirmPayment(o.id, {
+        captureMethod: d.capture_method,
+        paidAmount: d.paid_amount,
+      });
+      audit("sistema", "pagamento_confirmado_poll", "#" + o.code);
+      return res.json({ paid: true, paymentStatus: "pago" });
+    }
+  } catch { /* segue pendente; o webhook pode confirmar depois */ }
+
+  res.json({ paid: false, paymentStatus: o.payment_status });
 });
 
 // ------------------------------------------------------------
@@ -562,9 +741,35 @@ app.patch("/api/inventory/:id", requireRole("ADMIN", "GERENTE"), (req, res) => {
 app.patch("/api/settings", requireRole("ADMIN", "GERENTE"), (req, res) => {
   const b = req.body || {};
   if (typeof b.open === "boolean") setSetting("open", b.open ? "1" : "0");
+  if (typeof b.pay_handle === "string") {
+    const v = b.pay_handle.trim().replace(/^\$/, "");
+    if (v && !/^[A-Za-z0-9_]{2,30}$/.test(v)) {
+      return res.status(400).json({ error: "InfiniteTag inválida (letras, números e _; sem o $)." });
+    }
+    setSetting("pay_handle", v);
+  }
+  if (typeof b.app_base_url === "string") {
+    const v = b.app_base_url.trim().replace(/\/+$/, "");
+    if (v && !/^https?:\/\/.+/.test(v)) {
+      return res.status(400).json({ error: "URL base inválida (comece com http:// ou https://)." });
+    }
+    setSetting("app_base_url", v);
+  }
   audit(req.user.username, "config", JSON.stringify(b).slice(0, 200));
   broadcast();
   res.json({ ok: true });
+});
+
+// Dados exibidos no admin para configurar a InfinitePay
+app.get("/api/settings/payments", requireRole("ADMIN", "GERENTE"), (req, res) => {
+  const ps = getPaymentSettings();
+  const base = ps.appBaseUrl || publicBaseUrl(req);
+  res.json({
+    handle: ps.payHandle,
+    baseUrl: ps.appBaseUrl,
+    webhookUrl: base + "/api/payments/infinitepay/webhook?secret=" + ps.webhookSecret,
+    configured: !!ps.payHandle,
+  });
 });
 
 app.get("/api/audit", requireRole("ADMIN"), (_req, res) => {

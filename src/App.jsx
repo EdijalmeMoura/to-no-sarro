@@ -1197,9 +1197,19 @@ function Checkout({ store, totals, onBack, onDone }) {
           <h3 style={{ fontFamily: font.display, fontStyle: "italic", fontSize: 22, color: C.white, marginBottom: 6 }}>
             COMO VAI PAGAR?
           </h3>
-          <Choice on={f.payment === "PIX"} onClick={() => set("payment", "PIX")} icon="⚡" title="Pix" sub="Aprovação na hora" />
-          <Choice on={f.payment === "Cartão"} onClick={() => set("payment", "Cartão")} icon="💳" title="Cartão" sub="Crédito ou débito na entrega" />
+          <Choice on={f.payment === "PIX"} onClick={() => set("payment", "PIX")} icon="⚡" title="Pix" sub="Aprovação na hora · checkout seguro InfinitePay" />
+          <Choice on={f.payment === "CARTAO_ONLINE"} onClick={() => set("payment", "CARTAO_ONLINE")} icon="💳" title="Cartão online" sub="Crédito em até 12x · link seguro InfinitePay" />
+          <Choice on={f.payment === "Cartão"} onClick={() => set("payment", "Cartão")} icon="🛵" title="Cartão na entrega" sub="Maquininha com o entregador" />
           <Choice on={f.payment === "Dinheiro"} onClick={() => set("payment", "Dinheiro")} icon="💵" title="Dinheiro" sub="Pagamento na entrega" />
+
+          {f.payment === "CARTAO_ONLINE" && (
+            <Card className="p-4">
+              <div style={{ color: "#9a9a9a", fontSize: 12, lineHeight: 1.5 }}>
+                Você recebe um <strong style={{ color: C.yellowLight }}>link seguro da InfinitePay</strong> ♾️ para pagar com
+                crédito em até 12x. Nenhum dado de cartão passa pelo nosso sistema.
+              </div>
+            </Card>
+          )}
 
           {f.payment === "Dinheiro" && (
             <Card className="p-4 space-y-3">
@@ -1215,8 +1225,8 @@ function Checkout({ store, totals, onBack, onDone }) {
           {f.payment === "PIX" && (
             <Card className="p-4">
               <div style={{ color: "#9a9a9a", fontSize: 12, lineHeight: 1.5 }}>
-                O QR Code é gerado pelo gateway configurado no admin (Mercado Pago, PagBank, Stone,
-                Inter ou Asaas). A confirmação chega por webhook e muda o pedido para “Pagamento confirmado”.
+                Ao confirmar, a gente te leva para o <strong style={{ color: C.yellowLight }}>checkout seguro da InfinitePay</strong> ♾️
+                com o QR Code do Pix. A confirmação é automática — quando cair, seu pedido entra na cozinha na hora.
               </div>
             </Card>
           )}
@@ -1279,6 +1289,14 @@ const TRACK_STEPS = [
 ];
 
 function TrackScreen({ order, store, now }) {
+  // Enquanto o Pix/cartão não cai, pergunta ao servidor a cada 6s
+  // (o servidor consulta a InfinitePay; a resposta chega a todos via WebSocket).
+  useEffect(() => {
+    if (order?.paymentStatus !== "pendente") return;
+    const t = setInterval(() => store.checkPayment(order.id).catch(() => {}), 6000);
+    return () => clearInterval(t);
+  }, [order?.id, order?.paymentStatus]);
+
   if (!order) {
     return (
       <div className="px-4 py-16 text-center">
@@ -1311,6 +1329,24 @@ function TrackScreen({ order, store, now }) {
           {done ? "Bom apetite. Volta sempre!" : order.type === "pickup" ? "Pronto para retirada em ~20 min" : "Previsão: 35–45 minutos"}
         </div>
       </div>
+
+      {order.paymentStatus === "pendente" && (
+        <Card className="p-4 mb-3" style={{ borderColor: `${C.yellow}66`, background: `${C.yellow}12` }}>
+          <div style={{ color: C.yellowLight, fontWeight: 900, fontSize: 14 }}>
+            ⏳ Aguardando pagamento {order.payment === "Cartão online" ? "do cartão" : "Pix"}
+          </div>
+          <div style={{ color: "#c9c9c9", fontSize: 12, marginTop: 4, lineHeight: 1.5 }}>
+            Assim que a InfinitePay confirmar ♾️, seu pedido entra na fila da cozinha automaticamente.
+          </div>
+          {order.payUrl && (
+            <div className="mt-3">
+              <Btn full onClick={() => window.open(order.payUrl, "_blank")}>
+                PAGAR AGORA · {order.payment === "Cartão online" ? "CARTÃO ♾️" : "PIX ♾️"}
+              </Btn>
+            </div>
+          )}
+        </Card>
+      )}
 
       <Card className="p-5">
         {TRACK_STEPS.map((s, i) => {
@@ -1710,6 +1746,14 @@ function OrderCard({ o, store, now, compact }) {
         <div className="flex items-center gap-2">
           <span style={{ color: C.white, fontWeight: 900, fontSize: 14 }}>#{o.code}</span>
           <ChannelPill channel={o.channel} />
+          {o.paymentStatus === "pendente" && (
+            <span
+              className="rounded-md px-1.5 py-0.5 font-bold"
+              style={{ background: `${C.yellow}1f`, color: C.yellow, fontSize: 9, border: `1px solid ${C.yellow}44` }}
+            >
+              ⏳ PGTO
+            </span>
+          )}
         </div>
         <div className="flex items-center gap-1.5">
           <span style={{ color: "#7a7a7a", fontSize: 10.5 }}>{elapsed(o.createdAt, now)}</span>
@@ -2558,9 +2602,116 @@ function Input({ v, w = 220 }) {
   );
 }
 
+function AdminPaymentsCard({ store }) {
+  const [handle, setHandle] = useState(store.settings.payHandle || "");
+  const [base, setBase] = useState(store.settings.appBaseUrl || "");
+  const [info, setInfo] = useState(null);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    api("/api/settings/payments").then(setInfo).catch(() => {});
+  }, []);
+
+  const save = async () => {
+    setBusy(true);
+    try {
+      await api("/api/settings", { method: "PATCH", body: { pay_handle: handle, app_base_url: base } });
+      setInfo(await api("/api/settings/payments"));
+      store.toast("InfinitePay configurada ✓");
+    } catch (e) {
+      store.toast(e.message);
+    }
+    setBusy(false);
+  };
+
+  const copy = (t) => {
+    navigator.clipboard?.writeText(t).then(
+      () => store.toast("URL copiada ✓"),
+      () => store.toast("Copie manualmente")
+    );
+  };
+
+  const inField = { background: C.black, border: `1px solid ${C.gray800}`, color: C.white, fontSize: 12.5 };
+
+  return (
+    <Card className="p-4" style={{ borderColor: `${C.orange}44` }}>
+      <div className="flex items-center justify-between">
+        <div style={{ color: C.white, fontWeight: 900, fontSize: 14 }}>♾️ Pagamentos — InfinitePay</div>
+        <span
+          className="rounded-full px-2.5 py-1 font-bold"
+          style={{
+            fontSize: 10,
+            background: store.settings.payHandle ? `${C.green}1f` : `${C.yellow}1f`,
+            color: store.settings.payHandle ? C.green : C.yellow,
+            border: `1px solid ${store.settings.payHandle ? C.green : C.yellow}44`,
+          }}
+        >
+          {store.settings.payHandle ? "CONFIGURADO" : "FALTA CONFIGURAR"}
+        </span>
+      </div>
+      <div style={{ color: "#8a8a8a", fontSize: 11.5, marginTop: 6, lineHeight: 1.5 }}>
+        Pix e cartão (até 12x) no checkout seguro da InfinitePay. Confirmação automática por webhook.
+      </div>
+
+      <div className="mt-3 space-y-2.5">
+        <label className="block">
+          <span style={{ color: "#9a9a9a", fontSize: 11, fontWeight: 700 }}>Sua InfiniteTag (handle, sem o $)</span>
+          <input
+            value={handle}
+            onChange={(e) => setHandle(e.target.value)}
+            placeholder="ex.: tonosarro"
+            className="w-full rounded-lg px-2.5 py-2 mt-1 outline-none"
+            style={inField}
+          />
+        </label>
+        <label className="block">
+          <span style={{ color: "#9a9a9a", fontSize: 11, fontWeight: 700 }}>URL pública do sistema (opcional)</span>
+          <input
+            value={base}
+            onChange={(e) => setBase(e.target.value)}
+            placeholder="ex.: https://pedidos.tonosarro.com.br"
+            className="w-full rounded-lg px-2.5 py-2 mt-1 outline-none"
+            style={inField}
+          />
+          <span style={{ color: "#6a6a6a", fontSize: 10 }}>
+            Usada no webhook e no retorno do pagamento. Vazio = usa o endereço atual.
+          </span>
+        </label>
+
+        {info?.webhookUrl && (
+          <div>
+            <span style={{ color: "#9a9a9a", fontSize: 11, fontWeight: 700 }}>Webhook de confirmação</span>
+            <div className="flex gap-2 mt-1">
+              <code
+                className="flex-1 rounded-lg px-2 py-2 truncate"
+                style={{ background: C.black, border: `1px solid ${C.gray800}`, color: "#c0c0c0", fontSize: 10.5 }}
+              >
+                {info.webhookUrl}
+              </code>
+              <Btn small variant="dark" onClick={() => copy(info.webhookUrl)}>Copiar</Btn>
+            </div>
+            <span style={{ color: "#6a6a6a", fontSize: 10 }}>
+              Já é enviado automaticamente a cada cobrança — guarde esta URL caso precise configurar algo manualmente.
+            </span>
+          </div>
+        )}
+      </div>
+
+      <div className="flex gap-2 mt-3">
+        <Btn small disabled={busy} onClick={save}>{busy ? "SALVANDO…" : "Salvar"}</Btn>
+        <Btn small variant="dark" onClick={() => store.toast("Teste: faça um pedido com Pix e aprove no app InfinitePay")}>
+          Como testar?
+        </Btn>
+      </div>
+    </Card>
+  );
+}
+
 function AdminSettings({ store }) {
   return (
     <div className="grid lg:grid-cols-2 gap-3">
+      <AdminPaymentsCard store={store} />
+
       <Card className="p-4">
         <div style={{ color: C.white, fontWeight: 900, fontSize: 14, marginBottom: 4 }}>Loja</div>
         <Row label="Nome"><Input v="TÔ NO SARRO! Burgers & Açaí" /></Row>
@@ -2812,6 +2963,14 @@ function KitchenApp({ store, now }) {
                 <div className="flex items-center gap-2">
                   <span style={{ color: C.white, fontFamily: font.display, fontStyle: "italic", fontSize: 22 }}>#{o.code}</span>
                   <ChannelPill channel={o.channel} />
+                  {o.paymentStatus === "pendente" && (
+                    <span
+                      className="rounded-md px-1.5 py-0.5 font-bold"
+                      style={{ background: `${C.yellow}1f`, color: C.yellow, fontSize: 9.5, border: `1px solid ${C.yellow}44` }}
+                    >
+                      ⏳ PGTO PENDENTE
+                    </span>
+                  )}
                   {late && <Badge color={C.red} text={C.white}>ATRASADO</Badge>}
                 </div>
                 <span style={{ color: late ? C.red : C.yellowLight, fontWeight: 900, fontSize: 20, fontVariantNumeric: "tabular-nums" }}>
@@ -3327,6 +3486,11 @@ export default function App() {
     setQty: (id, qty) =>
       setCart((c) => (qty <= 0 ? c.filter((i) => i.id !== id) : c.map((i) => (i.id === id ? { ...i, qty } : i)))),
 
+    checkPayment: async (orderId) => {
+      const d = await api(`/api/orders/${orderId}/payment_status`, { method: "POST" });
+      return d;
+    },
+
     validateCoupon: async (code, subtotal) => {
       const d = await api("/api/coupons/validate", { method: "POST", body: { code, subtotal } });
       return d.coupon;
@@ -3345,9 +3509,23 @@ export default function App() {
         setTab("pedidos");
         setConfetti(true);
         setTimeout(() => setConfetti(false), 2600);
-        notify(`Pedido #${order.code} confirmado · ${brl(order.total)}`);
+        notify(`Pedido #${order.code} recebido · ${brl(order.total)}`);
         beep(1040);
         toast(`Pedido #${order.code} confirmado! 🍔`);
+
+        // Pagamento online (Pix/cartão): abre o checkout seguro da InfinitePay.
+        // A confirmação volta por webhook e o status atualiza sozinho.
+        if (["PIX", "CARTAO_ONLINE"].includes(payload.payment)) {
+          try {
+            const pd = await api(`/api/orders/${order.id}/pay`, { method: "POST" });
+            if (pd.url) {
+              setOrders((os) => os.map((x) => (x.id === order.id ? { ...x, payUrl: pd.url } : x)));
+              window.open(pd.url, "_blank");
+            }
+          } catch (pe) {
+            toast(pe.message);
+          }
+        }
         return true;
       } catch (e) {
         toast(e.message);

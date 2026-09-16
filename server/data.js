@@ -289,4 +289,6 @@ export const SETTINGS = {
   address: "Av. Cláudio José Gueiros Leite, 3200 — Janga, Paulista/PE",
   hours: "Ter a Dom · 18:00 – 23:30",
   seq: 1047,
+  pay_handle: "",
+  app_base_url: "",
 };

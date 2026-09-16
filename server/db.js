@@ -136,6 +136,23 @@ db.exec(`
 
   CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT);
 
+  CREATE TABLE IF NOT EXISTS payments (
+    id TEXT PRIMARY KEY,
+    order_id TEXT NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
+    provider TEXT DEFAULT 'infinitepay',
+    order_nsu TEXT,
+    invoice_slug TEXT,
+    transaction_nsu TEXT,
+    url TEXT,
+    status TEXT DEFAULT 'pendente',
+    capture_method TEXT,
+    amount INTEGER,
+    paid_amount INTEGER,
+    receipt_url TEXT,
+    created_at INTEGER,
+    paid_at INTEGER
+  );
+
   CREATE TABLE IF NOT EXISTS audit_logs (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     at INTEGER, user TEXT, action TEXT, detail TEXT
@@ -152,6 +169,19 @@ function addColumnIfMissing(table, col, ddl) {
 }
 addColumnIfMissing("products", "img", "img TEXT");
 addColumnIfMissing("products", "updated_at", "updated_at INTEGER DEFAULT 0");
+addColumnIfMissing("orders", "payment_status", "payment_status TEXT DEFAULT ('indefinido')");
+
+function getSettingRaw(key) {
+  try { return db.prepare("SELECT value FROM settings WHERE key = ?").get(key)?.value; } catch { return undefined; }
+}
+function setSettingRaw(key, value) {
+  db.prepare("INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").run(key, String(value));
+}
+
+// Segredo do webhook de pagamento (nasce uma vez, fica só no servidor)
+if (!getSettingRaw("pay_webhook_secret")) {
+  setSettingRaw("pay_webhook_secret", crypto.randomBytes(12).toString("hex"));
+}
 
 export function audit(user, action, detail = "") {
   db.prepare("INSERT INTO audit_logs (at, user, action, detail) VALUES (?, ?, ?, ?)")
@@ -332,6 +362,19 @@ export function getSettings() {
     whatsapp: s.whatsapp,
     address: s.address,
     hours: s.hours,
+    payHandle: s.pay_handle || "",
+    appBaseUrl: s.app_base_url || "",
+  };
+}
+
+// Uso interno do servidor (inclui o segredo do webhook)
+export function getPaymentSettings() {
+  const rows = db.prepare("SELECT key, value FROM settings").all();
+  const s = Object.fromEntries(rows.map((r) => [r.key, r.value]));
+  return {
+    payHandle: s.pay_handle || "",
+    appBaseUrl: s.app_base_url || "",
+    webhookSecret: s.pay_webhook_secret || "",
   };
 }
 
@@ -356,12 +399,21 @@ export function getOrders() {
       qty: it.qty, unit: it.unit, opts: jparse(it.opts), note: it.note || "",
     });
   }
-  return rows.map((o) => ({
-    id: o.id, code: o.code, channel: o.channel, status: o.status,
-    createdAt: o.created_at, startedAt: o.started_at, driverId: o.driver_id,
-    customer: { name: o.customer_name, phone: o.customer_phone, addr: o.customer_addr },
-    payment: o.payment, type: o.type, note: o.note || "",
-    subtotal: o.subtotal, fee: o.fee, discount: o.discount, total: o.total,
-    items: byOrder.get(o.id) || [],
-  }));
+  const pays = new Map();
+  for (const p of db.prepare("SELECT * FROM payments").all()) pays.set(p.order_id, p);
+
+  return rows.map((o) => {
+    const pay = pays.get(o.id);
+    return {
+      id: o.id, code: o.code, channel: o.channel, status: o.status,
+      createdAt: o.created_at, startedAt: o.started_at, driverId: o.driver_id,
+      customer: { name: o.customer_name, phone: o.customer_phone, addr: o.customer_addr },
+      payment: o.payment, type: o.type, note: o.note || "",
+      subtotal: o.subtotal, fee: o.fee, discount: o.discount, total: o.total,
+      paymentStatus: o.payment_status || "indefinido",
+      payUrl: pay?.status === "pendente" ? pay.url : null,
+      receiptUrl: pay?.receipt_url || null,
+      items: byOrder.get(o.id) || [],
+    };
+  });
 }

@@ -72,6 +72,25 @@ As senhas são semente de demonstração — o banco guarda apenas hash bcrypt. 
 - Sessão em cookie httpOnly, senhas bcrypt, rate limit no login, log de auditoria
 - Toda mutação dispara um broadcast WebSocket; os cinco painéis atualizam sozinhos
 
+## Pagamento online — InfinitePay ♾️
+
+Pix e cartão (até 12x) pelo **checkout seguro da InfinitePay** — nenhum dado de cartão
+passa pelo nosso servidor.
+
+**Configuração (2 minutos):**
+1. No app InfinitePay, copie sua **InfiniteTag** (o nome de usuário com $)
+2. Admin → Configurações → ♾️ Pagamentos → cole a InfiniteTag e salve
+3. Pronto: no checkout, cliente escolhe Pix ou Cartão online → abre o checkout da
+   InfinitePay → quando paga, o **webhook** avisa o sistema, que **valida a consulta
+   server-to-server** antes de confirmar → pedido entra na cozinha automaticamente
+
+Arquitetura desacoplada: `server/payments/infinitepay.js` expõe apenas
+`createCheckoutLink()` e `paymentCheck()` — para trocar de gateway, crie outro módulo
+com essas duas funções.
+
+> Obs.: o ambiente de preview deste repositório bloqueia chamadas externas, então a
+> geração do link só funciona rodando num servidor com acesso à internet.
+
 ## Simulando os canais externos
 
 Em **Admin → Integrações** (ou no topo do admin) há botões que injetam pedidos do iFood e
