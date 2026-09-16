@@ -64,258 +64,6 @@ const CATEGORIES = [
   { id: "promocoes", label: "Promoções", icon: "🔥" },
 ];
 
-const OPTION_GROUPS = {
-  ponto: {
-    id: "ponto", name: "Ponto da carne", min: 1, max: 1, required: true,
-    options: [
-      { id: "malpassado", name: "Mal passado", price: 0 },
-      { id: "aoponto", name: "Ao ponto", price: 0 },
-      { id: "bempassado", name: "Bem passado", price: 0 },
-    ],
-  },
-  queijo: {
-    id: "queijo", name: "Escolha seu queijo", min: 1, max: 1, required: true,
-    options: [
-      { id: "cheddar", name: "Cheddar", price: 0 },
-      { id: "mussarela", name: "Mussarela", price: 0 },
-      { id: "prato", name: "Prato", price: 0 },
-      { id: "gorgonzola", name: "Gorgonzola", price: 3 },
-    ],
-  },
-  molho: {
-    id: "molho", name: "Escolha seu molho", min: 1, max: 2, required: true,
-    options: [
-      { id: "especial", name: "Molho especial da casa", price: 0 },
-      { id: "barbecue", name: "Barbecue", price: 0 },
-      { id: "cheddar_m", name: "Cheddar cremoso", price: 2 },
-      { id: "picante", name: "Picante do Sarro", price: 2 },
-    ],
-  },
-  adicionais: {
-    id: "adicionais", name: "Turbine seu burger", min: 0, max: 6, required: false,
-    options: [
-      { id: "add_cheddar", name: "Cheddar extra", price: 4 },
-      { id: "add_bacon", name: "Bacon crocante", price: 5 },
-      { id: "add_carne", name: "Carne extra 180g", price: 9 },
-      { id: "add_molho", name: "Molho especial extra", price: 2 },
-      { id: "add_cebola", name: "Cebola caramelizada", price: 3 },
-      { id: "add_ovo", name: "Ovo frito", price: 3 },
-    ],
-  },
-  remover: {
-    id: "remover", name: "Retirar ingredientes", min: 0, max: 6, required: false,
-    options: [
-      { id: "rm_cebola", name: "Sem cebola", price: 0 },
-      { id: "rm_alface", name: "Sem alface", price: 0 },
-      { id: "rm_tomate", name: "Sem tomate", price: 0 },
-      { id: "rm_picles", name: "Sem picles", price: 0 },
-    ],
-  },
-  acaiTop: {
-    id: "acaiTop", name: "Acompanhamentos do açaí", min: 0, max: 5, required: false,
-    options: [
-      { id: "granola", name: "Granola", price: 2 },
-      { id: "leiteninho", name: "Leite ninho", price: 3 },
-      { id: "banana", name: "Banana", price: 2 },
-      { id: "morango", name: "Morango", price: 4 },
-      { id: "nutella", name: "Nutella", price: 6 },
-    ],
-  },
-  refri: {
-    id: "refri", name: "Escolha a bebida do combo", min: 1, max: 1, required: true,
-    options: [
-      { id: "coca", name: "Coca-Cola lata", price: 0 },
-      { id: "guarana", name: "Guaraná lata", price: 0 },
-      { id: "suco", name: "Suco natural 300ml", price: 3 },
-    ],
-  },
-};
-
-const PRODUCTS = [
-  {
-    id: "p1", name: "Sarro Burger", cat: "burgers", emoji: "🍔",
-    desc: "O clássico que deu nome à casa. Simples, gordo e honesto.",
-    ingredients: ["Pão brioche", "Hambúrguer artesanal 180g", "Queijo cheddar", "Bacon crocante", "Molho especial", "Cebola roxa", "Alface", "Tomate"],
-    price: 29.9, promo: null, time: 18, badges: ["maisvendido"], available: true,
-    groups: ["ponto", "queijo", "molho", "adicionais", "remover"], stock: 40,
-  },
-  {
-    id: "p2", name: "Bacon Sarro", cat: "burgers", emoji: "🥓",
-    desc: "Camada dupla de bacon e cheddar derretido na chapa.",
-    ingredients: ["Pão brioche", "Hambúrguer 180g", "Cheddar duplo", "Bacon em tiras", "Maionese defumada"],
-    price: 34.9, promo: 31.9, time: 20, badges: ["promocao"], available: true,
-    groups: ["ponto", "molho", "adicionais", "remover"], stock: 28,
-  },
-  {
-    id: "p3", name: "Duplo Sarro", cat: "especiais", emoji: "🍔",
-    desc: "Dois blends de 180g para quem chegou com fome de verdade.",
-    ingredients: ["Pão australiano", "2x hambúrguer 180g", "Queijo prato", "Bacon", "Cebola caramelizada", "Molho da casa"],
-    price: 44.9, promo: null, time: 24, badges: ["maisvendido"], available: true,
-    groups: ["ponto", "queijo", "molho", "adicionais", "remover"], stock: 15,
-  },
-  {
-    id: "p4", name: "Smash do Sarro", cat: "burgers", emoji: "🍔",
-    desc: "Dois smashs finos prensados na chapa quente, borda crocante.",
-    ingredients: ["Pão de batata", "2x smash 90g", "Cheddar americano", "Picles", "Molho smash"],
-    price: 27.9, promo: null, time: 15, badges: ["novidade"], available: true,
-    groups: ["queijo", "molho", "adicionais", "remover"], stock: 33,
-  },
-  {
-    id: "p5", name: "Frango Empanado Sarro", cat: "especiais", emoji: "🍗",
-    desc: "Filé de frango empanado na hora, crocante por fora.",
-    ingredients: ["Pão brioche", "Filé de frango empanado", "Queijo prato", "Alface", "Maionese verde"],
-    price: 28.9, promo: null, time: 20, badges: [], available: true,
-    groups: ["queijo", "molho", "adicionais", "remover"], stock: 22,
-  },
-  {
-    id: "p6", name: "Combo Sarro Completo", cat: "combos", emoji: "🍟",
-    desc: "Sarro Burger + batata especial + bebida gelada. O pedido campeão.",
-    ingredients: ["Sarro Burger", "Batata especial 200g", "Bebida 350ml"],
-    price: 49.9, promo: 42.9, time: 25, badges: ["maisvendido", "promocao"], available: true,
-    groups: ["ponto", "molho", "refri", "adicionais"], stock: 30,
-  },
-  {
-    id: "p7", name: "Combo Casal", cat: "combos", emoji: "🍔",
-    desc: "2 burgers, porção grande de batata e 2 bebidas.",
-    ingredients: ["2x Sarro Burger", "Batata grande", "2 bebidas"],
-    price: 89.9, promo: 79.9, time: 30, badges: ["promocao"], available: true,
-    groups: ["ponto", "molho", "adicionais"], stock: 12,
-  },
-  {
-    id: "p8", name: "Batata Especial", cat: "porcoes", emoji: "🍟",
-    desc: "Batata rústica com cheddar, bacon e cebolinha.",
-    ingredients: ["Batata rústica 300g", "Cheddar cremoso", "Bacon", "Cebolinha"],
-    price: 24.9, promo: null, time: 14, badges: ["maisvendido"], available: true,
-    groups: ["adicionais"], stock: 45,
-  },
-  {
-    id: "p9", name: "Onion Rings", cat: "porcoes", emoji: "🧅",
-    desc: "8 anéis de cebola empanados com molho barbecue.",
-    ingredients: ["Cebola empanada", "Molho barbecue"],
-    price: 19.9, promo: null, time: 12, badges: [], available: true, groups: [], stock: 20,
-  },
-  {
-    id: "p10", name: "Coca-Cola 350ml", cat: "bebidas", emoji: "🥤",
-    desc: "Lata gelada.", ingredients: ["Refrigerante 350ml"],
-    price: 7, promo: null, time: 2, badges: [], available: true, groups: [], stock: 120,
-  },
-  {
-    id: "p11", name: "Suco natural 500ml", cat: "bebidas", emoji: "🍹",
-    desc: "Laranja, maracujá ou abacaxi com hortelã.", ingredients: ["Fruta natural", "Gelo"],
-    price: 12, promo: null, time: 6, badges: [], available: true, groups: [], stock: 40,
-  },
-  {
-    id: "p12", name: "Açaí Sarro 500ml", cat: "acai", emoji: "🥣",
-    desc: "Açaí cremoso batido na hora com os acompanhamentos que você escolher.",
-    ingredients: ["Açaí 500ml", "Acompanhamentos à escolha"],
-    price: 24.9, promo: null, time: 10, badges: ["maisvendido"], available: true,
-    groups: ["acaiTop"], stock: 35,
-  },
-  {
-    id: "p13", name: "Açaí Turbinado 700ml", cat: "acai", emoji: "🍨",
-    desc: "Porção grande com quatro acompanhamentos inclusos.",
-    ingredients: ["Açaí 700ml", "4 acompanhamentos"],
-    price: 32.9, promo: 28.9, time: 12, badges: ["promocao"], available: true,
-    groups: ["acaiTop"], stock: 18,
-  },
-  {
-    id: "p14", name: "Brownie com sorvete", cat: "sobremesas", emoji: "🍫",
-    desc: "Brownie quente com bola de creme e calda quente.",
-    ingredients: ["Brownie", "Sorvete de creme", "Calda de chocolate"],
-    price: 18.9, promo: null, time: 8, badges: ["novidade"], available: true, groups: [], stock: 14,
-  },
-  {
-    id: "p15", name: "Milkshake 400ml", cat: "sobremesas", emoji: "🥤",
-    desc: "Chocolate, morango ou ovomaltine.", ingredients: ["Sorvete", "Leite", "Cobertura"],
-    price: 21.9, promo: null, time: 8, badges: [], available: true, groups: [], stock: 25,
-  },
-  {
-    id: "p16", name: "Monte seu Sarro", cat: "especiais", emoji: "🛠️",
-    desc: "Você escolhe pão, carne, queijo e o resto. Preço calculado na hora.",
-    ingredients: ["Você decide"], price: 26.9, promo: null, time: 22,
-    badges: ["novidade"], available: true, groups: [], stock: 99, builder: true,
-  },
-];
-
-const BUILDER = {
-  pao: {
-    label: "Escolha o pão", key: "pao",
-    options: [
-      { id: "brioche", name: "Brioche", price: 0 },
-      { id: "australiano", name: "Australiano", price: 3 },
-      { id: "batata", name: "Pão de batata", price: 2 },
-      { id: "integral", name: "Integral", price: 2 },
-    ],
-  },
-  carne: {
-    label: "Escolha a carne", key: "carne",
-    options: [
-      { id: "blend180", name: "Blend bovino 180g", price: 0 },
-      { id: "smash2", name: "Duplo smash 90g", price: 2 },
-      { id: "costela", name: "Costela desfiada", price: 6 },
-      { id: "frango", name: "Frango empanado", price: 3 },
-      { id: "veg", name: "Burger de grão-de-bico", price: 4 },
-    ],
-  },
-  queijo: {
-    label: "Escolha o queijo", key: "queijo",
-    options: [
-      { id: "cheddar", name: "Cheddar", price: 0 },
-      { id: "mussarela", name: "Mussarela", price: 0 },
-      { id: "gorgonzola", name: "Gorgonzola", price: 3 },
-      { id: "semqueijo", name: "Sem queijo", price: -2 },
-    ],
-  },
-  molho: {
-    label: "Escolha o molho", key: "molho",
-    options: [
-      { id: "especial", name: "Especial da casa", price: 0 },
-      { id: "barbecue", name: "Barbecue", price: 0 },
-      { id: "picante", name: "Picante", price: 2 },
-    ],
-  },
-};
-
-const COUPONS = [
-  { code: "SARRO10", type: "percent", value: 10, min: 40, uses: 132, limit: 500, active: true, note: "10% em qualquer pedido acima de R$ 40" },
-  { code: "BEMVINDO", type: "percent", value: 15, min: 0, uses: 48, limit: 1000, active: true, note: "Primeira compra" },
-  { code: "BURGER20", type: "fixed", value: 20, min: 90, uses: 17, limit: 100, active: true, note: "R$ 20 off acima de R$ 90" },
-  { code: "FRETEGRATIS", type: "freeship", value: 0, min: 60, uses: 71, limit: 300, active: true, note: "Entrega grátis acima de R$ 60" },
-];
-
-const DRIVERS = [
-  { id: "d1", name: "Rafael Lima", phone: "(81) 98812-0011", vehicle: "Moto CG 160", status: "livre", deliveries: 8 },
-  { id: "d2", name: "Jonas Pereira", phone: "(81) 99640-2233", vehicle: "Moto Biz", status: "em rota", deliveries: 11 },
-  { id: "d3", name: "Bia Santos", phone: "(81) 99177-8890", vehicle: "Moto Fan 150", status: "livre", deliveries: 6 },
-];
-
-const CUSTOMERS = [
-  { id: "c1", name: "João Silva", phone: "(81) 99123-4567", orders: 14, spent: 742.3, last: "Hoje", tier: "VIP", addr: "Rua das Palmeiras, 220 — Janga, Paulista/PE", points: 74 },
-  { id: "c2", name: "Marina Costa", phone: "(81) 98877-1020", orders: 6, spent: 289.4, last: "Ontem", tier: "Recorrente", addr: "Av. Cláudio J. Gueiros, 1500 — Maria Farinha", points: 28 },
-  { id: "c3", name: "Pedro Henrique", phone: "(81) 99555-3311", orders: 1, spent: 49.9, last: "Há 3 dias", tier: "Novo", addr: "Rua do Sol, 45 — Pau Amarelo", points: 4 },
-  { id: "c4", name: "Ana Beatriz", phone: "(81) 98220-7744", orders: 22, spent: 1310.8, last: "Há 2h", tier: "VIP", addr: "Rua Boa Viagem, 88 — Casa Caiada, Olinda", points: 131 },
-  { id: "c5", name: "Carlos Mendes", phone: "(81) 99801-4455", orders: 3, spent: 152.7, last: "Há 46 dias", tier: "Inativo", addr: "Rua Nova, 12 — Rio Doce", points: 15 },
-];
-
-const INVENTORY = [
-  { id: "i1", name: "Blend bovino 180g", unit: "un", qty: 86, min: 40 },
-  { id: "i2", name: "Pão brioche", unit: "un", qty: 62, min: 50 },
-  { id: "i3", name: "Queijo cheddar", unit: "fatia", qty: 210, min: 80 },
-  { id: "i4", name: "Bacon", unit: "kg", qty: 3.4, min: 4 },
-  { id: "i5", name: "Alface", unit: "un", qty: 12, min: 6 },
-  { id: "i6", name: "Tomate", unit: "kg", qty: 5.2, min: 3 },
-  { id: "i7", name: "Molho especial", unit: "L", qty: 2.1, min: 3 },
-  { id: "i8", name: "Batata congelada", unit: "kg", qty: 18, min: 10 },
-  { id: "i9", name: "Refrigerante lata", unit: "un", qty: 94, min: 48 },
-  { id: "i10", name: "Polpa de açaí", unit: "kg", qty: 7.5, min: 8 },
-];
-
-const PROMOS = [
-  { id: "pr1", name: "Happy Hour do Sarro", rule: "18h às 20h — 15% off em combos", active: true, window: "18:00–20:00" },
-  { id: "pr2", name: "Terça do Duplo", rule: "Duplo Sarro por R$ 37,90", active: true, window: "Terças" },
-  { id: "pr3", name: "Açaí da tarde", rule: "Açaí 500ml por R$ 19,90", active: false, window: "14:00–17:00" },
-];
-
 const INTEGRATIONS = [
   { id: "ifood", name: "iFood", status: "conectado", desc: "Pedidos e status via API oficial do iFood (merchant + order events).", fields: ["Client ID", "Client Secret", "Merchant ID", "Webhook URL"], color: "#EA1D2C", orders: 12 },
   { id: "99food", name: "99Food", status: "pendente", desc: "Integração via API parceira. Aguardando liberação de credenciais.", fields: ["API Key", "Store ID", "Webhook URL"], color: "#FFD400", orders: 0 },
@@ -339,7 +87,6 @@ const brl = (n) =>
 
 const uid = () => Math.random().toString(36).slice(2, 9);
 
-const FEE = 7.9;
 
 // Fotos dos produtos (servidas de /public/img). A foto do produto usa o id
 // (ex.: p1.jpg). Enquanto uma foto não existir, o SmartImg cai para o emoji.
@@ -536,53 +283,6 @@ function ChannelPill({ channel }) {
 // PEDIDOS — SEED + CRIAÇÃO
 // ============================================================
 
-let seq = 1047;
-const nextCode = () => ++seq;
-
-function makeOrder(partial) {
-  const subtotal = partial.items.reduce((s, i) => s + i.unit * i.qty, 0);
-  const fee = partial.type === "delivery" ? (partial.fee ?? FEE) : 0;
-  const discount = partial.discount || 0;
-  return {
-    id: uid(), code: nextCode(), channel: "DIRECT", status: "NOVO",
-    createdAt: Date.now(), driverId: null, startedAt: null, note: "",
-    payment: "PIX", type: "delivery",
-    ...partial,
-    subtotal, fee, discount, total: subtotal + fee - discount,
-  };
-}
-
-function seedOrders() {
-  const t = Date.now();
-  const mk = (o, minsAgo, status) => {
-    const ord = makeOrder(o);
-    ord.createdAt = t - minsAgo * 60000;
-    ord.status = status;
-    if (["PREPARO", "PRONTO", "EMBALADO", "AGUARDANDO", "ROTA", "ENTREGUE"].includes(status))
-      ord.startedAt = ord.createdAt + 90000;
-    return ord;
-  };
-  const it = (p, qty, opts = [], note = "") => ({
-    id: uid(), productId: p.id, name: p.name, emoji: p.emoji, qty,
-    unit: (p.promo || p.price) + opts.reduce((s, o) => s + o.price, 0), opts, note,
-  });
-  const P = Object.fromEntries(PRODUCTS.map((p) => [p.id, p]));
-  return [
-    mk({ channel: "IFOOD", customer: { name: "Marina Costa", phone: "(81) 98877-1020", addr: "Av. Cláudio J. Gueiros, 1500 — Maria Farinha" },
-      items: [it(P.p1, 2, [{ name: "Bacon crocante", price: 5 }], "Sem cebola"), it(P.p10, 2)], payment: "Cartão (iFood)" }, 4, "NOVO"),
-    mk({ channel: "DIRECT", customer: { name: "João Silva", phone: "(81) 99123-4567", addr: "Rua das Palmeiras, 220 — Janga, Paulista/PE" },
-      items: [it(P.p6, 1), it(P.p8, 1)], payment: "PIX" }, 9, "PREPARO"),
-    mk({ channel: "WHATSAPP", customer: { name: "Pedro Henrique", phone: "(81) 99555-3311", addr: "Retirada na loja" },
-      items: [it(P.p3, 1, [{ name: "Ovo frito", price: 3 }])], payment: "Dinheiro", type: "pickup" }, 14, "PRONTO"),
-    mk({ channel: "NNFOOD", customer: { name: "Ana Beatriz", phone: "(81) 98220-7744", addr: "Rua Boa Viagem, 88 — Casa Caiada, Olinda" },
-      items: [it(P.p12, 2), it(P.p14, 1)], payment: "Cartão (99Food)" }, 19, "AGUARDANDO"),
-    mk({ channel: "DIRECT", customer: { name: "Carlos Mendes", phone: "(81) 99801-4455", addr: "Rua Nova, 12 — Rio Doce" },
-      items: [it(P.p2, 1), it(P.p9, 1), it(P.p11, 1)], payment: "PIX" }, 27, "ROTA"),
-    mk({ channel: "DIRECT", customer: { name: "Lucas Andrade", phone: "(81) 99333-1200", addr: "Rua do Sol, 45 — Pau Amarelo" },
-      items: [it(P.p7, 1)], payment: "Cartão" }, 52, "ENTREGUE"),
-  ].map((o, i) => (i === 4 ? { ...o, driverId: "d2" } : o));
-}
-
 // ============================================================
 // CLIENTE — CARDÁPIO
 // ============================================================
@@ -639,7 +339,7 @@ function Hero({ store, onOrder }) {
             PEDIR AGORA
           </Btn>
           <div className="flex items-center gap-2 flex-wrap" style={{ color: "#8a8a8a", fontSize: 11 }}>
-            <span>⭐ 4,9</span><span>•</span><span>🛵 {brl(FEE)}</span><span>•</span><span>⏱ 35–45min</span>
+            <span>⭐ 4,9</span><span>•</span><span>🛵 {brl(store.fee)}</span><span>•</span><span>⏱ 35–45min</span>
           </div>
         </div>
 
@@ -700,13 +400,18 @@ function ProductCard({ p, onOpen }) {
   );
 }
 
-function ProductModal({ p, onClose, onAdd }) {
+function ProductModal({ p, store, onClose, onAdd }) {
   const [qty, setQty] = useState(1);
   const [sel, setSel] = useState({});
   const [note, setNote] = useState("");
-  const [build, setBuild] = useState({ pao: "brioche", carne: "blend180", queijo: "cheddar", molho: "especial" });
+  const bGroups = store.builder || [];
+  const [build, setBuild] = useState(() =>
+    Object.fromEntries(bGroups.map((g) => [g.id, g.options[0]?.id]))
+  );
 
-  const groups = (p.groups || []).map((g) => OPTION_GROUPS[g]);
+  const groups = (p.groups || [])
+    .map((g) => store.optionGroups.find((x) => x.id === g))
+    .filter(Boolean);
 
   const toggle = (g, o) => {
     setSel((prev) => {
@@ -720,20 +425,23 @@ function ProductModal({ p, onClose, onAdd }) {
   };
 
   const chosen = Object.values(sel).flat();
+  const allBuilderOpts = bGroups.flatMap((g) => g.options);
   const buildExtra = p.builder
-    ? Object.entries(build).reduce((s, [k, v]) => s + (BUILDER[k].options.find((o) => o.id === v)?.price || 0), 0)
+    ? Object.values(build).reduce((s, oid) => s + (allBuilderOpts.find((o) => o.id === oid)?.price || 0), 0)
     : 0;
   const unit = (p.promo || p.price) + chosen.reduce((s, o) => s + o.price, 0) + buildExtra;
   const missing = groups.filter((g) => g.required && (sel[g.id] || []).length < g.min);
 
   const add = () => {
     const opts = p.builder
-      ? Object.entries(build).map(([k, v]) => {
-          const o = BUILDER[k].options.find((x) => x.id === v);
-          return { id: o.id, name: `${BUILDER[k].label.replace("Escolha o ", "").replace("Escolha a ", "")}: ${o.name}`, price: o.price };
+      ? Object.entries(build).map(([gid, oid]) => {
+          const g = bGroups.find((x) => x.id === gid);
+          const o = g?.options.find((x) => x.id === oid);
+          return { id: o.id, name: `${g.label.replace("Escolha o ", "").replace("Escolha a ", "")}: ${o.name}`, price: o.price };
         })
       : chosen;
-    onAdd({ id: uid(), productId: p.id, name: p.name, emoji: p.emoji, qty, unit, opts, note });
+    const optionIds = p.builder ? Object.values(build) : chosen.map((o) => o.id);
+    onAdd({ id: uid(), productId: p.id, name: p.name, emoji: p.emoji, qty, unit, opts, optionIds, note });
   };
 
   return (
@@ -772,16 +480,16 @@ function ProductModal({ p, onClose, onAdd }) {
           )}
 
           {p.builder &&
-            Object.values(BUILDER).map((g) => (
-              <div key={g.key} className="mt-5">
+            bGroups.map((g) => (
+              <div key={g.id} className="mt-5">
                 <div style={{ color: C.yellowLight, fontWeight: 800, fontSize: 13, marginBottom: 8 }}>{g.label}</div>
                 <div className="flex flex-wrap gap-2">
                   {g.options.map((o) => {
-                    const on = build[g.key] === o.id;
+                    const on = build[g.id] === o.id;
                     return (
                       <button
                         key={o.id}
-                        onClick={() => setBuild({ ...build, [g.key]: o.id })}
+                        onClick={() => setBuild({ ...build, [g.id]: o.id })}
                         className="rounded-xl px-3 py-2 text-left"
                         style={{
                           background: on ? `${C.orange}22` : C.gray850,
@@ -1073,7 +781,7 @@ function CartScreen({ store, goCheckout, onOpen }) {
   const subtotal = cart.reduce((s, i) => s + i.unit * i.qty, 0);
   const coupon = store.coupon;
   let discount = 0;
-  let fee = store.orderType === "pickup" ? 0 : FEE;
+  let fee = store.fee;
   if (coupon) {
     if (coupon.type === "percent") discount = subtotal * (coupon.value / 100);
     if (coupon.type === "fixed") discount = coupon.value;
@@ -1081,11 +789,15 @@ function CartScreen({ store, goCheckout, onOpen }) {
   }
   const total = Math.max(0, subtotal + fee - discount);
 
-  const apply = () => {
-    const c = COUPONS.find((x) => x.code === code.trim().toUpperCase() && x.active);
-    if (!c) return setErr("Cupom não encontrado ou expirado.");
-    if (subtotal < c.min) return setErr(`Esse cupom vale a partir de ${brl(c.min)}.`);
-    setErr(""); store.setCoupon(c); store.toast(`Cupom ${c.code} aplicado`);
+  const apply = async () => {
+    try {
+      const c = await store.validateCoupon(code.trim().toUpperCase(), subtotal);
+      setErr("");
+      store.setCoupon(c);
+      store.toast(`Cupom ${c.code} aplicado`);
+    } catch (e) {
+      setErr(e.message);
+    }
   };
 
   const upsell = store.products
@@ -1266,20 +978,25 @@ function Checkout({ store, totals, onBack, onDone }) {
   };
 
   const finish = () => {
-    const order = makeOrder({
-      channel: "DIRECT",
+    // O servidor recalcula preços, cupom, taxa e total — aqui vai só a intenção.
+    onDone({
       customer: {
-        name: f.name, phone: f.phone,
+        name: f.name,
+        phone: f.phone,
         addr: f.type === "pickup" ? "Retirada na loja" : `${f.street}, ${f.number} — ${f.district}, ${f.city}`,
       },
-      items: store.cart,
       type: f.type,
-      payment: f.payment + (f.payment === "Dinheiro" && f.needChange ? ` (troco p/ ${f.changeFor})` : ""),
-      discount: totals.discount,
-      fee,
+      payment: f.payment,
+      changeFor: f.payment === "Dinheiro" && f.needChange ? f.changeFor : undefined,
+      couponCode: store.coupon?.code || undefined,
       note: f.ref,
+      items: store.cart.map((i) => ({
+        productId: i.productId,
+        qty: i.qty,
+        optionIds: i.optionIds || [],
+        note: i.note || "",
+      })),
     });
-    onDone(order);
   };
 
   return (
@@ -1312,7 +1029,7 @@ function Checkout({ store, totals, onBack, onDone }) {
             COMO VOCÊ QUER RECEBER?
           </h3>
           <Choice on={f.type === "delivery"} onClick={() => set("type", "delivery")} icon="🛵"
-            title="Delivery" sub={`35–45 min · taxa ${brl(FEE)}`} />
+            title="Delivery" sub={`35–45 min · taxa ${brl(store.fee)}`} />
           <Choice on={f.type === "pickup"} onClick={() => set("type", "pickup")} icon="🏪"
             title="Retirar na loja" sub="Pronto em ~20 min · sem taxa" />
         </div>
@@ -1447,7 +1164,7 @@ function TrackScreen({ order, store, now }) {
   const idx = TRACK_STEPS.findIndex((s) => s.key === order.status);
   const pos = order.status === "AGUARDANDO" ? 4 : idx;
   const done = order.status === "ENTREGUE";
-  const driver = DRIVERS.find((d) => d.id === order.driverId);
+  const driver = store.drivers.find((d) => d.id === order.driverId);
 
   return (
     <div className="px-4 py-5 pb-6">
@@ -1535,7 +1252,16 @@ function TrackScreen({ order, store, now }) {
 // ============================================================
 
 function AccountScreen({ store }) {
-  const me = CUSTOMERS[0];
+  const me = store.customers[0];
+  if (!me) {
+    return (
+      <div className="px-4 py-16 text-center">
+        <div style={{ fontSize: 52 }}>😎</div>
+        <div style={{ color: C.white, fontWeight: 900, fontSize: 16, marginTop: 10 }}>Sua conta aparece aqui</div>
+        <p style={{ color: "#8a8a8a", fontSize: 13, marginTop: 6 }}>Faça seu primeiro pedido para entrar no Clube do Sarro.</p>
+      </div>
+    );
+  }
   const pct = Math.min(100, me.points);
   const mine = store.orders.filter((o) => o.customer.name === me.name);
   return (
@@ -1645,7 +1371,10 @@ function ClientApp({ store, now }) {
         <Checkout
           store={store} totals={checkout}
           onBack={() => setCheckout(null)}
-          onDone={(order) => { setCheckout(null); store.placeOrder(order); }}
+          onDone={async (payload) => {
+            const ok = await store.placeOrder(payload);
+            if (ok) setCheckout(null);
+          }}
         />
       ) : (
         <>
@@ -1657,7 +1386,7 @@ function ClientApp({ store, now }) {
         </>
       )}
 
-      {modal && <ProductModal p={modal} onClose={() => setModal(null)} onAdd={addToCart} />}
+      {modal && <ProductModal key={modal.id} p={modal} store={store} onClose={() => setModal(null)} onAdd={addToCart} />}
 
       {!checkout && store.tab !== "carrinho" && cartCount > 0 && (
         <button
@@ -1803,7 +1532,7 @@ function AdminDashboard({ store, now }) {
         <KPI icon="💰" label="Vendas hoje" value={brl(revenue)} sub="+18%" accent={C.yellowLight} />
         <KPI icon="🍔" label="Pedidos hoje" value={today.length} sub="+6%" />
         <KPI icon="📦" label="Ticket médio" value={brl(avg)} />
-        <KPI icon="👥" label="Clientes na base" value={CUSTOMERS.length} />
+        <KPI icon="👥" label="Clientes na base" value={store.customers.length} />
         <KPI icon="🛵" label="Entregas em rota" value={counts("ROTA")} />
         <KPI icon="⏱" label="Tempo médio de preparo" value="18 min" />
       </div>
@@ -2027,13 +1756,13 @@ function Table({ cols, rows }) {
   );
 }
 
-function AdminCustomers() {
+function AdminCustomers({ store }) {
   const tierColor = { VIP: C.yellowLight, Recorrente: C.green, Novo: C.blue, Inativo: "#7a7a7a" };
   return (
     <Card className="p-1">
       <Table
         cols={["Cliente", "WhatsApp", "Pedidos", "Gasto", "Ticket médio", "Último", "Classificação"]}
-        rows={CUSTOMERS.map((c) => [
+        rows={store.customers.map((c) => [
           c.name, c.phone, c.orders, brl(c.spent), brl(c.spent / c.orders), c.last,
           <span key="t" style={{ color: tierColor[c.tier], fontWeight: 800, fontSize: 11.5 }}>{c.tier.toUpperCase()}</span>,
         ])}
@@ -2080,7 +1809,7 @@ function AdminInventory({ store }) {
   );
 }
 
-function AdminPromos() {
+function AdminPromos({ store }) {
   return (
     <div className="space-y-5">
       <div>
@@ -2088,9 +1817,9 @@ function AdminPromos() {
         <Card className="p-1">
           <Table
             cols={["Código", "Regra", "Mínimo", "Usos", "Limite", "Status"]}
-            rows={COUPONS.map((c) => [
+            rows={store.coupons.map((c) => [
               c.code, c.note, brl(c.min), c.uses, c.limit,
-              <span key="s" style={{ color: C.green, fontSize: 11.5, fontWeight: 800 }}>ATIVO</span>,
+              <span key="s" style={{ color: c.active ? C.green : "#7a7a7a", fontSize: 11.5, fontWeight: 800 }}>{c.active ? "ATIVO" : "PAUSADO"}</span>,
             ])}
           />
         </Card>
@@ -2098,7 +1827,7 @@ function AdminPromos() {
       <div>
         <div style={{ color: C.white, fontWeight: 900, fontSize: 14, marginBottom: 10 }}>Promoções programadas</div>
         <div className="grid md:grid-cols-3 gap-3">
-          {PROMOS.map((p) => (
+          {store.promos.map((p) => (
             <Card key={p.id} className="p-4">
               <div className="flex justify-between items-start">
                 <span style={{ color: C.white, fontWeight: 800, fontSize: 13.5 }}>{p.name}</span>
@@ -2343,8 +2072,8 @@ function AdminApp({ store, now }) {
         {sec === "dashboard" && <AdminDashboard store={store} now={now} />}
         {sec === "pedidos" && <AdminOrders store={store} now={now} />}
         {sec === "produtos" && <AdminProducts store={store} />}
-        {sec === "clientes" && <AdminCustomers />}
-        {sec === "promos" && <AdminPromos />}
+        {sec === "clientes" && <AdminCustomers store={store} />}
+        {sec === "promos" && <AdminPromos store={store} />}
         {sec === "estoque" && <AdminInventory store={store} />}
         {sec === "integracoes" && <AdminIntegrations store={store} />}
         {sec === "config" && <AdminSettings store={store} />}
@@ -2503,7 +2232,7 @@ function ExpeditionApp({ store, now }) {
                     <div>
                       <div style={{ color: "#8a8a8a", fontSize: 11.5, marginBottom: 7 }}>Atribuir entregador</div>
                       <div className="flex flex-wrap gap-2">
-                        {DRIVERS.map((d) => (
+                        {store.drivers.map((d) => (
                           <Btn key={d.id} small variant="dark" onClick={() => store.assignDriver(o.id, d.id)}>
                             🛵 {d.name.split(" ")[0]}
                           </Btn>
@@ -2519,7 +2248,7 @@ function ExpeditionApp({ store, now }) {
 
         <div className="space-y-3">
           <div style={{ color: C.white, fontWeight: 900, fontSize: 14 }}>Entregadores</div>
-          {DRIVERS.map((d) => {
+          {store.drivers.map((d) => {
             const load = store.orders.filter((o) => o.driverId === d.id && o.status === "ROTA").length;
             return (
               <Card key={d.id} className="p-3 flex items-center gap-3">
@@ -2545,22 +2274,22 @@ function ExpeditionApp({ store, now }) {
 // ============================================================
 
 function DriverApp({ store, now }) {
-  const [me, setMe] = useState(DRIVERS[0].id);
-  const driver = DRIVERS.find((d) => d.id === me);
-  const mine = store.orders.filter((o) => o.driverId === me && ["ROTA", "ENTREGUE"].includes(o.status));
-  const open = store.orders.filter((o) => o.status === "AGUARDANDO");
+  // O entregador logado enxerga só o que é dele (o servidor também valida).
+  const meDriver = store.drivers.find((d) => d.id === store.me?.driverId) || store.drivers[0];
+  const meId = meDriver?.id;
+  const mine = store.orders.filter((o) => o.driverId === meId && ["ROTA", "ENTREGUE"].includes(o.status));
+  const open = store.orders.filter((o) => o.status === "AGUARDANDO" && o.type === "delivery");
 
   return (
     <div style={{ background: C.black, minHeight: "100%" }} className="p-4 pb-10">
       <div className="flex items-center justify-between mb-4">
-        <Logo size={38} withText={false} />
-        <select
-          value={me} onChange={(e) => setMe(e.target.value)}
-          className="rounded-lg px-2.5 py-1.5 outline-none"
+        <Logo size={38} />
+        <span
+          className="rounded-lg px-2.5 py-1.5 font-bold"
           style={{ background: C.gray850, color: C.white, border: `1px solid ${C.gray800}`, fontSize: 12 }}
         >
-          {DRIVERS.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
-        </select>
+          🛵 {meDriver ? meDriver.name.split(" ")[0] : "…"} · {meDriver?.vehicle}
+        </span>
       </div>
 
       <h2 style={{ fontFamily: font.display, fontStyle: "italic", fontSize: 26, color: C.white, letterSpacing: "-0.02em" }}>
@@ -2581,7 +2310,7 @@ function DriverApp({ store, now }) {
                   <span style={{ color: C.yellowLight, fontWeight: 900, fontSize: 14 }}>{brl(o.total)}</span>
                 </div>
                 <div style={{ color: "#9a9a9a", fontSize: 12, marginTop: 4 }}>{o.customer.addr}</div>
-                <div className="mt-3"><Btn full onClick={() => store.assignDriver(o.id, me)}>ACEITAR ENTREGA</Btn></div>
+                <div className="mt-3"><Btn full onClick={() => store.assignDriver(o.id, meId)}>ACEITAR ENTREGA</Btn></div>
               </Card>
             ))}
           </div>
@@ -2632,6 +2361,9 @@ function DriverApp({ store, now }) {
 
 // ============================================================
 // APP RAIZ — estado compartilhado entre todos os painéis
+//
+// Fonte da verdade: API REST (/api/bootstrap) + WebSocket (/ws).
+// O carrinho e o pedido do cliente ficam no localStorage.
 // ============================================================
 
 const ROLES = [
@@ -2642,131 +2374,367 @@ const ROLES = [
   { id: "entregador", label: "Entregador", icon: "🛵" },
 ];
 
+// Papéis autorizados em cada painel (o servidor valida de novo em cada rota)
+const STAFF_GATE = {
+  admin: ["ADMIN", "GERENTE"],
+  cozinha: ["COZINHA", "GERENTE", "ADMIN"],
+  expedicao: ["EXPEDICAO", "GERENTE", "ADMIN"],
+  entregador: ["ENTREGADOR"],
+};
+
+async function api(path, opts = {}) {
+  const r = await fetch(path, {
+    method: opts.method || "GET",
+    headers: { "Content-Type": "application/json" },
+    credentials: "same-origin",
+    body: opts.body !== undefined ? JSON.stringify(opts.body) : undefined,
+  });
+  let data = {};
+  try { data = await r.json(); } catch { /* resposta vazia */ }
+  if (!r.ok) {
+    const err = new Error(data.error || "Não foi possível falar com o servidor.");
+    err.status = r.status;
+    throw err;
+  }
+  return data;
+}
+
+function Splash({ error, onRetry }) {
+  return (
+    <div className="min-h-screen flex flex-col items-center justify-center px-6 text-center" style={{ background: C.black }}>
+      <img
+        src={LOGO_ROUND} alt="TÔ NO SARRO!" width={110} height={110}
+        style={{ borderRadius: "50%", animation: error ? "none" : "sarrofloat 1.6s ease-in-out infinite" }}
+      />
+      <div style={{ fontFamily: font.display, fontStyle: "italic", color: C.orange, fontSize: 24, marginTop: 22 }}>
+        {error ? "A CHAPA APAGOU!" : "ACENDENDO A CHAPA…"}
+      </div>
+      <div style={{ color: "#8a8a8a", fontSize: 13, marginTop: 8, maxWidth: 300, lineHeight: 1.5 }}>
+        {error
+          ? "Não conseguimos falar com o servidor. Confere se a API está rodando (npm run dev:all)."
+          : "TÔ NO SARRO! Smart Food System"}
+      </div>
+      {error && <div className="mt-6"><Btn onClick={onRetry}>Tentar de novo</Btn></div>}
+    </div>
+  );
+}
+
+function LoginScreen({ target, me, onDone, onCancel }) {
+  const [u, setU] = useState("");
+  const [p, setP] = useState("");
+  const [err, setErr] = useState("");
+  const [busy, setBusy] = useState(false);
+  const label = ROLES.find((r) => r.id === target)?.label || target;
+
+  const submit = async (e) => {
+    e?.preventDefault();
+    if (busy) return;
+    setBusy(true); setErr("");
+    try {
+      const d = await api("/api/auth/login", { method: "POST", body: { username: u, password: p } });
+      const gate = STAFF_GATE[target] || [];
+      if (!gate.includes(d.user.role)) {
+        setErr(`“${d.user.username}” não tem acesso ao painel ${label}.`);
+        return;
+      }
+      onDone(d.user);
+    } catch (ex) {
+      setErr(ex.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const demo = [
+    ["admin", "admin123", "Administrador"],
+    ["cozinha", "cozinha123", "Cozinha"],
+    ["rafael", "entregador123", "Entregador"],
+  ];
+
+  return (
+    <div className="min-h-screen flex items-center justify-center px-4" style={{ background: C.black }}>
+      <div className="w-full" style={{ maxWidth: 400 }}>
+        <div className="flex flex-col items-center mb-6">
+          <img src={LOGO_ROUND} alt="TÔ NO SARRO!" width={86} height={86} style={{ borderRadius: "50%" }} />
+          <div style={{ fontFamily: font.display, fontStyle: "italic", fontSize: 22, color: C.white, marginTop: 14 }}>
+            ÁREA DA EQUIPE
+          </div>
+          <div style={{ color: "#8a8a8a", fontSize: 12.5, marginTop: 4 }}>
+            Painel de {label} · entre com sua conta
+          </div>
+        </div>
+
+        <Card className="p-5">
+          <form onSubmit={submit} className="space-y-3">
+            <label className="block">
+              <span style={{ color: "#9a9a9a", fontSize: 11.5, fontWeight: 700 }}>Usuário</span>
+              <input
+                value={u} onChange={(e) => setU(e.target.value)} autoFocus autoCapitalize="none"
+                className="w-full rounded-xl px-3 py-3 mt-1.5 outline-none"
+                style={{ background: C.gray850, border: `1px solid ${C.gray800}`, color: C.white, fontSize: 14 }}
+              />
+            </label>
+            <label className="block">
+              <span style={{ color: "#9a9a9a", fontSize: 11.5, fontWeight: 700 }}>Senha</span>
+              <input
+                value={p} onChange={(e) => setP(e.target.value)} type="password"
+                className="w-full rounded-xl px-3 py-3 mt-1.5 outline-none"
+                style={{ background: C.gray850, border: `1px solid ${C.gray800}`, color: C.white, fontSize: 14 }}
+              />
+            </label>
+            {err && (
+              <div className="rounded-lg px-3 py-2" style={{ background: `${C.red}18`, color: C.red, fontSize: 12, fontWeight: 700 }}>
+                {err}
+              </div>
+            )}
+            <Btn full disabled={busy || !u.trim() || !p}>
+              {busy ? "ENTRANDO…" : `ENTRAR NO PAINEL`}
+            </Btn>
+          </form>
+
+          <div className="mt-4 pt-4" style={{ borderTop: `1px solid ${C.gray800}` }}>
+            <div style={{ color: "#6a6a6a", fontSize: 10.5, marginBottom: 8 }}>
+              Contas de demonstração (toque para preencher):
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {demo.map(([us, pw, lbl]) => (
+                <button
+                  key={us}
+                  onClick={() => { setU(us); setP(pw); }}
+                  className="rounded-lg px-2.5 py-1.5 font-bold"
+                  style={{ background: C.gray850, border: `1px solid ${C.gray800}`, color: "#c0c0c0", fontSize: 11 }}
+                >
+                  {lbl}: {us}
+                </button>
+              ))}
+            </div>
+          </div>
+        </Card>
+
+        <div className="mt-4 text-center">
+          <button onClick={onCancel} style={{ color: "#8a8a8a", fontSize: 13 }}>
+            ← Voltar para o cardápio
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function App() {
+  const [ready, setReady] = useState(false);
+  const [bootError, setBootError] = useState(false);
+  const [me, setMe] = useState(null);
   const [role, setRole] = useState("cliente");
+  const [loginFor, setLoginFor] = useState(null);
   const [tab, setTab] = useState("inicio");
-  const [orders, setOrders] = useState(seedOrders);
-  const [products, setProducts] = useState(PRODUCTS);
-  const [inventory, setInventory] = useState(INVENTORY);
-  const [cart, setCart] = useState([]);
+
+  const [orders, setOrders] = useState([]);
+  const [products, setProducts] = useState([]);
+  const [inventory, setInventory] = useState([]);
+  const [drivers, setDrivers] = useState([]);
+  const [customers, setCustomers] = useState([]);
+  const [coupons, setCoupons] = useState([]);
+  const [promos, setPromos] = useState([]);
+  const [settings, setSettings] = useState({ open: true, fee: 7.9, minOrder: 25, eta: "35–45 min" });
+  const [catalog, setCatalog] = useState({ categories: [], optionGroups: [], builder: [] });
+
+  const [cart, setCart] = useState(() => {
+    try { return JSON.parse(localStorage.getItem("sarro_cart")) || []; } catch { return []; }
+  });
   const [coupon, setCoupon] = useState(null);
-  const [myOrderId, setMyOrderId] = useState(null);
-  const [open, setOpen] = useState(true);
+  const [myOrderId, setMyOrderId] = useState(() => localStorage.getItem("sarro_my_order") || null);
   const [toastMsg, setToastMsg] = useState("");
   const [confetti, setConfetti] = useState(false);
   const [notifications, setNotifications] = useState([]);
   const [now, setNow] = useState(Date.now());
+
+  const known = useRef(null);
+  const roleRef = useRef(role);
+  roleRef.current = role;
 
   useEffect(() => {
     const t = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(t);
   }, []);
 
+  useEffect(() => {
+    localStorage.setItem("sarro_cart", JSON.stringify(cart));
+  }, [cart]);
+
   const toast = (msg) => {
     setToastMsg(msg);
-    setTimeout(() => setToastMsg(""), 2200);
+    setTimeout(() => setToastMsg(""), 2400);
   };
 
   const notify = (msg) => {
     setNotifications((n) => [{ id: uid(), msg, at: Date.now() }, ...n].slice(0, 20));
   };
 
+  const applySync = (d) => {
+    // Alerta de pedido novo para a equipe (o cliente tem o próprio fluxo)
+    if (known.current && roleRef.current !== "cliente") {
+      const fresh = d.orders.filter((o) => !known.current.has(o.id));
+      if (fresh.length) {
+        beep(880);
+        fresh.slice(0, 3).forEach((o) =>
+          notify(`🔥 Novo pedido ${CHANNELS[o.channel]?.short || ""} #${o.code} · ${brl(o.total)}`)
+        );
+      }
+    }
+    known.current = new Set(d.orders.map((o) => o.id));
+    setOrders(d.orders);
+    setProducts(d.products);
+    setInventory(d.inventory);
+    setDrivers(d.drivers);
+    setCustomers(d.customers);
+    setCoupons(d.coupons);
+    setPromos(d.promos);
+    setSettings(d.settings);
+  };
+
+  const load = () => {
+    setBootError(false);
+    api("/api/bootstrap")
+      .then((d) => {
+        setCatalog({ categories: d.categories, optionGroups: d.optionGroups, builder: d.builder });
+        setMe(d.me);
+        known.current = new Set(d.orders.map((o) => o.id));
+        applySync(d);
+        setReady(true);
+      })
+      .catch(() => setBootError(true));
+  };
+
+  useEffect(() => { load(); }, []);
+
+  // Tempo real: um canal só, snapshot a cada mudança
+  useEffect(() => {
+    let ws = null;
+    let closed = false;
+    let retry = null;
+    const connect = () => {
+      const proto = location.protocol === "https:" ? "wss" : "ws";
+      ws = new WebSocket(`${proto}://${location.host}/ws`);
+      ws.onmessage = (ev) => {
+        try {
+          const m = JSON.parse(ev.data);
+          if (m.type === "sync") applySync(m.data);
+        } catch { /* ignora */ }
+      };
+      ws.onclose = () => { if (!closed) retry = setTimeout(connect, 2000); };
+      ws.onerror = () => ws.close();
+    };
+    connect();
+    return () => { closed = true; clearTimeout(retry); ws?.close(); };
+  }, []);
+
   const store = {
-    role, tab, setTab, orders, products, inventory, cart, coupon, setCoupon,
-    myOrderId, open, setOpen, notifications, toast,
+    role, tab, setTab, me,
+    orders, products, inventory, drivers, customers, coupons, promos, settings,
+    optionGroups: catalog.optionGroups, builder: catalog.builder, categories: catalog.categories,
+    cart, coupon, setCoupon, myOrderId, notifications, toast,
+    open: settings.open,
+    fee: settings.fee,
 
     addItem: (item) => setCart((c) => [...c, item]),
     removeItem: (id) => setCart((c) => c.filter((i) => i.id !== id)),
     setQty: (id, qty) =>
       setCart((c) => (qty <= 0 ? c.filter((i) => i.id !== id) : c.map((i) => (i.id === id ? { ...i, qty } : i)))),
 
-    placeOrder: (order) => {
-      setOrders((o) => [order, ...o]);
-      setCart([]); setCoupon(null); setMyOrderId(order.id); setTab("pedidos");
-      setConfetti(true); setTimeout(() => setConfetti(false), 2600);
-      notify(`Novo pedido #${order.code} · ${brl(order.total)}`);
-      beep(1040);
-      toast(`Pedido #${order.code} enviado para a cozinha`);
-      // Simula o webhook do gateway confirmando o Pix.
-      setTimeout(() => {
-        setOrders((os) => os.map((x) => (x.id === order.id && x.status === "NOVO" ? { ...x, status: "CONFIRMADO" } : x)));
-      }, 4000);
+    validateCoupon: async (code, subtotal) => {
+      const d = await api("/api/coupons/validate", { method: "POST", body: { code, subtotal } });
+      return d.coupon;
     },
 
-    setStatus: (id, status) =>
-      setOrders((os) =>
-        os.map((o) => {
-          if (o.id !== id) return o;
-          if (status === "PREPARO") notify(`Pedido #${o.code} entrou na chapa`);
-          if (status === "PRONTO") { notify(`Pedido #${o.code} está pronto`); beep(760); }
-          if (status === "ENTREGUE") notify(`Pedido #${o.code} entregue`);
-          return { ...o, status, startedAt: o.startedAt || Date.now() };
-        })
-      ),
+    placeOrder: async (payload) => {
+      try {
+        const d = await api("/api/orders", { method: "POST", body: payload });
+        const order = d.order;
+        known.current?.add(order.id);
+        setOrders((o) => [order, ...o.filter((x) => x.id !== order.id)]);
+        setCart([]);
+        setCoupon(null);
+        setMyOrderId(order.id);
+        localStorage.setItem("sarro_my_order", order.id);
+        setTab("pedidos");
+        setConfetti(true);
+        setTimeout(() => setConfetti(false), 2600);
+        notify(`Pedido #${order.code} confirmado · ${brl(order.total)}`);
+        beep(1040);
+        toast(`Pedido #${order.code} confirmado! 🍔`);
+        return true;
+      } catch (e) {
+        toast(e.message);
+        return false;
+      }
+    },
 
-    advance: (id) =>
-      setOrders((os) =>
-        os.map((o) => {
-          if (o.id !== id) return o;
-          const i = FLOW.indexOf(o.status);
-          const next = FLOW[i + 1] || o.status;
-          return { ...o, status: next, startedAt: o.startedAt || Date.now() };
-        })
-      ),
+    setStatus: (id, status) => {
+      api(`/api/orders/${id}/status`, { method: "PATCH", body: { status } })
+        .catch((e) => toast(e.message));
+    },
+
+    advance: (id) => {
+      const o = orders.find((x) => x.id === id);
+      if (!o) return;
+      const next = FLOW[FLOW.indexOf(o.status) + 1];
+      if (next) store.setStatus(id, next);
+    },
 
     assignDriver: (id, driverId) => {
-      setOrders((os) => os.map((o) => (o.id === id ? { ...o, driverId, status: "ROTA", startedAt: Date.now() } : o)));
-      const d = DRIVERS.find((x) => x.id === driverId);
-      toast(`${d.name} saiu para entrega`);
-      notify(`${d.name} saiu para entrega`);
+      api(`/api/orders/${id}/driver`, { method: "PATCH", body: { driverId } })
+        .then(() => {
+          const d = drivers.find((x) => x.id === driverId);
+          toast(`${d ? d.name.split(" ")[0] : "Entregador"} saiu para entrega 🛵`);
+          notify(`${d ? d.name : "Entregador"} assumiu o pedido`);
+        })
+        .catch((e) => toast(e.message));
     },
 
-    updateProduct: (id, patch) => setProducts((ps) => ps.map((p) => (p.id === id ? { ...p, ...patch } : p))),
+    updateProduct: (id, patch) => {
+      api(`/api/products/${id}`, { method: "PATCH", body: patch }).catch((e) => toast(e.message));
+    },
 
-    moveStock: (id, delta) =>
-      setInventory((inv) =>
-        inv.map((i) => {
-          if (i.id !== id) return i;
-          const qty = Math.max(0, Math.round((i.qty + delta) * 10) / 10);
-          if (qty <= i.min && i.qty > i.min) notify(`⚠️ Estoque baixo: ${i.name}`);
-          return { ...i, qty };
-        })
-      ),
+    moveStock: (id, delta) => {
+      api(`/api/inventory/${id}`, { method: "PATCH", body: { delta } }).catch((e) => toast(e.message));
+    },
+
+    setOpen: (v) => {
+      api("/api/settings", { method: "PATCH", body: { open: v } }).catch((e) => toast(e.message));
+    },
 
     injectExternal: (channel) => {
-      const pool = products.filter((p) => p.available && !p.builder);
-      const pick = pool[Math.floor(Math.random() * pool.length)];
-      const names = ["Tiago Ramos", "Juliana Melo", "Diego Alves", "Camila Rocha"];
-      const order = makeOrder({
-        channel,
-        customer: {
-          name: names[Math.floor(Math.random() * names.length)],
-          phone: "(81) 9" + Math.floor(10000000 + Math.random() * 89999999),
-          addr: "Rua Projetada, 100 — Janga, Paulista/PE",
-        },
-        items: [{ id: uid(), productId: pick.id, name: pick.name, emoji: pick.emoji, qty: 1, unit: pick.promo || pick.price, opts: [], note: "" }],
-        payment: channel === "IFOOD" ? "Cartão (iFood)" : "Cartão (99Food)",
-      });
-      setOrders((o) => [order, ...o]);
-      notify(`Novo pedido ${CHANNELS[channel].label} #${order.code}`);
-      beep(620);
-      toast(`Pedido #${order.code} recebido do ${CHANNELS[channel].label}`);
+      api("/api/orders/external", { method: "POST", body: { channel } })
+        .then((d) => {
+          notify(`Novo pedido ${CHANNELS[channel].label} #${d.order.code}`);
+          beep(620);
+          toast(`Pedido #${d.order.code} recebido do ${CHANNELS[channel].label}`);
+        })
+        .catch((e) => toast(e.message));
+    },
+
+    logout: () => {
+      api("/api/auth/logout", { method: "POST" })
+        .then(() => { setMe(null); setRole("cliente"); toast("Você saiu da conta"); })
+        .catch(() => {});
     },
   };
 
-  const css = `
-    @keyframes sarrofall { to { transform: translateY(105vh) rotate(720deg); opacity: 0 } }
-    @keyframes sarropulse { 0%,100% { opacity: 1 } 50% { opacity: .55 } }
-    @keyframes sarrofloat { 0%,100% { transform: translateY(0) } 50% { transform: translateY(-8px) } }
-    .sarro-img { display: block; width: 100%; height: 100%; object-fit: cover; }
-    .sarro-imgzoom img { transition: transform .45s cubic-bezier(.2,.7,.3,1); }
-    .sarro-imgzoom:hover img { transform: scale(1.07); }
-    .line-clamp-2 { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
-    ::-webkit-scrollbar { height: 6px; width: 6px }
-    ::-webkit-scrollbar-thumb { background: #2d2d2d; border-radius: 9px }
-    button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px solid ${C.yellow}; outline-offset: 2px }
-    @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important } }
-  `;
+  const pickRole = (r) => {
+    const gate = STAFF_GATE[r];
+    if (gate && (!me || !gate.includes(me.role))) {
+      setLoginFor(r);
+      return;
+    }
+    setRole(r);
+    setLoginFor(null);
+  };
+
+  if (!ready) return <Splash error={bootError} onRetry={load} />;
+
+  const gate = STAFF_GATE[role];
+  const allowed = !gate || (me && gate.includes(me.role));
 
   return (
     <div style={{ background: C.black, minHeight: "100vh", fontFamily: font.body, color: C.white }}>
@@ -2776,28 +2744,64 @@ export default function App() {
         className="flex items-center gap-1.5 px-3 py-2 overflow-x-auto"
         style={{ background: C.gray900, borderBottom: `1px solid ${C.gray800}`, position: "sticky", top: 0, zIndex: 40 }}
       >
-        <span style={{ color: "#5a5a5a", fontSize: 10, fontWeight: 800, marginRight: 4, whiteSpace: "nowrap" }}>VER COMO</span>
-        {ROLES.map((r) => (
-          <button
-            key={r.id}
-            onClick={() => setRole(r.id)}
-            className="shrink-0 rounded-lg px-2.5 py-1.5 font-bold"
-            style={{
-              background: role === r.id ? `linear-gradient(100deg, ${C.orange}, ${C.yellow})` : "transparent",
-              color: role === r.id ? C.black : "#8a8a8a",
-              border: `1px solid ${role === r.id ? "transparent" : C.gray800}`, fontSize: 11.5, whiteSpace: "nowrap",
-            }}
-          >
-            {r.icon} {r.label}
-          </button>
-        ))}
+        <span style={{ color: "#5a5a5a", fontSize: 10, fontWeight: 800, marginRight: 4, whiteSpace: "nowrap" }}>
+          SMART FOOD SYSTEM
+        </span>
+        {ROLES.map((r) => {
+          const locked = STAFF_GATE[r] && (!me || !STAFF_GATE[r].includes(me.role));
+          return (
+            <button
+              key={r.id}
+              onClick={() => pickRole(r.id)}
+              className="shrink-0 rounded-lg px-2.5 py-1.5 font-bold"
+              style={{
+                background: role === r.id ? `linear-gradient(100deg, ${C.orange}, ${C.yellow})` : "transparent",
+                color: role === r.id ? C.black : "#8a8a8a",
+                border: `1px solid ${role === r.id ? "transparent" : C.gray800}`,
+                fontSize: 11.5, whiteSpace: "nowrap",
+              }}
+            >
+              {r.icon} {r.label}{locked ? " 🔒" : ""}
+            </button>
+          );
+        })}
+        <div className="flex-1" />
+        {me ? (
+          <span className="shrink-0 flex items-center gap-2">
+            <span style={{ color: "#8a8a8a", fontSize: 11 }}>
+              {me.name.split(" ")[0]} · {me.role}
+            </span>
+            <button
+              onClick={store.logout}
+              className="rounded-lg px-2 py-1 font-bold"
+              style={{ border: `1px solid ${C.gray800}`, color: "#c0c0c0", fontSize: 10.5 }}
+            >
+              Sair
+            </button>
+          </span>
+        ) : (
+          <span style={{ color: "#5a5a5a", fontSize: 10.5, whiteSpace: "nowrap" }}>
+            painéis da equipe exigem login
+          </span>
+        )}
       </div>
 
-      {role === "cliente" && <ClientApp store={store} now={now} />}
-      {role === "admin" && <AdminApp store={store} now={now} />}
-      {role === "cozinha" && <KitchenApp store={store} now={now} />}
-      {role === "expedicao" && <ExpeditionApp store={store} now={now} />}
-      {role === "entregador" && <DriverApp store={store} now={now} />}
+      {!allowed ? (
+        <LoginScreen
+          target={loginFor || role}
+          me={me}
+          onDone={(user) => { setMe(user); setRole(loginFor || role); setLoginFor(null); toast(`Bem-vindo, ${user.name.split(" ")[0]}!`); }}
+          onCancel={() => { setLoginFor(null); setRole("cliente"); }}
+        />
+      ) : (
+        <>
+          {role === "cliente" && <ClientApp store={store} now={now} />}
+          {role === "admin" && <AdminApp store={store} now={now} />}
+          {role === "cozinha" && <KitchenApp store={store} now={now} />}
+          {role === "expedicao" && <ExpeditionApp store={store} now={now} />}
+          {role === "entregador" && <DriverApp store={store} now={now} />}
+        </>
+      )}
 
       <Toast msg={toastMsg} />
       <Confetti on={confetti} />

@@ -2,65 +2,75 @@
 
 Sistema de pedidos da hamburgueria **TÔ NO SARRO! Burgers & Açaí** (Janga, Paulista/PE):
 cardápio digital, central de pedidos multicanal, painel da cozinha, expedição e app do
-entregador — todos compartilhando o mesmo estado, em tempo real.
-
-Este repositório contém o **protótipo funcional do frontend**. O fluxo completo roda de
-ponta a ponta, com dados em memória. A arquitetura de backend, o esquema do banco e o
-plano de integrações estão em [`docs/`](./docs).
+entregador — com **backend real** (SQLite + API REST + WebSocket) e estado sincronizado
+em tempo real entre todos os painéis.
 
 ## Rodando
 
 ```bash
 npm install
-npm run dev
+npm run dev:all     # API (porta 3001) + Web (porta 5173) juntos
 ```
 
-Abra o endereço que o Vite imprimir. A barra “Ver como” no topo troca entre os cinco
-perfis do sistema.
+Abra o endereço que o Vite imprimir. A barra “SMART FOOD SYSTEM” no topo troca entre os
+perfis do sistema; os painéis da equipe pedem login.
+
+**Produção (um processo só):**
+
+```bash
+npm run build
+npm start           # Express serve o dist/ + API + WebSocket na 3001
+```
+
+## Contas de demonstração
+
+| Painel | Usuário | Senha |
+|---|---|---|
+| Admin | `admin` | `admin123` |
+| Admin (gerente) | `gerente` | `gerente123` |
+| Cozinha (KDS) | `cozinha` | `cozinha123` |
+| Expedição | `expedicao` | `expedicao123` |
+| Entregador (Rafael/Jonas/Bia) | `rafael` · `jonas` · `bia` | `entregador123` |
+
+As senhas são semente de demonstração — o banco guarda apenas hash bcrypt. Troque em
+`server/data.js` e rode `npm run seed` para regenerar.
 
 ## O que já funciona
 
-**Cliente**
-- Home com hero da marca, status da loja, mais pedidos, ofertas e novidades
-- Cardápio com 8 categorias, menu sticky, scroll suave e busca inteligente
-  (“burger com bacon”, “combo barato”, “açaí”)
-- Modal de produto com ponto da carne, queijo, molhos, adicionais, remoção de
-  ingredientes, observação e preço atualizando em tempo real
+**Cliente** (sem login)
+- Home com hero da marca, fotos reais dos produtos, status da loja, mais pedidos, ofertas
+- Cardápio com 8 categorias, menu sticky, busca inteligente (“burger com bacon”, “combo barato”)
+- Modal de produto: ponto da carne, queijo, molhos, adicionais, remoção, observação e
+  preço em tempo real
 - **Monte seu Sarro**: pão, carne, queijo e molho com preço recalculado a cada escolha
-- Carrinho com quantidades, observações, cupons (`SARRO10`, `BEMVINDO`, `BURGER20`,
-  `FRETEGRATIS`) e upsell
+- Carrinho persistente (localStorage), cupons validados na API (`SARRO10`, `BEMVINDO`,
+  `BURGER20`, `FRETEGRATIS`) e upsell
 - Checkout em 5 etapas: identificação, delivery ou retirada, endereço, pagamento
   (Pix, cartão, dinheiro com troco) e confirmação
-- Acompanhamento com timeline animada, dados do entregador e confetes na confirmação
-- Conta com histórico e Clube do Sarro (1 ponto a cada R$ 10; 100 pontos = 1 burger)
+- Acompanhamento com timeline animada, dados do entregador e confetes
+- Conta com histórico e Clube do Sarro (1 ponto a cada R$ 10)
 
-**Admin**
-- Painel “Operação agora” com as filas de cada etapa
-- KPIs, vendas por hora, vendas na semana, pedidos por canal, produtos mais vendidos
-- Central de pedidos unificada em Kanban de 9 colunas ou lista, com filtro por canal
-- Cardápio com edição de preço e liga/desliga de disponibilidade
-- Clientes com classificação (novo, recorrente, VIP, inativo), cupons, promoções
-  programadas, estoque com alerta de mínimo, integrações e configurações
+**Equipe** (com login e permissões por papel)
+- **Admin:** operação agora, KPIs reais a partir dos pedidos, vendas por hora/semana,
+  pedidos por canal, produtos mais vendidos, central em Kanban ou lista com filtro por
+  canal, cardápio com edição de preço/disponibilidade (grava no banco), clientes com
+  classificação automática, cupons, promoções, estoque com alerta, integrações e
+  configurações (abrir/fechar a loja muda o cardápio na hora)
+- **Cozinha (KDS):** cards grandes, cronômetro, alerta sonoro a cada pedido novo que
+  chega pelo WebSocket, observações em destaque; cozinha só avança preparo/pronto
+- **Expedição:** fila de prontos, embalar, atribuir entregador, retirada no balcão
+- **Entregador:** mobile-first, cada um vê só as próprias entregas (validado no servidor)
 
-**Cozinha (KDS)**
-- Cards grandes em modo escuro, cronômetro por pedido, alerta sonoro na entrada
-- Pedido passa de amarelo para vermelho conforme o tempo estoura
-- Observações do cliente em destaque
-
-**Expedição**
-- Fila de prontos, embalar, chamar e atribuir entregador, retirada no balcão
-
-**Entregador**
-- Mobile-first: aceitar entrega, cheguei no local, entregue, problema
-
-Mudança em qualquer painel aparece nos outros na hora — é o mesmo estado compartilhado,
-simulando o WebSocket descrito na arquitetura.
+**Integridade**
+- Preços, cupons, taxa e total são **recalculados no servidor** — o cliente não manda valor
+- Adicionais só são aceitos se pertencerem aos grupos do produto (anti-tampering)
+- Sessão em cookie httpOnly, senhas bcrypt, rate limit no login, log de auditoria
+- Toda mutação dispara um broadcast WebSocket; os cinco painéis atualizam sozinhos
 
 ## Simulando os canais externos
 
-Em **Admin → Integrações** há botões que injetam pedidos do iFood e do 99Food na fila,
-para ver o fluxo multicanal funcionando. O pedido entra com o canal marcado e segue o
-mesmo caminho dos pedidos próprios.
+Em **Admin → Integrações** (ou no topo do admin) há botões que injetam pedidos do iFood e
+do 99Food na fila via API — entram marcados com o canal e seguem o mesmo fluxo.
 
 ## Identidade visual
 
@@ -75,25 +85,29 @@ mesmo caminho dos pedidos próprios.
 | Branco | `#FFFFFF` |
 
 Tipografia: Archivo Black itálico nos títulos (o peso da logo), Inter no corpo.
-A logo original está em `public/assets/logo-to-no-sarro.jpeg`.
+Logo oficial em `public/assets/`, fotos dos produtos em `public/img/products/`.
 
 ## Estrutura
 
 ```
-src/App.jsx        protótipo completo (dados, componentes e os cinco painéis)
-src/main.jsx       entrada React + registro do service worker
-public/sw.js       service worker do PWA
-public/manifest.webmanifest
-docs/ARQUITETURA.md
-docs/schema.sql    esquema PostgreSQL completo
-.env.example       variáveis do servidor (nenhuma vai para o frontend)
+src/App.jsx            frontend completo (dados vêm da API; UI dos cinco painéis)
+src/main.jsx           entrada React + registro do service worker
+server/index.js        API REST + WebSocket + serving de produção
+server/db.js           esquema SQLite, seed e leituras
+server/auth.js         sessões (cookie httpOnly), bcrypt, permissões por papel
+server/data.js         catálogo de semente (produtos, adicionais, cupons, equipe)
+public/                logo, ícones PWA, fotos dos produtos, service worker
+docs/ARQUITETURA.md    plano de backend, integrações e segurança
+docs/schema.sql        esquema PostgreSQL de referência (SaaS)
+.env.example           variáveis do servidor (nenhuma vai para o frontend)
 ```
+
+O banco SQLite vive em `server/data/sarro.db` (fora do git). `npm run seed` recria do zero.
 
 ## Próximos passos
 
-1. Backend com a API de `docs/ARQUITETURA.md` e o banco de `docs/schema.sql`
-2. Substituir o objeto `store` por hooks que falam com a API (a assinatura dos
-   métodos já é a mesma)
-3. WebSocket para os painéis operacionais
-4. iFood, 99Food, WhatsApp Cloud API e gateway de Pix
-5. Fotos reais dos produtos no lugar dos ícones do protótipo
+1. CRUD completo de produtos no admin (hoje: preço, promo, disponibilidade e estoque)
+2. Pix real via gateway (arquitetura desacoplada já prevista em `docs/ARQUITETURA.md`)
+3. WhatsApp Cloud API + webhooks iFood/99Food assinados (módulos prontos para credenciais)
+4. Impressão de comandas (QZ Tray / escpos)
+5. Geolocalização do entregador em rota
