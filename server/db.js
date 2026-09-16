@@ -192,6 +192,7 @@ addColumnIfMissing("products", "img", "img TEXT");
 addColumnIfMissing("products", "updated_at", "updated_at INTEGER DEFAULT 0");
 addColumnIfMissing("orders", "payment_status", "payment_status TEXT DEFAULT ('indefinido')");
 addColumnIfMissing("orders", "ext_ref", "ext_ref TEXT");
+addColumnIfMissing("orders", "track_token", "track_token TEXT");
 
 function getSettingRaw(key) {
   try { return db.prepare("SELECT value FROM settings WHERE key = ?").get(key)?.value; } catch { return undefined; }

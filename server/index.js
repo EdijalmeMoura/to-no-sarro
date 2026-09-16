@@ -46,6 +46,22 @@ app.use((_req, res, next) => {
   res.setHeader("X-Content-Type-Options", "nosniff");
   res.setHeader("X-Frame-Options", "DENY");
   res.setHeader("Referrer-Policy", "no-referrer");
+  res.setHeader(
+    "Content-Security-Policy",
+    [
+      "default-src 'self'",
+      "script-src 'self' 'unsafe-eval' https://cdn.tailwindcss.com",
+      "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+      "font-src 'self' https://fonts.gstatic.com data:",
+      "img-src 'self' data: blob: https:",
+      "connect-src 'self' ws: wss:",
+      "frame-ancestors 'none'",
+      "base-uri 'self'",
+    ].join("; ")
+  );
+  if ((process.env.APP_BASE_URL || "").startsWith("https://") || process.env.SECURE_COOKIE === "1") {
+    res.setHeader("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
+  }
   next();
 });
 
@@ -71,10 +87,26 @@ function snapshot() {
   };
 }
 
+// Snapshot público (visitante anônimo): só o cardápio e a loja.
+// Pedidos, clientes (CRM), estoque e entregadores nunca saem sem login.
+function publicSnapshot() {
+  return {
+    orders: [],
+    products: getProducts(),
+    inventory: [],
+    drivers: [],
+    customers: [],
+    settings: getSettings(),
+    promos: getPromos(),
+    coupons: getCoupons(),
+  };
+}
+
 function broadcast() {
-  const msg = JSON.stringify({ type: "sync", data: snapshot() });
+  const pub = JSON.stringify({ type: "sync", data: publicSnapshot() });
+  const full = JSON.stringify({ type: "sync", data: snapshot() });
   for (const c of wss.clients) {
-    if (c.readyState === 1) c.send(msg);
+    if (c.readyState === 1) c.send(c.isStaff ? full : pub);
   }
 }
 
@@ -134,7 +166,19 @@ function mirrorToIfood(order, status) {
 server.on("upgrade", (req, socket, head) => {
   const { pathname } = new URL(req.url, "http://localhost");
   if (pathname === "/ws") {
-    wss.handleUpgrade(req, socket, head, (ws) => wss.emit("connection", ws, req));
+    wss.handleUpgrade(req, socket, head, (ws, wreq) => {
+      // Staff (sessão válida no cookie) recebe o snapshot completo;
+      // anônimos recebem só o cardápio, sem dados de pedidos/clientes.
+      const m = /(?:^|;\s*)sarro_session=([^;]+)/.exec(wreq.headers.cookie || "");
+      ws.isStaff = false;
+      if (m) {
+        const u = db
+          .prepare("SELECT u.id FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.token = ?")
+          .get(m[1]);
+        ws.isStaff = !!u;
+      }
+      wss.emit("connection", ws, wreq);
+    });
   } else {
     socket.destroy();
   }
@@ -150,13 +194,13 @@ app.get("/api/auth/me", (req, res) => res.json({ user: publicUser(req.user) }));
 // ------------------------------------------------------------
 // BOOTSTRAP — tudo que o app precisa em uma chamada
 // ------------------------------------------------------------
-app.get("/api/bootstrap", (_req, res) => {
+app.get("/api/bootstrap", (req, res) => {
   res.json({
-    ...snapshot(),
+    ...(req.user ? snapshot() : publicSnapshot()),
     categories: getCategories(),
     optionGroups: getOptionGroups(),
     builder: getBuilder(),
-    me: publicUser(_req.user),
+    me: publicUser(req.user),
   });
 });
 
@@ -309,13 +353,16 @@ app.post("/api/orders", (req, res) => {
   const onlinePay = ["PIX", "CARTAO_ONLINE"].includes(payment);
   const paymentStatus = onlinePay ? "pendente" : "na_entrega";
 
+  // Token de capability: só quem criou o pedido (e o staff) consegue acompanhá-lo
+  const trackToken = crypto.randomBytes(12).toString("hex");
+
   db.exec("BEGIN");
   try {
     db.prepare(`
-      INSERT INTO orders (id, code, channel, status, created_at, customer_name, customer_phone, customer_addr, payment, type, note, subtotal, fee, discount, total, payment_status)
-      VALUES (?, ?, ?, 'NOVO', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO orders (id, code, channel, status, created_at, customer_name, customer_phone, customer_addr, payment, type, note, subtotal, fee, discount, total, payment_status, track_token)
+      VALUES (?, ?, ?, 'NOVO', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(id, code, channel, now, name, phone, type === "pickup" ? "Retirada na loja" : addr,
-      paymentLabel, type, note, subtotal, fee, discount, total, paymentStatus);
+      paymentLabel, type, note, subtotal, fee, discount, total, paymentStatus, trackToken);
 
     const insItem = db.prepare("INSERT INTO order_items (id, order_id, product_id, name, emoji, qty, unit, opts, note) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)");
     for (const it of cleanItems) {
@@ -351,7 +398,7 @@ app.post("/api/orders", (req, res) => {
     fireWhatsApp(created, "recebido");
     if (!onlinePay) autoPrintKitchen(created);
   }
-  res.status(201).json({ order: shapeOrder(created) });
+  res.status(201).json({ order: { ...shapeOrder(created), trackToken } });
 });
 
 // Simulação de pedido externo (iFood/99Food/WhatsApp) — staff
@@ -487,6 +534,7 @@ function confirmPayment(orderId, { slug, transactionNsu, captureMethod, paidAmou
 app.post("/api/orders/:id/pay", async (req, res) => {
   const o = db.prepare("SELECT * FROM orders WHERE id = ?").get(req.params.id);
   if (!o) return res.status(404).json({ error: "Pedido não encontrado." });
+  if (o.track_token && o.track_token !== req.query.t) return res.status(403).json({ error: "Link de pagamento inválido." });
   if (!ONLINE_PAYMENTS.has(o.payment)) {
     return res.status(400).json({ error: "Este pedido não é pagamento online." });
   }
@@ -593,9 +641,22 @@ app.post("/api/payments/infinitepay/webhook", async (req, res) => {
 });
 
 // Consulta manual/automática (o acompanhamento do cliente chama isto)
+// Rastreio do pedido pelo próprio cliente — autenticado por token de
+// capability (entregue na criação). Sem ele, é 403: sem enumeração de IDs.
+app.get("/api/track/:id", (req, res) => {
+  const raw = db.prepare("SELECT track_token FROM orders WHERE id = ?").get(req.params.id);
+  if (!raw) return res.status(404).json({ error: "Pedido não encontrado." });
+  if (raw.track_token && raw.track_token !== req.query.t) {
+    return res.status(403).json({ error: "Link de acompanhamento inválido." });
+  }
+  const o = getOrders().find((x) => x.id === req.params.id);
+  res.json({ order: o });
+});
+
 app.post("/api/orders/:id/payment_status", async (req, res) => {
   const o = db.prepare("SELECT * FROM orders WHERE id = ?").get(req.params.id);
   if (!o) return res.status(404).json({ error: "Pedido não encontrado." });
+  if (o.track_token && o.track_token !== req.query.t) return res.status(403).json({ error: "Link de acompanhamento inválido." });
   if (o.payment_status !== "pendente") {
     return res.json({ paid: o.payment_status === "pago", paymentStatus: o.payment_status });
   }
@@ -1129,8 +1190,16 @@ app.post("/api/products/:id/image", requireRole("ADMIN", "GERENTE"), (req, res) 
   });
   req.on("end", () => {
     if (aborted) return;
+    const buf = Buffer.concat(chunks);
+    // Confere a assinatura real dos bytes (não confia no Content-Type)
+    const isPng = buf.length > 8 && buf.subarray(0, 4).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47]));
+    const isJpg = buf.length > 3 && buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff;
+    const isWebp = buf.length > 12 && buf.subarray(0, 4).toString("latin1") === "RIFF" && buf.subarray(8, 12).toString("latin1") === "WEBP";
+    if (!isPng && !isJpg && !isWebp) {
+      return res.status(400).json({ error: "O arquivo não parece uma imagem válida." });
+    }
     const name = `${p.id}-${Date.now().toString(36)}.${ext}`;
-    fs.writeFileSync(path.join(UPLOAD_DIR, name), Buffer.concat(chunks));
+    fs.writeFileSync(path.join(UPLOAD_DIR, name), buf);
     // remove uploads antigos deste produto
     for (const f of fs.readdirSync(UPLOAD_DIR)) {
       if (f.startsWith(`${p.id}-`) && f !== name) fs.rmSync(path.join(UPLOAD_DIR, f));

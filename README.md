@@ -178,6 +178,26 @@ Admin → Categorias: criar/renomear/excluir categorias (exclusão bloqueada com
 criar grupos de opcionais com mínimo/máximo/obrigatório e gerenciar os itens de cada
 grupo (nome e preço editáveis na linha). Tudo reflete no cardápio do cliente em tempo real.
 
+## Segurança 🔒
+
+**Já embutido no código** (não depende de configuração):
+- Senhas com bcrypt; sessão em cookie `httpOnly` + `SameSite=Lax` (e `Secure`
+  automático quando `APP_BASE_URL` é https ou `SECURE_COOKIE=1`)
+- Rate limit de login (10 tentativas / 5 min por IP) + trilha de auditoria
+- Papéis (ADMIN/GERENTE/COZINHA/EXPEDIÇÃO/ENTREGADOR) validados em cada rota
+- **Privacidade do cliente**: visitante anônimo só recebe o cardápio (REST e
+  WebSocket). Pedidos, CRM, estoque e entregadores exigem login
+- **Rastreio por token de capability**: o pedido criado retorna um `trackToken`;
+  sem ele é impossível enumerar pedidos alheios (`/api/track/:id`,
+  `payment_status` e `/pay` são 403)
+- SQL 100% parametrizado; segredos (tokens WhatsApp/iFood, segredo do webhook
+  InfinitePay) nunca vão para o frontend; webhook de pagamento confere assinatura
+  com `timingSafeEqual` + consulta `payment_check` server-to-server
+- Upload de fotos valida **magic bytes** (PNG/JPEG/WebP reais), 3 MB máx.,
+  nome de arquivo gerado no servidor
+- Headers: CSP, X-Frame-Options, nosniff, Referrer-Policy; HSTS em HTTPS
+- XSS: dados do cliente escapados nos templates de impressão
+
 ## Próximos passos
 
 1. Geolocalização do entregador em rota

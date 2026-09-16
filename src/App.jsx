@@ -336,33 +336,39 @@ const fmtDT = (ts) =>
 
 const channelName = (ch) => CHANNELS[ch]?.label || ch;
 
+// Escape para HTML — dados do pedido (nome/obs do cliente) nunca entram
+// crus no document.write da impressão
+function esc(s) {
+  return String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+
 function printKitchen(o) {
   const items = o.items.map((i) => `
-    <div class="item">${i.qty}x ${i.name}</div>
-    ${i.opts.map((op) => `<div class="opt">+ ${op.name}</div>`).join("")}
-    ${i.note ? `<div class="note">OBS: ${i.note}</div>` : ""}
+    <div class="item">${i.qty}x ${esc(i.name)}</div>
+    ${i.opts.map((op) => `<div class="opt">+ ${esc(op.name)}</div>`).join("")}
+    ${i.note ? `<div class="note">OBS: ${esc(i.note)}</div>` : ""}
   `).join("");
   printHTML(`
     <h1>COMANDA — COZINHA</h1>
-    <div class="sub">${channelName(o.channel)} · ${fmtDT(o.createdAt)}</div>
+    <div class="sub">${esc(channelName(o.channel))} · ${fmtDT(o.createdAt)}</div>
     <div class="big">#${o.code} · ${o.type === "pickup" ? "RETIRADA" : "DELIVERY"}</div>
     <hr />
     ${items}
-    ${o.note ? `<hr /><div class="note">OBS GERAL: ${o.note}</div>` : ""}
+    ${o.note ? `<hr /><div class="note">OBS GERAL: ${esc(o.note)}</div>` : ""}
   `);
 }
 
 function printExpedition(o) {
-  const items = o.items.map((i) => `<div class="kv">${i.qty}x ${i.name}</div>`).join("");
+  const items = o.items.map((i) => `<div class="kv">${i.qty}x ${esc(i.name)}</div>`).join("");
   printHTML(`
     <h1>EXPEDIÇÃO</h1>
     <div class="sub">${channelName(o.channel)} · ${fmtDT(o.createdAt)}</div>
     <div class="big">#${o.code}</div>
     <hr />
-    <div class="kv"><strong>Cliente:</strong> ${o.customer.name}</div>
-    <div class="kv"><strong>Telefone:</strong> ${o.customer.phone}</div>
-    <div class="kv"><strong>${o.type === "pickup" ? "Retirada na loja" : "Endereço"}:</strong> ${o.customer.addr}</div>
-    <div class="kv"><strong>Pagamento:</strong> ${o.payment}</div>
+    <div class="kv"><strong>Cliente:</strong> ${esc(o.customer.name)}</div>
+    <div class="kv"><strong>Telefone:</strong> ${esc(o.customer.phone)}</div>
+    <div class="kv"><strong>${o.type === "pickup" ? "Retirada na loja" : "Endereço"}:</strong> ${esc(o.customer.addr)}</div>
+    <div class="kv"><strong>Pagamento:</strong> ${esc(o.payment)}</div>
     <hr />
     ${items}
   `);
@@ -370,16 +376,16 @@ function printExpedition(o) {
 
 function printReceipt(o, settings = {}) {
   const items = o.items.map((i) => `
-    <div class="row"><span>${i.qty}x ${i.name}</span><span>${brl(i.unit * i.qty)}</span></div>
-    ${i.opts.filter((op) => op.price > 0).map((op) => `<div class="opt">+ ${op.name} (${brl(op.price)})</div>`).join("")}
+    <div class="row"><span>${i.qty}x ${esc(i.name)}</span><span>${brl(i.unit * i.qty)}</span></div>
+    ${i.opts.filter((op) => op.price > 0).map((op) => `<div class="opt">+ ${esc(op.name)} (${brl(op.price)})</div>`).join("")}
   `).join("");
   printHTML(`
     <h1>TÔ NO SARRO!</h1>
     <div class="sub">Burgers & Açaí · Janga, Paulista/PE<br />${settings.address || ""}</div>
     <hr />
     <div class="kv">Pedido <strong>#${o.code}</strong> · ${fmtDT(o.createdAt)}</div>
-    <div class="kv">Cliente: ${o.customer.name}</div>
-    <div class="kv">${o.type === "pickup" ? "Retirada na loja" : "Delivery"} · ${o.customer.addr}</div>
+    <div class="kv">Cliente: ${esc(o.customer.name)}</div>
+    <div class="kv">${o.type === "pickup" ? "Retirada na loja" : "Delivery"} · ${esc(o.customer.addr)}</div>
     <hr />
     ${items}
     <hr />
@@ -387,7 +393,7 @@ function printReceipt(o, settings = {}) {
     <div class="row"><span>Taxa de entrega</span><span>${o.fee ? brl(o.fee) : "grátis"}</span></div>
     ${o.discount ? `<div class="row"><span>Desconto</span><span>-${brl(o.discount)}</span></div>` : ""}
     <div class="row total"><span>TOTAL</span><span>${brl(o.total)}</span></div>
-    <div class="kv" style="margin-top:4px">Pagamento: ${o.payment}</div>
+    <div class="kv" style="margin-top:4px">Pagamento: ${esc(o.payment)}</div>
     <hr />
     <div class="c">Obrigado! Volta sempre 🔥<br />tonosarro · cardápio digital</div>
   `);
@@ -397,11 +403,11 @@ function printLabel(o) {
   printHTML(`
     <h1>SARRO #${o.code}</h1>
     <hr />
-    <div class="big">${o.customer.name}</div>
-    <div class="kv">${o.customer.phone}</div>
-    <div class="kv">${o.type === "pickup" ? "RETIRADA NA LOJA" : o.customer.addr}</div>
+    <div class="big">${esc(o.customer.name)}</div>
+    <div class="kv">${esc(o.customer.phone)}</div>
+    <div class="kv">${o.type === "pickup" ? "RETIRADA NA LOJA" : esc(o.customer.addr)}</div>
     <hr />
-    ${o.items.map((i) => `<div class="kv">${i.qty}x ${i.name}</div>`).join("")}
+    ${o.items.map((i) => `<div class="kv">${i.qty}x ${esc(i.name)}</div>`).join("")}
   `);
 }
 
@@ -1298,8 +1304,15 @@ const TRACK_STEPS = [
 ];
 
 function TrackScreen({ order, store, now }) {
-  // Enquanto o Pix/cartão não cai, pergunta ao servidor a cada 6s
-  // (o servidor consulta a InfinitePay; a resposta chega a todos via WebSocket).
+  // Atualização do próprio pedido: polling autenticado por token
+  // (o canal público não carrega pedidos de outros clientes).
+  useEffect(() => {
+    if (!order) return;
+    store.refreshMyOrder?.().catch(() => {});
+    const t = setInterval(() => store.refreshMyOrder?.().catch(() => {}), 6000);
+    return () => clearInterval(t);
+  }, [order?.id]);
+  // Enquanto o Pix/cartão não cai, o servidor consulta a InfinitePay a cada 6s
   useEffect(() => {
     if (order?.paymentStatus !== "pendente") return;
     const t = setInterval(() => store.checkPayment(order.id).catch(() => {}), 6000);
@@ -1537,7 +1550,7 @@ function ClientApp({ store, now }) {
   const [modal, setModal] = useState(null);
   const [checkout, setCheckout] = useState(null);
   const cartCount = store.cart.reduce((s, i) => s + i.qty, 0);
-  const active = store.myOrderId ? store.orders.find((o) => o.id === store.myOrderId) : null;
+  const active = store.myOrder || (store.myOrderId ? store.orders.find((o) => o.id === store.myOrderId) : null);
 
   const addToCart = (item) => {
     store.addItem(item);
@@ -3858,6 +3871,7 @@ export default function App() {
   });
   const [coupon, setCoupon] = useState(null);
   const [myOrderId, setMyOrderId] = useState(() => localStorage.getItem("sarro_my_order") || null);
+  const [myOrder, setMyOrder] = useState(null);
   const [toastMsg, setToastMsg] = useState("");
   const [confetti, setConfetti] = useState(false);
   const [notifications, setNotifications] = useState([]);
@@ -3917,6 +3931,11 @@ export default function App() {
       .then((d) => {
         setCatalog({ categories: d.categories, optionGroups: d.optionGroups, builder: d.builder });
         setMe(d.me);
+        const myId = localStorage.getItem("sarro_my_order");
+        if (myId) {
+          const t = encodeURIComponent(localStorage.getItem("sarro_my_token") || "");
+          api(`/api/track/${myId}?t=${t}`).then((r) => setMyOrder(r.order)).catch(() => {});
+        }
         known.current = new Set(d.orders.map((o) => o.id));
         applySync(d);
         setReady(true);
@@ -3951,7 +3970,15 @@ export default function App() {
     role, tab, setTab, me,
     orders, products, inventory, drivers, customers, coupons, promos, settings,
     optionGroups: catalog.optionGroups, builder: catalog.builder, categories: catalog.categories,
-    cart, coupon, setCoupon, myOrderId, notifications, toast,
+    cart, coupon, setCoupon, myOrderId, myOrder, notifications, toast,
+    refreshMyOrder: async () => {
+      const id = localStorage.getItem("sarro_my_order");
+      if (!id) return null;
+      const t = encodeURIComponent(localStorage.getItem("sarro_my_token") || "");
+      const d = await api(`/api/track/${id}?t=${t}`);
+      setMyOrder(d.order);
+      return d.order;
+    },
     open: settings.open,
     fee: settings.fee,
 
@@ -3961,7 +3988,8 @@ export default function App() {
       setCart((c) => (qty <= 0 ? c.filter((i) => i.id !== id) : c.map((i) => (i.id === id ? { ...i, qty } : i)))),
 
     checkPayment: async (orderId) => {
-      const d = await api(`/api/orders/${orderId}/payment_status`, { method: "POST" });
+      const t = encodeURIComponent(localStorage.getItem("sarro_my_token") || "");
+      const d = await api(`/api/orders/${orderId}/payment_status?t=${t}`, { method: "POST" });
       return d;
     },
 
@@ -3979,7 +4007,9 @@ export default function App() {
         setCart([]);
         setCoupon(null);
         setMyOrderId(order.id);
+        setMyOrder(order);
         localStorage.setItem("sarro_my_order", order.id);
+        localStorage.setItem("sarro_my_token", order.trackToken || "");
         setTab("pedidos");
         setConfetti(true);
         setTimeout(() => setConfetti(false), 2600);
@@ -3991,9 +4021,10 @@ export default function App() {
         // A confirmação volta por webhook e o status atualiza sozinho.
         if (["PIX", "CARTAO_ONLINE"].includes(payload.payment)) {
           try {
-            const pd = await api(`/api/orders/${order.id}/pay`, { method: "POST" });
+            const pd = await api(`/api/orders/${order.id}/pay?t=${encodeURIComponent(order.trackToken || "")}`, { method: "POST" });
             if (pd.url) {
               setOrders((os) => os.map((x) => (x.id === order.id ? { ...x, payUrl: pd.url } : x)));
+              setMyOrder((m) => (m && m.id === order.id ? { ...m, payUrl: pd.url } : m));
               window.open(pd.url, "_blank");
             }
           } catch (pe) {
