@@ -1,20 +1,31 @@
 {
   "name": "to-no-sarro-smart-food-system",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "TÔ NO SARRO! — Smart Food System: cardápio digital, gestão de pedidos, KDS, expedição e app do entregador.",
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "dev:server": "node server/index.js",
+    "dev:all": "concurrently -k -n api,web -c yellow,orange \"npm:dev:server\" \"npm:dev\"",
+    "seed": "node server/db.js --reset",
     "build": "vite build",
-    "preview": "vite preview"
+    "start": "node server/index.js"
   },
   "dependencies": {
+    "bcryptjs": "^2.4.3",
+    "cookie-parser": "^1.4.7",
+    "express": "^4.21.2",
     "react": "^18.3.1",
-    "react-dom": "^18.3.1"
+    "react-dom": "^18.3.1",
+    "ws": "^8.18.0"
   },
   "devDependencies": {
     "@vitejs/plugin-react": "^4.3.1",
+    "concurrently": "^9.1.2",
     "vite": "^5.4.0"
+  },
+  "engines": {
+    "node": ">=22"
   }
 }

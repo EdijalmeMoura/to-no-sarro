@@ -1,5 +1,5 @@
 // Service worker mínimo do PWA: cache do shell para abrir offline.
-const CACHE = "sarro-v1";
+const CACHE = "sarro-v2";
 const SHELL = ["./", "./index.html", "./manifest.webmanifest"];
 
 self.addEventListener("install", (e) => {
@@ -16,6 +16,7 @@ self.addEventListener("activate", (e) => {
 
 self.addEventListener("fetch", (e) => {
   if (e.request.method !== "GET") return;
+  if (!e.request.url.startsWith(self.location.origin)) return;
   e.respondWith(
     fetch(e.request)
       .then((r) => {

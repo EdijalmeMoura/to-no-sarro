@@ -64,258 +64,6 @@ const CATEGORIES = [
   { id: "promocoes", label: "Promoções", icon: "🔥" },
 ];
 
-const OPTION_GROUPS = {
-  ponto: {
-    id: "ponto", name: "Ponto da carne", min: 1, max: 1, required: true,
-    options: [
-      { id: "malpassado", name: "Mal passado", price: 0 },
-      { id: "aoponto", name: "Ao ponto", price: 0 },
-      { id: "bempassado", name: "Bem passado", price: 0 },
-    ],
-  },
-  queijo: {
-    id: "queijo", name: "Escolha seu queijo", min: 1, max: 1, required: true,
-    options: [
-      { id: "cheddar", name: "Cheddar", price: 0 },
-      { id: "mussarela", name: "Mussarela", price: 0 },
-      { id: "prato", name: "Prato", price: 0 },
-      { id: "gorgonzola", name: "Gorgonzola", price: 3 },
-    ],
-  },
-  molho: {
-    id: "molho", name: "Escolha seu molho", min: 1, max: 2, required: true,
-    options: [
-      { id: "especial", name: "Molho especial da casa", price: 0 },
-      { id: "barbecue", name: "Barbecue", price: 0 },
-      { id: "cheddar_m", name: "Cheddar cremoso", price: 2 },
-      { id: "picante", name: "Picante do Sarro", price: 2 },
-    ],
-  },
-  adicionais: {
-    id: "adicionais", name: "Turbine seu burger", min: 0, max: 6, required: false,
-    options: [
-      { id: "add_cheddar", name: "Cheddar extra", price: 4 },
-      { id: "add_bacon", name: "Bacon crocante", price: 5 },
-      { id: "add_carne", name: "Carne extra 180g", price: 9 },
-      { id: "add_molho", name: "Molho especial extra", price: 2 },
-      { id: "add_cebola", name: "Cebola caramelizada", price: 3 },
-      { id: "add_ovo", name: "Ovo frito", price: 3 },
-    ],
-  },
-  remover: {
-    id: "remover", name: "Retirar ingredientes", min: 0, max: 6, required: false,
-    options: [
-      { id: "rm_cebola", name: "Sem cebola", price: 0 },
-      { id: "rm_alface", name: "Sem alface", price: 0 },
-      { id: "rm_tomate", name: "Sem tomate", price: 0 },
-      { id: "rm_picles", name: "Sem picles", price: 0 },
-    ],
-  },
-  acaiTop: {
-    id: "acaiTop", name: "Acompanhamentos do açaí", min: 0, max: 5, required: false,
-    options: [
-      { id: "granola", name: "Granola", price: 2 },
-      { id: "leiteninho", name: "Leite ninho", price: 3 },
-      { id: "banana", name: "Banana", price: 2 },
-      { id: "morango", name: "Morango", price: 4 },
-      { id: "nutella", name: "Nutella", price: 6 },
-    ],
-  },
-  refri: {
-    id: "refri", name: "Escolha a bebida do combo", min: 1, max: 1, required: true,
-    options: [
-      { id: "coca", name: "Coca-Cola lata", price: 0 },
-      { id: "guarana", name: "Guaraná lata", price: 0 },
-      { id: "suco", name: "Suco natural 300ml", price: 3 },
-    ],
-  },
-};
-
-const PRODUCTS = [
-  {
-    id: "p1", name: "Sarro Burger", cat: "burgers", emoji: "🍔",
-    desc: "O clássico que deu nome à casa. Simples, gordo e honesto.",
-    ingredients: ["Pão brioche", "Hambúrguer artesanal 180g", "Queijo cheddar", "Bacon crocante", "Molho especial", "Cebola roxa", "Alface", "Tomate"],
-    price: 29.9, promo: null, time: 18, badges: ["maisvendido"], available: true,
-    groups: ["ponto", "queijo", "molho", "adicionais", "remover"], stock: 40,
-  },
-  {
-    id: "p2", name: "Bacon Sarro", cat: "burgers", emoji: "🥓",
-    desc: "Camada dupla de bacon e cheddar derretido na chapa.",
-    ingredients: ["Pão brioche", "Hambúrguer 180g", "Cheddar duplo", "Bacon em tiras", "Maionese defumada"],
-    price: 34.9, promo: 31.9, time: 20, badges: ["promocao"], available: true,
-    groups: ["ponto", "molho", "adicionais", "remover"], stock: 28,
-  },
-  {
-    id: "p3", name: "Duplo Sarro", cat: "especiais", emoji: "🍔",
-    desc: "Dois blends de 180g para quem chegou com fome de verdade.",
-    ingredients: ["Pão australiano", "2x hambúrguer 180g", "Queijo prato", "Bacon", "Cebola caramelizada", "Molho da casa"],
-    price: 44.9, promo: null, time: 24, badges: ["maisvendido"], available: true,
-    groups: ["ponto", "queijo", "molho", "adicionais", "remover"], stock: 15,
-  },
-  {
-    id: "p4", name: "Smash do Sarro", cat: "burgers", emoji: "🍔",
-    desc: "Dois smashs finos prensados na chapa quente, borda crocante.",
-    ingredients: ["Pão de batata", "2x smash 90g", "Cheddar americano", "Picles", "Molho smash"],
-    price: 27.9, promo: null, time: 15, badges: ["novidade"], available: true,
-    groups: ["queijo", "molho", "adicionais", "remover"], stock: 33,
-  },
-  {
-    id: "p5", name: "Frango Empanado Sarro", cat: "especiais", emoji: "🍗",
-    desc: "Filé de frango empanado na hora, crocante por fora.",
-    ingredients: ["Pão brioche", "Filé de frango empanado", "Queijo prato", "Alface", "Maionese verde"],
-    price: 28.9, promo: null, time: 20, badges: [], available: true,
-    groups: ["queijo", "molho", "adicionais", "remover"], stock: 22,
-  },
-  {
-    id: "p6", name: "Combo Sarro Completo", cat: "combos", emoji: "🍟",
-    desc: "Sarro Burger + batata especial + bebida gelada. O pedido campeão.",
-    ingredients: ["Sarro Burger", "Batata especial 200g", "Bebida 350ml"],
-    price: 49.9, promo: 42.9, time: 25, badges: ["maisvendido", "promocao"], available: true,
-    groups: ["ponto", "molho", "refri", "adicionais"], stock: 30,
-  },
-  {
-    id: "p7", name: "Combo Casal", cat: "combos", emoji: "🍔",
-    desc: "2 burgers, porção grande de batata e 2 bebidas.",
-    ingredients: ["2x Sarro Burger", "Batata grande", "2 bebidas"],
-    price: 89.9, promo: 79.9, time: 30, badges: ["promocao"], available: true,
-    groups: ["ponto", "molho", "adicionais"], stock: 12,
-  },
-  {
-    id: "p8", name: "Batata Especial", cat: "porcoes", emoji: "🍟",
-    desc: "Batata rústica com cheddar, bacon e cebolinha.",
-    ingredients: ["Batata rústica 300g", "Cheddar cremoso", "Bacon", "Cebolinha"],
-    price: 24.9, promo: null, time: 14, badges: ["maisvendido"], available: true,
-    groups: ["adicionais"], stock: 45,
-  },
-  {
-    id: "p9", name: "Onion Rings", cat: "porcoes", emoji: "🧅",
-    desc: "8 anéis de cebola empanados com molho barbecue.",
-    ingredients: ["Cebola empanada", "Molho barbecue"],
-    price: 19.9, promo: null, time: 12, badges: [], available: true, groups: [], stock: 20,
-  },
-  {
-    id: "p10", name: "Coca-Cola 350ml", cat: "bebidas", emoji: "🥤",
-    desc: "Lata gelada.", ingredients: ["Refrigerante 350ml"],
-    price: 7, promo: null, time: 2, badges: [], available: true, groups: [], stock: 120,
-  },
-  {
-    id: "p11", name: "Suco natural 500ml", cat: "bebidas", emoji: "🍹",
-    desc: "Laranja, maracujá ou abacaxi com hortelã.", ingredients: ["Fruta natural", "Gelo"],
-    price: 12, promo: null, time: 6, badges: [], available: true, groups: [], stock: 40,
-  },
-  {
-    id: "p12", name: "Açaí Sarro 500ml", cat: "acai", emoji: "🥣",
-    desc: "Açaí cremoso batido na hora com os acompanhamentos que você escolher.",
-    ingredients: ["Açaí 500ml", "Acompanhamentos à escolha"],
-    price: 24.9, promo: null, time: 10, badges: ["maisvendido"], available: true,
-    groups: ["acaiTop"], stock: 35,
-  },
-  {
-    id: "p13", name: "Açaí Turbinado 700ml", cat: "acai", emoji: "🍨",
-    desc: "Porção grande com quatro acompanhamentos inclusos.",
-    ingredients: ["Açaí 700ml", "4 acompanhamentos"],
-    price: 32.9, promo: 28.9, time: 12, badges: ["promocao"], available: true,
-    groups: ["acaiTop"], stock: 18,
-  },
-  {
-    id: "p14", name: "Brownie com sorvete", cat: "sobremesas", emoji: "🍫",
-    desc: "Brownie quente com bola de creme e calda quente.",
-    ingredients: ["Brownie", "Sorvete de creme", "Calda de chocolate"],
-    price: 18.9, promo: null, time: 8, badges: ["novidade"], available: true, groups: [], stock: 14,
-  },
-  {
-    id: "p15", name: "Milkshake 400ml", cat: "sobremesas", emoji: "🥤",
-    desc: "Chocolate, morango ou ovomaltine.", ingredients: ["Sorvete", "Leite", "Cobertura"],
-    price: 21.9, promo: null, time: 8, badges: [], available: true, groups: [], stock: 25,
-  },
-  {
-    id: "p16", name: "Monte seu Sarro", cat: "especiais", emoji: "🛠️",
-    desc: "Você escolhe pão, carne, queijo e o resto. Preço calculado na hora.",
-    ingredients: ["Você decide"], price: 26.9, promo: null, time: 22,
-    badges: ["novidade"], available: true, groups: [], stock: 99, builder: true,
-  },
-];
-
-const BUILDER = {
-  pao: {
-    label: "Escolha o pão", key: "pao",
-    options: [
-      { id: "brioche", name: "Brioche", price: 0 },
-      { id: "australiano", name: "Australiano", price: 3 },
-      { id: "batata", name: "Pão de batata", price: 2 },
-      { id: "integral", name: "Integral", price: 2 },
-    ],
-  },
-  carne: {
-    label: "Escolha a carne", key: "carne",
-    options: [
-      { id: "blend180", name: "Blend bovino 180g", price: 0 },
-      { id: "smash2", name: "Duplo smash 90g", price: 2 },
-      { id: "costela", name: "Costela desfiada", price: 6 },
-      { id: "frango", name: "Frango empanado", price: 3 },
-      { id: "veg", name: "Burger de grão-de-bico", price: 4 },
-    ],
-  },
-  queijo: {
-    label: "Escolha o queijo", key: "queijo",
-    options: [
-      { id: "cheddar", name: "Cheddar", price: 0 },
-      { id: "mussarela", name: "Mussarela", price: 0 },
-      { id: "gorgonzola", name: "Gorgonzola", price: 3 },
-      { id: "semqueijo", name: "Sem queijo", price: -2 },
-    ],
-  },
-  molho: {
-    label: "Escolha o molho", key: "molho",
-    options: [
-      { id: "especial", name: "Especial da casa", price: 0 },
-      { id: "barbecue", name: "Barbecue", price: 0 },
-      { id: "picante", name: "Picante", price: 2 },
-    ],
-  },
-};
-
-const COUPONS = [
-  { code: "SARRO10", type: "percent", value: 10, min: 40, uses: 132, limit: 500, active: true, note: "10% em qualquer pedido acima de R$ 40" },
-  { code: "BEMVINDO", type: "percent", value: 15, min: 0, uses: 48, limit: 1000, active: true, note: "Primeira compra" },
-  { code: "BURGER20", type: "fixed", value: 20, min: 90, uses: 17, limit: 100, active: true, note: "R$ 20 off acima de R$ 90" },
-  { code: "FRETEGRATIS", type: "freeship", value: 0, min: 60, uses: 71, limit: 300, active: true, note: "Entrega grátis acima de R$ 60" },
-];
-
-const DRIVERS = [
-  { id: "d1", name: "Rafael Lima", phone: "(81) 98812-0011", vehicle: "Moto CG 160", status: "livre", deliveries: 8 },
-  { id: "d2", name: "Jonas Pereira", phone: "(81) 99640-2233", vehicle: "Moto Biz", status: "em rota", deliveries: 11 },
-  { id: "d3", name: "Bia Santos", phone: "(81) 99177-8890", vehicle: "Moto Fan 150", status: "livre", deliveries: 6 },
-];
-
-const CUSTOMERS = [
-  { id: "c1", name: "João Silva", phone: "(81) 99123-4567", orders: 14, spent: 742.3, last: "Hoje", tier: "VIP", addr: "Rua das Palmeiras, 220 — Janga, Paulista/PE", points: 74 },
-  { id: "c2", name: "Marina Costa", phone: "(81) 98877-1020", orders: 6, spent: 289.4, last: "Ontem", tier: "Recorrente", addr: "Av. Cláudio J. Gueiros, 1500 — Maria Farinha", points: 28 },
-  { id: "c3", name: "Pedro Henrique", phone: "(81) 99555-3311", orders: 1, spent: 49.9, last: "Há 3 dias", tier: "Novo", addr: "Rua do Sol, 45 — Pau Amarelo", points: 4 },
-  { id: "c4", name: "Ana Beatriz", phone: "(81) 98220-7744", orders: 22, spent: 1310.8, last: "Há 2h", tier: "VIP", addr: "Rua Boa Viagem, 88 — Casa Caiada, Olinda", points: 131 },
-  { id: "c5", name: "Carlos Mendes", phone: "(81) 99801-4455", orders: 3, spent: 152.7, last: "Há 46 dias", tier: "Inativo", addr: "Rua Nova, 12 — Rio Doce", points: 15 },
-];
-
-const INVENTORY = [
-  { id: "i1", name: "Blend bovino 180g", unit: "un", qty: 86, min: 40 },
-  { id: "i2", name: "Pão brioche", unit: "un", qty: 62, min: 50 },
-  { id: "i3", name: "Queijo cheddar", unit: "fatia", qty: 210, min: 80 },
-  { id: "i4", name: "Bacon", unit: "kg", qty: 3.4, min: 4 },
-  { id: "i5", name: "Alface", unit: "un", qty: 12, min: 6 },
-  { id: "i6", name: "Tomate", unit: "kg", qty: 5.2, min: 3 },
-  { id: "i7", name: "Molho especial", unit: "L", qty: 2.1, min: 3 },
-  { id: "i8", name: "Batata congelada", unit: "kg", qty: 18, min: 10 },
-  { id: "i9", name: "Refrigerante lata", unit: "un", qty: 94, min: 48 },
-  { id: "i10", name: "Polpa de açaí", unit: "kg", qty: 7.5, min: 8 },
-];
-
-const PROMOS = [
-  { id: "pr1", name: "Happy Hour do Sarro", rule: "18h às 20h — 15% off em combos", active: true, window: "18:00–20:00" },
-  { id: "pr2", name: "Terça do Duplo", rule: "Duplo Sarro por R$ 37,90", active: true, window: "Terças" },
-  { id: "pr3", name: "Açaí da tarde", rule: "Açaí 500ml por R$ 19,90", active: false, window: "14:00–17:00" },
-];
-
 const INTEGRATIONS = [
   { id: "ifood", name: "iFood", status: "conectado", desc: "Pedidos e status via API oficial do iFood (merchant + order events).", fields: ["Client ID", "Client Secret", "Merchant ID", "Webhook URL"], color: "#EA1D2C", orders: 12 },
   { id: "99food", name: "99Food", status: "pendente", desc: "Integração via API parceira. Aguardando liberação de credenciais.", fields: ["API Key", "Store ID", "Webhook URL"], color: "#FFD400", orders: 0 },
@@ -339,7 +87,11 @@ const brl = (n) =>
 
 const uid = () => Math.random().toString(36).slice(2, 9);
 
-const FEE = 7.9;
+
+// Fotos dos produtos (servidas de /public/img). A foto do produto usa o id
+// (ex.: p1.jpg). Enquanto uma foto não existir, o SmartImg cai para o emoji.
+const IMG_BASE = "img/products";
+const LOGO_ROUND = "assets/logo-round.png";
 // ============================================================
 // UTILITÁRIOS DE UI
 // ============================================================
@@ -369,30 +121,55 @@ const elapsed = (from, now) => {
   return `${String(Math.floor(s / 60)).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`;
 };
 
-function Logo({ size = 44, withText = true }) {
+function Logo({ size = 44, glow = false, style = {} }) {
   return (
-    <div className="flex items-center gap-3 select-none">
-      <div
-        className="relative flex items-center justify-center shrink-0"
-        style={{
-          width: size, height: size, borderRadius: "50%",
-          background: C.black, border: `2px solid ${C.orange}`,
-          boxShadow: `0 0 0 2px ${C.black}, 0 0 0 3px ${C.yellow}33`,
-        }}
+    <img
+      src={LOGO_ROUND}
+      alt="TÔ NO SARRO! Burgers & Açaí"
+      width={size}
+      height={size}
+      draggable={false}
+      className="shrink-0 select-none"
+      style={{
+        borderRadius: "50%", display: "block",
+        boxShadow: glow ? `0 0 0 1px ${C.black}, 0 8px 30px ${C.orange}59` : "none",
+        ...style,
+      }}
+    />
+  );
+}
+
+// Foto do produto com fallback para o emoji: enquanto a foto real não existir
+// (ou estiver carregando em conexão ruim), o card continua apresentável.
+// `file` = foto enviada pelo admin (servida em /img-up); sem ela usa a foto
+// padrão img/products/<id>.jpg gerada para o catálogo.
+function SmartImg({ id, emoji, alt = "", fs = 34, className = "", style = {}, file, v = 0 }) {
+  const [broken, setBroken] = useState(false);
+  useEffect(() => setBroken(false), [file, id, v]);
+  const src = file
+    ? `img-up/${file}?v=${v}`
+    : `${IMG_BASE}/${id}.jpg?v=${v}`;
+
+  if (broken) {
+    return (
+      <span
+        className={`flex items-center justify-center w-full h-full ${className}`}
+        style={{ background: `linear-gradient(135deg, ${C.orange}2e, ${C.gray800})`, ...style }}
       >
-        <span style={{ fontSize: size * 0.52, lineHeight: 1 }}>😜</span>
-      </div>
-      {withText && (
-        <div style={{ lineHeight: 0.86 }}>
-          <div style={{ fontFamily: font.display, fontSize: size * 0.32, color: C.white, fontStyle: "italic", letterSpacing: "-0.02em" }}>
-            TÔ NO
-          </div>
-          <div style={{ fontFamily: font.display, fontSize: size * 0.42, color: C.orange, fontStyle: "italic", letterSpacing: "-0.02em" }}>
-            SARRO!
-          </div>
-        </div>
-      )}
-    </div>
+        <span style={{ fontSize: fs, lineHeight: 1 }}>{emoji}</span>
+      </span>
+    );
+  }
+  return (
+    <img
+      src={src}
+      alt={alt}
+      loading="lazy"
+      draggable={false}
+      onError={() => setBroken(true)}
+      className={`sarro-img ${className}`}
+      style={style}
+    />
   );
 }
 
@@ -497,6 +274,15 @@ function StatusPill({ status, small }) {
   );
 }
 
+// Logo oficial do WhatsApp (SVG inline — sem dependências)
+function WaIcon({ size = 22, color = "#fff", style }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill={color} style={style} aria-hidden="true">
+      <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413Z" />
+    </svg>
+  );
+}
+
 function ChannelPill({ channel }) {
   const c = CHANNELS[channel];
   return (
@@ -504,61 +290,144 @@ function ChannelPill({ channel }) {
       className="inline-flex items-center gap-1 rounded-md font-bold"
       style={{ background: `${c.color}1f`, color: c.color, fontSize: 10, padding: "2px 6px", border: `1px solid ${c.color}44` }}
     >
-      {c.icon} {c.short}
+      {channel === "WHATSAPP" ? <WaIcon size={11} color={c.color} /> : c.icon} {c.short}
     </span>
   );
 }
 
 // ============================================================
-// PEDIDOS — SEED + CRIAÇÃO
+// IMPRESSÃO — comandas 80mm via iframe (cozinha, expedição,
+// cupom do cliente e etiqueta de sacola)
 // ============================================================
 
-let seq = 1047;
-const nextCode = () => ++seq;
+function printHTML(body) {
+  const html = `<!doctype html><html><head><meta charset="utf-8"><title>Tô no Sarro</title><style>
+    @page { size: 80mm auto; margin: 4mm; }
+    * { box-sizing: border-box; }
+    body { font-family: "Courier New", ui-monospace, monospace; color: #000; font-size: 12.5px; margin: 0; }
+    h1 { font-size: 17px; margin: 0 0 2px; text-align: center; letter-spacing: 1px; }
+    .sub { text-align: center; font-size: 10.5px; margin-bottom: 6px; }
+    hr { border: 0; border-top: 1px dashed #000; margin: 7px 0; }
+    .big { font-size: 16px; font-weight: 700; }
+    .row { display: flex; justify-content: space-between; gap: 8px; }
+    .item { font-size: 14.5px; font-weight: 700; margin-top: 7px; }
+    .opt { font-size: 11.5px; padding-left: 12px; }
+    .note { background: #000; color: #fff; padding: 3px 6px; font-weight: 700; margin: 3px 0 3px 12px; font-size: 12px; }
+    .kv { margin: 2px 0; }
+    .total { font-size: 15px; font-weight: 700; }
+    .c { text-align: center; }
+  </style></head><body>${body}</body></html>`;
 
-function makeOrder(partial) {
-  const subtotal = partial.items.reduce((s, i) => s + i.unit * i.qty, 0);
-  const fee = partial.type === "delivery" ? (partial.fee ?? FEE) : 0;
-  const discount = partial.discount || 0;
-  return {
-    id: uid(), code: nextCode(), channel: "DIRECT", status: "NOVO",
-    createdAt: Date.now(), driverId: null, startedAt: null, note: "",
-    payment: "PIX", type: "delivery",
-    ...partial,
-    subtotal, fee, discount, total: subtotal + fee - discount,
-  };
+  const f = document.createElement("iframe");
+  f.setAttribute("aria-hidden", "true");
+  f.style.cssText = "position:fixed;right:0;bottom:0;width:0;height:0;border:0;";
+  document.body.appendChild(f);
+  const doc = f.contentWindow.document;
+  doc.open(); doc.write(html); doc.close();
+  f.contentWindow.focus();
+  setTimeout(() => {
+    f.contentWindow.print();
+    setTimeout(() => f.remove(), 4000);
+  }, 150);
 }
 
-function seedOrders() {
-  const t = Date.now();
-  const mk = (o, minsAgo, status) => {
-    const ord = makeOrder(o);
-    ord.createdAt = t - minsAgo * 60000;
-    ord.status = status;
-    if (["PREPARO", "PRONTO", "EMBALADO", "AGUARDANDO", "ROTA", "ENTREGUE"].includes(status))
-      ord.startedAt = ord.createdAt + 90000;
-    return ord;
-  };
-  const it = (p, qty, opts = [], note = "") => ({
-    id: uid(), productId: p.id, name: p.name, emoji: p.emoji, qty,
-    unit: (p.promo || p.price) + opts.reduce((s, o) => s + o.price, 0), opts, note,
-  });
-  const P = Object.fromEntries(PRODUCTS.map((p) => [p.id, p]));
-  return [
-    mk({ channel: "IFOOD", customer: { name: "Marina Costa", phone: "(81) 98877-1020", addr: "Av. Cláudio J. Gueiros, 1500 — Maria Farinha" },
-      items: [it(P.p1, 2, [{ name: "Bacon crocante", price: 5 }], "Sem cebola"), it(P.p10, 2)], payment: "Cartão (iFood)" }, 4, "NOVO"),
-    mk({ channel: "DIRECT", customer: { name: "João Silva", phone: "(81) 99123-4567", addr: "Rua das Palmeiras, 220 — Janga, Paulista/PE" },
-      items: [it(P.p6, 1), it(P.p8, 1)], payment: "PIX" }, 9, "PREPARO"),
-    mk({ channel: "WHATSAPP", customer: { name: "Pedro Henrique", phone: "(81) 99555-3311", addr: "Retirada na loja" },
-      items: [it(P.p3, 1, [{ name: "Ovo frito", price: 3 }])], payment: "Dinheiro", type: "pickup" }, 14, "PRONTO"),
-    mk({ channel: "NNFOOD", customer: { name: "Ana Beatriz", phone: "(81) 98220-7744", addr: "Rua Boa Viagem, 88 — Casa Caiada, Olinda" },
-      items: [it(P.p12, 2), it(P.p14, 1)], payment: "Cartão (99Food)" }, 19, "AGUARDANDO"),
-    mk({ channel: "DIRECT", customer: { name: "Carlos Mendes", phone: "(81) 99801-4455", addr: "Rua Nova, 12 — Rio Doce" },
-      items: [it(P.p2, 1), it(P.p9, 1), it(P.p11, 1)], payment: "PIX" }, 27, "ROTA"),
-    mk({ channel: "DIRECT", customer: { name: "Lucas Andrade", phone: "(81) 99333-1200", addr: "Rua do Sol, 45 — Pau Amarelo" },
-      items: [it(P.p7, 1)], payment: "Cartão" }, 52, "ENTREGUE"),
-  ].map((o, i) => (i === 4 ? { ...o, driverId: "d2" } : o));
+const fmtDT = (ts) =>
+  new Date(ts).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
+
+const channelName = (ch) => CHANNELS[ch]?.label || ch;
+
+// Escape para HTML — dados do pedido (nome/obs do cliente) nunca entram
+// crus no document.write da impressão
+function esc(s) {
+  return String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 }
+
+function printKitchen(o) {
+  const items = o.items.map((i) => `
+    <div class="item">${i.qty}x ${esc(i.name)}</div>
+    ${i.opts.map((op) => `<div class="opt">+ ${esc(op.name)}</div>`).join("")}
+    ${i.note ? `<div class="note">OBS: ${esc(i.note)}</div>` : ""}
+  `).join("");
+  printHTML(`
+    <h1>COMANDA — COZINHA</h1>
+    <div class="sub">${esc(channelName(o.channel))} · ${fmtDT(o.createdAt)}</div>
+    <div class="big">#${o.code} · ${o.type === "pickup" ? "RETIRADA" : "DELIVERY"}</div>
+    <hr />
+    ${items}
+    ${o.note ? `<hr /><div class="note">OBS GERAL: ${esc(o.note)}</div>` : ""}
+  `);
+}
+
+function printExpedition(o) {
+  const items = o.items.map((i) => `<div class="kv">${i.qty}x ${esc(i.name)}</div>`).join("");
+  printHTML(`
+    <h1>EXPEDIÇÃO</h1>
+    <div class="sub">${channelName(o.channel)} · ${fmtDT(o.createdAt)}</div>
+    <div class="big">#${o.code}</div>
+    <hr />
+    <div class="kv"><strong>Cliente:</strong> ${esc(o.customer.name)}</div>
+    <div class="kv"><strong>Telefone:</strong> ${esc(o.customer.phone)}</div>
+    <div class="kv"><strong>${o.type === "pickup" ? "Retirada na loja" : "Endereço"}:</strong> ${esc(o.customer.addr)}</div>
+    <div class="kv"><strong>Pagamento:</strong> ${esc(o.payment)}</div>
+    <hr />
+    ${items}
+  `);
+}
+
+function printReceipt(o, settings = {}) {
+  const items = o.items.map((i) => `
+    <div class="row"><span>${i.qty}x ${esc(i.name)}</span><span>${brl(i.unit * i.qty)}</span></div>
+    ${i.opts.filter((op) => op.price > 0).map((op) => `<div class="opt">+ ${esc(op.name)} (${brl(op.price)})</div>`).join("")}
+  `).join("");
+  printHTML(`
+    <h1>TÔ NO SARRO!</h1>
+    <div class="sub">Burgers & Açaí · Janga, Paulista/PE<br />${settings.address || ""}</div>
+    <hr />
+    <div class="kv">Pedido <strong>#${o.code}</strong> · ${fmtDT(o.createdAt)}</div>
+    <div class="kv">Cliente: ${esc(o.customer.name)}</div>
+    <div class="kv">${o.type === "pickup" ? "Retirada na loja" : "Delivery"} · ${esc(o.customer.addr)}</div>
+    <hr />
+    ${items}
+    <hr />
+    <div class="row"><span>Subtotal</span><span>${brl(o.subtotal)}</span></div>
+    <div class="row"><span>Taxa de entrega</span><span>${o.fee ? brl(o.fee) : "grátis"}</span></div>
+    ${o.discount ? `<div class="row"><span>Desconto</span><span>-${brl(o.discount)}</span></div>` : ""}
+    <div class="row total"><span>TOTAL</span><span>${brl(o.total)}</span></div>
+    <div class="kv" style="margin-top:4px">Pagamento: ${esc(o.payment)}</div>
+    <hr />
+    <div class="c">Obrigado! Volta sempre 🔥<br />tonosarro · cardápio digital</div>
+  `);
+}
+
+function printLabel(o) {
+  printHTML(`
+    <h1>SARRO #${o.code}</h1>
+    <hr />
+    <div class="big">${esc(o.customer.name)}</div>
+    <div class="kv">${esc(o.customer.phone)}</div>
+    <div class="kv">${o.type === "pickup" ? "RETIRADA NA LOJA" : esc(o.customer.addr)}</div>
+    <hr />
+    ${o.items.map((i) => `<div class="kv">${i.qty}x ${esc(i.name)}</div>`).join("")}
+  `);
+}
+
+// ============================================================
+// EXPORTAÇÃO CSV (abre no Excel — BOM + separador ;)
+// ============================================================
+
+function downloadCSV(name, rows) {
+  const esc = (c) => `"${String(c ?? "").replace(/"/g, '""')}"`;
+  const csv = "\uFEFF" + rows.map((r) => r.map(esc).join(";")).join("\r\n");
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
+  a.download = name;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+}
+
+// ============================================================
+// PEDIDOS — SEED + CRIAÇÃO
+// ============================================================
 
 // ============================================================
 // CLIENTE — CARDÁPIO
@@ -567,51 +436,69 @@ function seedOrders() {
 function Hero({ store, onOrder }) {
   return (
     <div className="relative overflow-hidden" style={{ background: C.black }}>
+      {/* brilho quente + riscos de velocidade da marca */}
       <div
-        className="absolute inset-0"
+        className="absolute inset-0 pointer-events-none"
         style={{
-          background: `radial-gradient(120% 90% at 78% 8%, ${C.orange}3d 0%, transparent 58%), radial-gradient(90% 70% at 10% 100%, ${C.yellow}22 0%, transparent 60%)`,
+          background: `radial-gradient(120% 90% at 82% 0%, ${C.orange}40 0%, transparent 55%), radial-gradient(80% 60% at 0% 100%, ${C.yellow}1f 0%, transparent 60%)`,
         }}
       />
       <div
-        className="absolute"
-        style={{
-          left: "-12%", top: "42%", width: "130%", height: 26,
-          background: `linear-gradient(90deg, transparent, ${C.orange}, transparent)`,
-          transform: "rotate(-6deg)", filter: "blur(1px)", opacity: 0.55,
-        }}
+        className="absolute pointer-events-none"
+        style={{ left: "-14%", top: "13%", width: "68%", height: 3, background: `linear-gradient(90deg, transparent, ${C.orange}aa, transparent)`, transform: "rotate(-8deg)" }}
       />
-      <div className="relative px-5 pt-6 pb-8">
-        <div className="flex items-center justify-between mb-6">
-          <Logo size={46} />
+      <div
+        className="absolute pointer-events-none"
+        style={{ left: "-10%", top: "21%", width: "52%", height: 2, background: `linear-gradient(90deg, transparent, ${C.yellow}77, transparent)`, transform: "rotate(-8deg)" }}
+      />
+
+      <div className="relative px-5 pt-5 pb-7">
+        <div className="flex items-center justify-between mb-5 gap-2">
+          <Logo size={54} glow />
           <div
-            className="flex items-center gap-2 px-3 py-1.5 rounded-full"
+            className="flex items-center gap-2 px-3 py-1.5 rounded-full shrink-0"
             style={{ background: C.gray850, border: `1px solid ${store.open ? C.green : C.red}55` }}
           >
-            <span style={{ width: 8, height: 8, borderRadius: 99, background: store.open ? C.green : C.red, display: "inline-block" }} />
+            <span
+              style={{ width: 8, height: 8, borderRadius: 99, background: store.open ? C.green : C.red, display: "inline-block", animation: "sarropulse 1.8s infinite" }}
+            />
             <span style={{ fontSize: 11, fontWeight: 800, color: store.open ? C.green : C.red }}>
-              {store.open ? "Aberto agora" : "Fechado"}
+              {store.open ? "Aberto agora" : "Fechado · voltamos 18h"}
             </span>
           </div>
         </div>
 
         <div style={{ fontFamily: font.display, fontStyle: "italic", letterSpacing: "-0.03em" }}>
-          <div style={{ fontSize: 40, lineHeight: 0.92, color: C.white }}>BATEU A FOME?</div>
-          <div style={{ fontSize: 46, lineHeight: 0.92, color: C.orange, textShadow: `3px 3px 0 ${C.black}` }}>
+          <div style={{ fontSize: 38, lineHeight: 0.94, color: C.white }}>BATEU A FOME?</div>
+          <div style={{ fontSize: 43, lineHeight: 1, color: C.orange, textShadow: `3px 3px 0 ${C.black}, 0 0 36px ${C.orange}55` }}>
             ENTÃO TÁ NO SARRO! 🔥
           </div>
         </div>
 
-        <p style={{ color: "#bdbdbd", fontSize: 13, marginTop: 14, maxWidth: 420, lineHeight: 1.5 }}>
+        <p style={{ color: "#bdbdbd", fontSize: 13, marginTop: 12, maxWidth: 430, lineHeight: 1.55 }}>
           Burger artesanal na chapa e açaí batido na hora, saindo do Janga direto
           pra sua casa. {store.open ? "Entrega em 35–45 min." : "Voltamos às 18h."}
         </p>
 
-        <div className="flex items-center gap-3 mt-5">
-          <Btn onClick={onOrder} style={{ paddingLeft: 26, paddingRight: 26 }}>PEDIR AGORA</Btn>
-          <div className="flex items-center gap-2" style={{ color: "#8a8a8a", fontSize: 11 }}>
-            <span>⭐ 4,9</span><span>•</span><span>🛵 {brl(FEE)}</span><span>•</span><span>⏱ 35–45min</span>
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-3 mt-5">
+          <Btn onClick={onOrder} style={{ paddingLeft: 28, paddingRight: 28, boxShadow: `0 10px 32px ${C.orange}45` }}>
+            PEDIR AGORA
+          </Btn>
+          <div className="flex items-center gap-2 flex-wrap" style={{ color: "#8a8a8a", fontSize: 11 }}>
+            <span>⭐ 4,9</span><span>•</span><span>🛵 {brl(store.fee)}</span><span>•</span><span>⏱ 35–45min</span>
           </div>
+        </div>
+
+        {/* foto hero: apetite vende pedido */}
+        <div
+          className="sarro-imgzoom rounded-2xl overflow-hidden mt-6"
+          style={{
+            height: 220,
+            border: `1px solid ${C.gray800}`,
+            boxShadow: `0 20px 60px rgba(0,0,0,.65), 0 0 0 1px ${C.orange}1f`,
+          }}
+        >
+          <SmartImg id="p1" emoji="🍔" alt="Sarro Burger — o queridinho da casa" fs={72} />
         </div>
       </div>
     </div>
@@ -627,14 +514,10 @@ function ProductCard({ p, onOpen }) {
       style={{ opacity: p.available ? 1 : 0.45, cursor: p.available ? "pointer" : "not-allowed" }}
     >
       <div
-        className="shrink-0 flex items-center justify-center rounded-xl"
-        style={{
-          width: 78, height: 78,
-          background: `linear-gradient(135deg, ${C.orange}2e, ${C.gray800})`,
-          border: `1px solid ${C.gray800}`, fontSize: 36,
-        }}
+        className="shrink-0 rounded-xl overflow-hidden sarro-imgzoom"
+        style={{ width: 88, height: 88, border: `1px solid ${p.promo ? `${C.orange}70` : C.gray800}` }}
       >
-        {p.emoji}
+        <SmartImg id={p.id} emoji={p.emoji} alt={p.name} fs={36} file={p.img} v={p.updatedAt} />
       </div>
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-1.5 flex-wrap mb-1">
@@ -663,13 +546,18 @@ function ProductCard({ p, onOpen }) {
   );
 }
 
-function ProductModal({ p, onClose, onAdd }) {
+function ProductModal({ p, store, onClose, onAdd }) {
   const [qty, setQty] = useState(1);
   const [sel, setSel] = useState({});
   const [note, setNote] = useState("");
-  const [build, setBuild] = useState({ pao: "brioche", carne: "blend180", queijo: "cheddar", molho: "especial" });
+  const bGroups = store.builder || [];
+  const [build, setBuild] = useState(() =>
+    Object.fromEntries(bGroups.map((g) => [g.id, g.options[0]?.id]))
+  );
 
-  const groups = (p.groups || []).map((g) => OPTION_GROUPS[g]);
+  const groups = (p.groups || [])
+    .map((g) => store.optionGroups.find((x) => x.id === g))
+    .filter(Boolean);
 
   const toggle = (g, o) => {
     setSel((prev) => {
@@ -683,20 +571,23 @@ function ProductModal({ p, onClose, onAdd }) {
   };
 
   const chosen = Object.values(sel).flat();
+  const allBuilderOpts = bGroups.flatMap((g) => g.options);
   const buildExtra = p.builder
-    ? Object.entries(build).reduce((s, [k, v]) => s + (BUILDER[k].options.find((o) => o.id === v)?.price || 0), 0)
+    ? Object.values(build).reduce((s, oid) => s + (allBuilderOpts.find((o) => o.id === oid)?.price || 0), 0)
     : 0;
   const unit = (p.promo || p.price) + chosen.reduce((s, o) => s + o.price, 0) + buildExtra;
   const missing = groups.filter((g) => g.required && (sel[g.id] || []).length < g.min);
 
   const add = () => {
     const opts = p.builder
-      ? Object.entries(build).map(([k, v]) => {
-          const o = BUILDER[k].options.find((x) => x.id === v);
-          return { id: o.id, name: `${BUILDER[k].label.replace("Escolha o ", "").replace("Escolha a ", "")}: ${o.name}`, price: o.price };
+      ? Object.entries(build).map(([gid, oid]) => {
+          const g = bGroups.find((x) => x.id === gid);
+          const o = g?.options.find((x) => x.id === oid);
+          return { id: o.id, name: `${g.label.replace("Escolha o ", "").replace("Escolha a ", "")}: ${o.name}`, price: o.price };
         })
       : chosen;
-    onAdd({ id: uid(), productId: p.id, name: p.name, emoji: p.emoji, qty, unit, opts, note });
+    const optionIds = p.builder ? Object.values(build) : chosen.map((o) => o.id);
+    onAdd({ id: uid(), productId: p.id, name: p.name, emoji: p.emoji, qty, unit, opts, optionIds, note });
   };
 
   return (
@@ -705,11 +596,12 @@ function ProductModal({ p, onClose, onAdd }) {
         className="w-full sm:max-w-lg max-h-[92vh] overflow-y-auto"
         style={{ background: C.gray900, borderTop: `3px solid ${C.orange}`, borderRadius: "22px 22px 0 0" }}
       >
-        <div
-          className="relative flex items-center justify-center"
-          style={{ height: 150, background: `linear-gradient(135deg, ${C.orange}33, ${C.black})`, fontSize: 72 }}
-        >
-          {p.emoji}
+        <div className="relative sarro-imgzoom" style={{ height: 172, background: `linear-gradient(135deg, ${C.orange}33, ${C.black})` }}>
+          <SmartImg id={p.id} emoji={p.emoji} alt={p.name} fs={72} file={p.img} v={p.updatedAt} />
+          <div
+            className="absolute inset-x-0 bottom-0 pointer-events-none"
+            style={{ height: 90, background: `linear-gradient(180deg, transparent, ${C.gray900})` }}
+          />
           <button
             onClick={onClose}
             className="absolute top-3 right-3 rounded-full flex items-center justify-center"
@@ -734,16 +626,16 @@ function ProductModal({ p, onClose, onAdd }) {
           )}
 
           {p.builder &&
-            Object.values(BUILDER).map((g) => (
-              <div key={g.key} className="mt-5">
+            bGroups.map((g) => (
+              <div key={g.id} className="mt-5">
                 <div style={{ color: C.yellowLight, fontWeight: 800, fontSize: 13, marginBottom: 8 }}>{g.label}</div>
                 <div className="flex flex-wrap gap-2">
                   {g.options.map((o) => {
-                    const on = build[g.key] === o.id;
+                    const on = build[g.id] === o.id;
                     return (
                       <button
                         key={o.id}
-                        onClick={() => setBuild({ ...build, [g.key]: o.id })}
+                        onClick={() => setBuild({ ...build, [g.id]: o.id })}
                         className="rounded-xl px-3 py-2 text-left"
                         style={{
                           background: on ? `${C.orange}22` : C.gray850,
@@ -975,12 +867,9 @@ function HomeScreen({ store, onOpen, goMenu }) {
       </div>
       <div className="flex gap-3 overflow-x-auto px-4 pb-1" style={{ scrollbarWidth: "none" }}>
         {items.map((p) => (
-          <Card key={p.id} onClick={() => onOpen(p)} className="shrink-0 p-3" style={{ width: 168, cursor: "pointer" }}>
-            <div
-              className="rounded-xl flex items-center justify-center mb-2"
-              style={{ height: 96, background: `linear-gradient(135deg, ${C.orange}2e, ${C.gray800})`, fontSize: 44 }}
-            >
-              {p.emoji}
+          <Card key={p.id} onClick={() => onOpen(p)} className="shrink-0 p-2.5 sarro-imgzoom" style={{ width: 174, cursor: "pointer" }}>
+            <div className="rounded-xl overflow-hidden mb-2" style={{ height: 110, border: `1px solid ${C.gray800}` }}>
+              <SmartImg id={p.id} emoji={p.emoji} alt={p.name} fs={44} file={p.img} v={p.updatedAt} />
             </div>
             <div style={{ color: C.white, fontWeight: 800, fontSize: 13.5 }}>{p.name}</div>
             <div className="flex items-baseline gap-2 mt-1">
@@ -999,7 +888,9 @@ function HomeScreen({ store, onOpen, goMenu }) {
 
       <div className="px-4 -mt-4 relative z-10">
         <Card className="p-4 flex items-center gap-3" style={{ borderColor: `${C.orange}55` }}>
-          <span style={{ fontSize: 30 }}>🛠️</span>
+          <div className="rounded-xl overflow-hidden shrink-0 sarro-imgzoom" style={{ width: 50, height: 50, border: `1px solid ${C.orange}55` }}>
+            <SmartImg id="p16" emoji="🛠️" alt="Monte seu Sarro" fs={24} />
+          </div>
           <div className="flex-1">
             <div style={{ color: C.white, fontWeight: 900, fontSize: 14 }}>Monte seu Sarro</div>
             <div style={{ color: "#9a9a9a", fontSize: 11.5 }}>Pão, carne, queijo e molho do seu jeito</div>
@@ -1036,7 +927,7 @@ function CartScreen({ store, goCheckout, onOpen }) {
   const subtotal = cart.reduce((s, i) => s + i.unit * i.qty, 0);
   const coupon = store.coupon;
   let discount = 0;
-  let fee = store.orderType === "pickup" ? 0 : FEE;
+  let fee = store.fee;
   if (coupon) {
     if (coupon.type === "percent") discount = subtotal * (coupon.value / 100);
     if (coupon.type === "fixed") discount = coupon.value;
@@ -1044,11 +935,15 @@ function CartScreen({ store, goCheckout, onOpen }) {
   }
   const total = Math.max(0, subtotal + fee - discount);
 
-  const apply = () => {
-    const c = COUPONS.find((x) => x.code === code.trim().toUpperCase() && x.active);
-    if (!c) return setErr("Cupom não encontrado ou expirado.");
-    if (subtotal < c.min) return setErr(`Esse cupom vale a partir de ${brl(c.min)}.`);
-    setErr(""); store.setCoupon(c); store.toast(`Cupom ${c.code} aplicado`);
+  const apply = async () => {
+    try {
+      const c = await store.validateCoupon(code.trim().toUpperCase(), subtotal);
+      setErr("");
+      store.setCoupon(c);
+      store.toast(`Cupom ${c.code} aplicado`);
+    } catch (e) {
+      setErr(e.message);
+    }
   };
 
   const upsell = store.products
@@ -1081,11 +976,8 @@ function CartScreen({ store, goCheckout, onOpen }) {
         {cart.map((i) => (
           <Card key={i.id} className="p-3">
             <div className="flex gap-3">
-              <div
-                className="shrink-0 rounded-xl flex items-center justify-center"
-                style={{ width: 52, height: 52, background: C.gray800, fontSize: 26 }}
-              >
-                {i.emoji}
+              <div className="shrink-0 rounded-xl overflow-hidden" style={{ width: 56, height: 56, border: `1px solid ${C.gray800}` }}>
+                <SmartImg id={i.productId} emoji={i.emoji} alt={i.name} fs={26} />
               </div>
               <div className="flex-1 min-w-0">
                 <div className="flex justify-between gap-2">
@@ -1116,9 +1008,9 @@ function CartScreen({ store, goCheckout, onOpen }) {
         <div style={{ color: C.white, fontWeight: 900, fontSize: 14, marginBottom: 10 }}>COMBINA COM SEU PEDIDO 🔥</div>
         <div className="flex gap-3 overflow-x-auto pb-1" style={{ scrollbarWidth: "none" }}>
           {upsell.map((p) => (
-            <Card key={p.id} className="shrink-0 p-3" style={{ width: 132 }}>
-              <div className="flex items-center justify-center rounded-lg mb-2" style={{ height: 60, background: C.gray800, fontSize: 30 }}>
-                {p.emoji}
+            <Card key={p.id} className="shrink-0 p-2.5 sarro-imgzoom" style={{ width: 138 }}>
+              <div className="rounded-lg overflow-hidden mb-2" style={{ height: 66, border: `1px solid ${C.gray800}` }}>
+                <SmartImg id={p.id} emoji={p.emoji} alt={p.name} fs={30} file={p.img} v={p.updatedAt} />
               </div>
               <div style={{ color: C.white, fontSize: 12, fontWeight: 700, lineHeight: 1.25 }}>{p.name}</div>
               <div style={{ color: C.yellowLight, fontWeight: 900, fontSize: 12.5, margin: "4px 0 8px" }}>{brl(p.promo || p.price)}</div>
@@ -1232,20 +1124,25 @@ function Checkout({ store, totals, onBack, onDone }) {
   };
 
   const finish = () => {
-    const order = makeOrder({
-      channel: "DIRECT",
+    // O servidor recalcula preços, cupom, taxa e total — aqui vai só a intenção.
+    onDone({
       customer: {
-        name: f.name, phone: f.phone,
+        name: f.name,
+        phone: f.phone,
         addr: f.type === "pickup" ? "Retirada na loja" : `${f.street}, ${f.number} — ${f.district}, ${f.city}`,
       },
-      items: store.cart,
       type: f.type,
-      payment: f.payment + (f.payment === "Dinheiro" && f.needChange ? ` (troco p/ ${f.changeFor})` : ""),
-      discount: totals.discount,
-      fee,
+      payment: f.payment,
+      changeFor: f.payment === "Dinheiro" && f.needChange ? f.changeFor : undefined,
+      couponCode: store.coupon?.code || undefined,
       note: f.ref,
+      items: store.cart.map((i) => ({
+        productId: i.productId,
+        qty: i.qty,
+        optionIds: i.optionIds || [],
+        note: i.note || "",
+      })),
     });
-    onDone(order);
   };
 
   return (
@@ -1278,7 +1175,7 @@ function Checkout({ store, totals, onBack, onDone }) {
             COMO VOCÊ QUER RECEBER?
           </h3>
           <Choice on={f.type === "delivery"} onClick={() => set("type", "delivery")} icon="🛵"
-            title="Delivery" sub={`35–45 min · taxa ${brl(FEE)}`} />
+            title="Delivery" sub={`35–45 min · taxa ${brl(store.fee)}`} />
           <Choice on={f.type === "pickup"} onClick={() => set("type", "pickup")} icon="🏪"
             title="Retirar na loja" sub="Pronto em ~20 min · sem taxa" />
         </div>
@@ -1315,9 +1212,19 @@ function Checkout({ store, totals, onBack, onDone }) {
           <h3 style={{ fontFamily: font.display, fontStyle: "italic", fontSize: 22, color: C.white, marginBottom: 6 }}>
             COMO VAI PAGAR?
           </h3>
-          <Choice on={f.payment === "PIX"} onClick={() => set("payment", "PIX")} icon="⚡" title="Pix" sub="Aprovação na hora" />
-          <Choice on={f.payment === "Cartão"} onClick={() => set("payment", "Cartão")} icon="💳" title="Cartão" sub="Crédito ou débito na entrega" />
+          <Choice on={f.payment === "PIX"} onClick={() => set("payment", "PIX")} icon="⚡" title="Pix" sub="Aprovação na hora · checkout seguro InfinitePay" />
+          <Choice on={f.payment === "CARTAO_ONLINE"} onClick={() => set("payment", "CARTAO_ONLINE")} icon="💳" title="Cartão online" sub="Crédito em até 12x · link seguro InfinitePay" />
+          <Choice on={f.payment === "Cartão"} onClick={() => set("payment", "Cartão")} icon="🛵" title="Cartão na entrega" sub="Maquininha com o entregador" />
           <Choice on={f.payment === "Dinheiro"} onClick={() => set("payment", "Dinheiro")} icon="💵" title="Dinheiro" sub="Pagamento na entrega" />
+
+          {f.payment === "CARTAO_ONLINE" && (
+            <Card className="p-4">
+              <div style={{ color: "#9a9a9a", fontSize: 12, lineHeight: 1.5 }}>
+                Você recebe um <strong style={{ color: C.yellowLight }}>link seguro da InfinitePay</strong> ♾️ para pagar com
+                crédito em até 12x. Nenhum dado de cartão passa pelo nosso sistema.
+              </div>
+            </Card>
+          )}
 
           {f.payment === "Dinheiro" && (
             <Card className="p-4 space-y-3">
@@ -1333,8 +1240,8 @@ function Checkout({ store, totals, onBack, onDone }) {
           {f.payment === "PIX" && (
             <Card className="p-4">
               <div style={{ color: "#9a9a9a", fontSize: 12, lineHeight: 1.5 }}>
-                O QR Code é gerado pelo gateway configurado no admin (Mercado Pago, PagBank, Stone,
-                Inter ou Asaas). A confirmação chega por webhook e muda o pedido para “Pagamento confirmado”.
+                Ao confirmar, a gente te leva para o <strong style={{ color: C.yellowLight }}>checkout seguro da InfinitePay</strong> ♾️
+                com o QR Code do Pix. A confirmação é automática — quando cair, seu pedido entra na cozinha na hora.
               </div>
             </Card>
           )}
@@ -1397,6 +1304,21 @@ const TRACK_STEPS = [
 ];
 
 function TrackScreen({ order, store, now }) {
+  // Atualização do próprio pedido: polling autenticado por token
+  // (o canal público não carrega pedidos de outros clientes).
+  useEffect(() => {
+    if (!order) return;
+    store.refreshMyOrder?.().catch(() => {});
+    const t = setInterval(() => store.refreshMyOrder?.().catch(() => {}), 6000);
+    return () => clearInterval(t);
+  }, [order?.id]);
+  // Enquanto o Pix/cartão não cai, o servidor consulta a InfinitePay a cada 6s
+  useEffect(() => {
+    if (order?.paymentStatus !== "pendente") return;
+    const t = setInterval(() => store.checkPayment(order.id).catch(() => {}), 6000);
+    return () => clearInterval(t);
+  }, [order?.id, order?.paymentStatus]);
+
   if (!order) {
     return (
       <div className="px-4 py-16 text-center">
@@ -1413,7 +1335,7 @@ function TrackScreen({ order, store, now }) {
   const idx = TRACK_STEPS.findIndex((s) => s.key === order.status);
   const pos = order.status === "AGUARDANDO" ? 4 : idx;
   const done = order.status === "ENTREGUE";
-  const driver = DRIVERS.find((d) => d.id === order.driverId);
+  const driver = store.drivers.find((d) => d.id === order.driverId);
 
   return (
     <div className="px-4 py-5 pb-6">
@@ -1422,13 +1344,31 @@ function TrackScreen({ order, store, now }) {
         style={{ background: `linear-gradient(130deg, ${C.orange}, ${C.yellow})`, color: C.black }}
       >
         <div style={{ fontSize: 11, fontWeight: 800, opacity: 0.75 }}>Pedido #{order.code}</div>
-        <div style={{ fontFamily: font.display, fontStyle: "italic", fontSize: 26, lineHeight: 1.02, marginTop: 4 }}>
-          {done ? "SEU SARRO CHEGOU! 🔥" : order.type === "pickup" ? "SEU SARRO TÁ SAINDO!" : "SEU SARRO ESTÁ A CAMINHO!"}
+          <div style={{ fontFamily: font.display, fontStyle: "italic", fontSize: 26, lineHeight: 1.02, marginTop: 4 }}>
+            {done ? "SEU SARRO CHEGOU! 🔥" : order.type === "pickup" ? "SEU SARRO TÁ SAINDO!" : "SEU SARRO ESTÁ A CAMINHO!"}
         </div>
         <div style={{ fontSize: 12.5, fontWeight: 700, marginTop: 8 }}>
           {done ? "Bom apetite. Volta sempre!" : order.type === "pickup" ? "Pronto para retirada em ~20 min" : "Previsão: 35–45 minutos"}
         </div>
       </div>
+
+      {order.paymentStatus === "pendente" && (
+        <Card className="p-4 mb-3" style={{ borderColor: `${C.yellow}66`, background: `${C.yellow}12` }}>
+          <div style={{ color: C.yellowLight, fontWeight: 900, fontSize: 14 }}>
+            ⏳ Aguardando pagamento {order.payment === "Cartão online" ? "do cartão" : "Pix"}
+          </div>
+          <div style={{ color: "#c9c9c9", fontSize: 12, marginTop: 4, lineHeight: 1.5 }}>
+            Assim que a InfinitePay confirmar ♾️, seu pedido entra na fila da cozinha automaticamente.
+          </div>
+          {order.payUrl && (
+            <div className="mt-3">
+              <Btn full onClick={() => window.open(order.payUrl, "_blank")}>
+                PAGAR AGORA · {order.payment === "Cartão online" ? "CARTÃO ♾️" : "PIX ♾️"}
+              </Btn>
+            </div>
+          )}
+        </Card>
+      )}
 
       <Card className="p-5">
         {TRACK_STEPS.map((s, i) => {
@@ -1491,7 +1431,11 @@ function TrackScreen({ order, store, now }) {
       </Card>
 
       <div className="mt-4 flex gap-2">
-        <Btn variant="dark" full onClick={() => store.toast("Abrindo conversa no WhatsApp da loja")}>💬 Falar com a loja</Btn>
+        <Btn variant="dark" full onClick={() => store.toast("Abrindo conversa no WhatsApp da loja")}>
+          <span className="inline-flex items-center justify-center gap-1.5">
+            <WaIcon size={14} color="#25D366" /> Falar com a loja
+          </span>
+        </Btn>
       </div>
     </div>
   );
@@ -1501,7 +1445,16 @@ function TrackScreen({ order, store, now }) {
 // ============================================================
 
 function AccountScreen({ store }) {
-  const me = CUSTOMERS[0];
+  const me = store.customers[0];
+  if (!me) {
+    return (
+      <div className="px-4 py-16 text-center">
+        <div style={{ fontSize: 52 }}>😎</div>
+        <div style={{ color: C.white, fontWeight: 900, fontSize: 16, marginTop: 10 }}>Sua conta aparece aqui</div>
+        <p style={{ color: "#8a8a8a", fontSize: 13, marginTop: 6 }}>Faça seu primeiro pedido para entrar no Clube do Sarro.</p>
+      </div>
+    );
+  }
   const pct = Math.min(100, me.points);
   const mine = store.orders.filter((o) => o.customer.name === me.name);
   return (
@@ -1597,7 +1550,7 @@ function ClientApp({ store, now }) {
   const [modal, setModal] = useState(null);
   const [checkout, setCheckout] = useState(null);
   const cartCount = store.cart.reduce((s, i) => s + i.qty, 0);
-  const active = store.myOrderId ? store.orders.find((o) => o.id === store.myOrderId) : null;
+  const active = store.myOrder || (store.myOrderId ? store.orders.find((o) => o.id === store.myOrderId) : null);
 
   const addToCart = (item) => {
     store.addItem(item);
@@ -1611,7 +1564,10 @@ function ClientApp({ store, now }) {
         <Checkout
           store={store} totals={checkout}
           onBack={() => setCheckout(null)}
-          onDone={(order) => { setCheckout(null); store.placeOrder(order); }}
+          onDone={async (payload) => {
+            const ok = await store.placeOrder(payload);
+            if (ok) setCheckout(null);
+          }}
         />
       ) : (
         <>
@@ -1623,7 +1579,7 @@ function ClientApp({ store, now }) {
         </>
       )}
 
-      {modal && <ProductModal p={modal} onClose={() => setModal(null)} onAdd={addToCart} />}
+      {modal && <ProductModal key={modal.id} p={modal} store={store} onClose={() => setModal(null)} onAdd={addToCart} />}
 
       {!checkout && store.tab !== "carrinho" && cartCount > 0 && (
         <button
@@ -1645,9 +1601,9 @@ function ClientApp({ store, now }) {
           onClick={(e) => { e.preventDefault(); store.toast("Abrindo WhatsApp da loja"); }}
           href="#whatsapp"
           className="fixed z-30 flex items-center justify-center rounded-full"
-          style={{ right: 16, bottom: cartCount > 0 ? 142 : 78, width: 46, height: 46, background: "#25D366", fontSize: 21, boxShadow: "0 8px 22px rgba(0,0,0,.5)" }}
+          style={{ right: 16, bottom: cartCount > 0 ? 142 : 78, width: 46, height: 46, background: "linear-gradient(135deg, #25D366, #128C7E)", fontSize: 21, boxShadow: "0 8px 22px rgba(0,0,0,.5)" }}
         >
-          💬
+          <WaIcon size={24} color="#fff" />
         </a>
       )}
 
@@ -1769,7 +1725,7 @@ function AdminDashboard({ store, now }) {
         <KPI icon="💰" label="Vendas hoje" value={brl(revenue)} sub="+18%" accent={C.yellowLight} />
         <KPI icon="🍔" label="Pedidos hoje" value={today.length} sub="+6%" />
         <KPI icon="📦" label="Ticket médio" value={brl(avg)} />
-        <KPI icon="👥" label="Clientes na base" value={CUSTOMERS.length} />
+        <KPI icon="👥" label="Clientes na base" value={store.customers.length} />
         <KPI icon="🛵" label="Entregas em rota" value={counts("ROTA")} />
         <KPI icon="⏱" label="Tempo médio de preparo" value="18 min" />
       </div>
@@ -1816,8 +1772,26 @@ function OrderCard({ o, store, now, compact }) {
         <div className="flex items-center gap-2">
           <span style={{ color: C.white, fontWeight: 900, fontSize: 14 }}>#{o.code}</span>
           <ChannelPill channel={o.channel} />
+          {o.paymentStatus === "pendente" && (
+            <span
+              className="rounded-md px-1.5 py-0.5 font-bold"
+              style={{ background: `${C.yellow}1f`, color: C.yellow, fontSize: 9, border: `1px solid ${C.yellow}44` }}
+            >
+              ⏳ PGTO
+            </span>
+          )}
         </div>
-        <span style={{ color: "#7a7a7a", fontSize: 10.5 }}>{elapsed(o.createdAt, now)}</span>
+        <div className="flex items-center gap-1.5">
+          <span style={{ color: "#7a7a7a", fontSize: 10.5 }}>{elapsed(o.createdAt, now)}</span>
+          <button
+            onClick={() => printReceipt(o, store.settings)}
+            title="Imprimir cupom"
+            className="rounded-md px-1.5 py-0.5"
+            style={{ background: C.gray800, color: "#c9c9c9", fontSize: 11 }}
+          >
+            🖨
+          </button>
+        </div>
       </div>
       <div style={{ color: "#c9c9c9", fontSize: 12, fontWeight: 700 }}>{o.customer.name}</div>
       {!compact && <div style={{ color: "#7a7a7a", fontSize: 11, marginTop: 2 }}>{o.customer.addr}</div>}
@@ -1902,46 +1876,298 @@ function AdminOrders({ store, now }) {
   );
 }
 
+const BADGE_OPTS = [
+  ["maisvendido", "Mais vendido", C.yellow],
+  ["novidade", "Novidade", C.white],
+  ["promocao", "Promoção", C.red],
+];
+
+function ProductForm({ initial, store, onClose }) {
+  const [f, setF] = useState(() => (initial ? {
+    name: initial.name, cat: initial.cat, emoji: initial.emoji || "🍔",
+    description: initial.desc || "",
+    ingredients: (initial.ingredients || []).join("\n"),
+    price: String(initial.price).replace(".", ","),
+    promoOn: initial.promo != null,
+    promo: initial.promo != null ? String(initial.promo).replace(".", ",") : "",
+    time: String(initial.time ?? 15), stock: String(initial.stock ?? 0),
+    badges: initial.badges || [], groups: initial.groups || [],
+    available: initial.available, builder: initial.builder,
+  } : {
+    name: "", cat: "burgers", emoji: "🍔", description: "", ingredients: "",
+    price: "", promoOn: false, promo: "", time: "15", stock: "0",
+    badges: [], groups: [], available: true, builder: false,
+  }));
+  const [file, setFile] = useState(null);
+  const [preview, setPreview] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+
+  const set = (k, v) => setF((p) => ({ ...p, [k]: v }));
+  const toggleIn = (k, id) =>
+    setF((p) => ({ ...p, [k]: p[k].includes(id) ? p[k].filter((x) => x !== id) : [...p[k], id] }));
+
+  const pickFile = (fl) => {
+    if (!fl) return;
+    setFile(fl);
+    setPreview(URL.createObjectURL(fl));
+  };
+
+  const num = (s) => parseFloat(String(s).replace(",", "."));
+  const save = async () => {
+    if (busy) return;
+    setErr("");
+    const price = num(f.price);
+    const promo = f.promoOn ? num(f.promo) : null;
+    if (f.name.trim().length < 3) return setErr("Dê um nome com pelo menos 3 letras.");
+    if (!Number.isFinite(price) || price <= 0) return setErr("Informe um preço válido.");
+    if (f.promoOn && (!Number.isFinite(promo) || promo <= 0)) return setErr("Informe o preço promocional.");
+    if (f.promoOn && promo >= price) return setErr("A promoção precisa ser menor que o preço normal.");
+
+    setBusy(true);
+    try {
+      await store.saveProduct(initial?.id, {
+        name: f.name.trim(), cat: f.cat, emoji: f.emoji || "🍔",
+        description: f.description.trim(),
+        ingredients: f.ingredients.split("\n").map((s) => s.trim()).filter(Boolean),
+        price, promo: f.promoOn ? promo : null,
+        time: Math.max(1, parseInt(f.time) || 15),
+        stock: Math.max(0, parseInt(f.stock) || 0),
+        badges: f.badges, groups: f.groups,
+        available: f.available, builder: f.builder,
+      }, file);
+      store.toast(initial ? "Produto atualizado ✓" : "Produto criado ✓");
+      onClose();
+    } catch (e) {
+      setErr(e.message);
+    }
+    setBusy(false);
+  };
+
+  const inField = { background: C.gray850, border: `1px solid ${C.gray800}`, color: C.white, fontSize: 13 };
+
+  return (
+    <div className="fixed inset-0 z-40 flex items-end sm:items-center justify-center" style={{ background: "rgba(0,0,0,.8)" }}>
+      <div
+        className="w-full sm:max-w-2xl max-h-[92vh] overflow-y-auto"
+        style={{ background: C.gray900, borderTop: `3px solid ${C.orange}`, borderRadius: "20px 20px 0 0" }}
+      >
+        <div className="flex items-center justify-between p-4" style={{ borderBottom: `1px solid ${C.gray800}` }}>
+          <h3 style={{ fontFamily: font.display, fontStyle: "italic", fontSize: 20, color: C.white }}>
+            {initial ? "EDITAR PRODUTO" : "NOVO PRODUTO"}
+          </h3>
+          <button onClick={onClose} className="rounded-full flex items-center justify-center"
+            style={{ width: 32, height: 32, background: C.gray850, color: C.white }}>✕</button>
+        </div>
+
+        <div className="p-4 space-y-4">
+          <div className="flex gap-4">
+            <div>
+              <div className="rounded-xl overflow-hidden" style={{ width: 96, height: 96, border: `1px solid ${C.gray800}`, background: C.gray850 }}>
+                {preview ? (
+                  <img src={preview} alt="Prévia" className="sarro-img" />
+                ) : (
+                  <SmartImg id={initial?.id} emoji={f.emoji} file={initial?.img} v={initial?.updatedAt} fs={40} />
+                )}
+              </div>
+              <label className="block text-center mt-2 cursor-pointer rounded-lg px-2 py-1.5"
+                style={{ background: C.gray850, border: `1px solid ${C.gray800}`, color: C.yellowLight, fontSize: 11, fontWeight: 800 }}>
+                📷 {initial?.img || preview ? "Trocar foto" : "Enviar foto"}
+                <input type="file" accept="image/jpeg,image/png,image/webp" className="hidden"
+                  onChange={(e) => pickFile(e.target.files?.[0])} />
+              </label>
+              <div style={{ color: "#6a6a6a", fontSize: 9.5, marginTop: 4, width: 96, textAlign: "center" }}>
+                JPG/PNG/WebP · até 3MB
+              </div>
+            </div>
+
+            <div className="flex-1 space-y-3">
+              <label className="block">
+                <span style={{ color: "#9a9a9a", fontSize: 11, fontWeight: 700 }}>Nome *</span>
+                <input value={f.name} onChange={(e) => set("name", e.target.value)}
+                  className="w-full rounded-xl px-3 py-2.5 mt-1 outline-none" style={inField}
+                  placeholder="Ex.: Sarro Burger Vegano" />
+              </label>
+              <div className="grid grid-cols-2 gap-3">
+                <label className="block">
+                  <span style={{ color: "#9a9a9a", fontSize: 11, fontWeight: 700 }}>Categoria</span>
+                  <select value={f.cat} onChange={(e) => set("cat", e.target.value)}
+                    className="w-full rounded-xl px-3 py-2.5 mt-1 outline-none" style={inField}>
+                    {store.categories.map((c) => <option key={c.id} value={c.id}>{c.icon} {c.label}</option>)}
+                  </select>
+                </label>
+                <label className="block">
+                  <span style={{ color: "#9a9a9a", fontSize: 11, fontWeight: 700 }}>Emoji (fallback)</span>
+                  <input value={f.emoji} onChange={(e) => set("emoji", e.target.value)}
+                    className="w-full rounded-xl px-3 py-2.5 mt-1 outline-none" style={inField} />
+                </label>
+              </div>
+            </div>
+          </div>
+
+          <label className="block">
+            <span style={{ color: "#9a9a9a", fontSize: 11, fontWeight: 700 }}>Descrição</span>
+            <input value={f.description} onChange={(e) => set("description", e.target.value)}
+              className="w-full rounded-xl px-3 py-2.5 mt-1 outline-none" style={inField}
+              placeholder="Uma frase que dá água na boca" />
+          </label>
+
+          <label className="block">
+            <span style={{ color: "#9a9a9a", fontSize: 11, fontWeight: 700 }}>Ingredientes (um por linha)</span>
+            <textarea value={f.ingredients} onChange={(e) => set("ingredients", e.target.value)} rows={4}
+              className="w-full rounded-xl px-3 py-2.5 mt-1 outline-none resize-y" style={inField}
+              placeholder={"Pão brioche\nBlend 180g\nCheddar"} />
+          </label>
+
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            <label className="block">
+              <span style={{ color: "#9a9a9a", fontSize: 11, fontWeight: 700 }}>Preço R$ *</span>
+              <input value={f.price} onChange={(e) => set("price", e.target.value)} inputMode="decimal"
+                className="w-full rounded-xl px-3 py-2.5 mt-1 outline-none" style={inField} placeholder="29,90" />
+            </label>
+            <label className="block">
+              <span style={{ color: "#9a9a9a", fontSize: 11, fontWeight: 700 }}>Promoção?</span>
+              <button type="button" onClick={() => set("promoOn", !f.promoOn)}
+                className="w-full rounded-xl px-3 py-2.5 mt-1 font-bold"
+                style={{ background: f.promoOn ? `${C.orange}26` : C.gray850, border: `1px solid ${f.promoOn ? C.orange : C.gray800}`, color: f.promoOn ? C.orange : "#9a9a9a", fontSize: 12.5 }}>
+                {f.promoOn ? "✓ Com promo" : "Sem promo"}
+              </button>
+            </label>
+            {f.promoOn && (
+              <label className="block">
+                <span style={{ color: "#9a9a9a", fontSize: 11, fontWeight: 700 }}>Preço promo R$</span>
+                <input value={f.promo} onChange={(e) => set("promo", e.target.value)} inputMode="decimal"
+                  className="w-full rounded-xl px-3 py-2.5 mt-1 outline-none" style={inField} placeholder="24,90" />
+              </label>
+            )}
+            <label className="block">
+              <span style={{ color: "#9a9a9a", fontSize: 11, fontWeight: 700 }}>Preparo (min)</span>
+              <input value={f.time} onChange={(e) => set("time", e.target.value)} inputMode="numeric"
+                className="w-full rounded-xl px-3 py-2.5 mt-1 outline-none" style={inField} />
+            </label>
+            <label className="block">
+              <span style={{ color: "#9a9a9a", fontSize: 11, fontWeight: 700 }}>Estoque</span>
+              <input value={f.stock} onChange={(e) => set("stock", e.target.value)} inputMode="numeric"
+                className="w-full rounded-xl px-3 py-2.5 mt-1 outline-none" style={inField} />
+            </label>
+          </div>
+
+          <div>
+            <span style={{ color: "#9a9a9a", fontSize: 11, fontWeight: 700 }}>Selos</span>
+            <div className="flex gap-2 mt-1.5 flex-wrap">
+              {BADGE_OPTS.map(([id, lbl, color]) => {
+                const on = f.badges.includes(id);
+                return (
+                  <button key={id} type="button" onClick={() => toggleIn("badges", id)} className="rounded-full px-3 py-1.5 font-bold"
+                    style={{ background: on ? `${color}26` : C.gray850, border: `1px solid ${on ? color : C.gray800}`, color: on ? color : "#9a9a9a", fontSize: 11.5 }}>
+                    {on ? "✓" : "+"} {lbl}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          <div>
+            <span style={{ color: "#9a9a9a", fontSize: 11, fontWeight: 700 }}>Grupos de opcionais</span>
+            <div className="flex gap-2 mt-1.5 flex-wrap">
+              {store.optionGroups.map((g) => {
+                const on = f.groups.includes(g.id);
+                return (
+                  <button key={g.id} type="button" onClick={() => toggleIn("groups", g.id)} className="rounded-full px-3 py-1.5 font-bold"
+                    style={{ background: on ? `${C.orange}22` : C.gray850, border: `1px solid ${on ? C.orange : C.gray800}`, color: on ? C.orange : "#9a9a9a", fontSize: 11.5 }}>
+                    {on ? "✓" : "+"} {g.name}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          <div className="flex gap-2 flex-wrap">
+            <button type="button" onClick={() => set("available", !f.available)} className="rounded-xl px-3 py-2 font-bold"
+              style={{ background: f.available ? `${C.green}1e` : C.gray850, border: `1px solid ${f.available ? C.green : C.gray800}`, color: f.available ? C.green : "#9a9a9a", fontSize: 12 }}>
+              {f.available ? "🟢 Disponível" : "🔴 Indisponível"}
+            </button>
+            <button type="button" onClick={() => set("builder", !f.builder)} className="rounded-xl px-3 py-2 font-bold"
+              style={{ background: f.builder ? `${C.orange}1e` : C.gray850, border: `1px solid ${f.builder ? C.orange : C.gray800}`, color: f.builder ? C.orange : "#9a9a9a", fontSize: 12 }}>
+              🛠️ Monte seu Sarro {f.builder ? "✓" : ""}
+            </button>
+          </div>
+
+          {err && (
+            <div className="rounded-lg px-3 py-2" style={{ background: `${C.red}18`, color: C.red, fontSize: 12, fontWeight: 700 }}>
+              {err}
+            </div>
+          )}
+        </div>
+
+        <div className="sticky bottom-0 p-4 flex gap-3" style={{ background: C.black, borderTop: `1px solid ${C.gray800}` }}>
+          <Btn variant="dark" onClick={onClose}>Cancelar</Btn>
+          <Btn full disabled={busy} onClick={save}>
+            {busy ? "SALVANDO…" : initial ? "SALVAR ALTERAÇÕES" : "CRIAR PRODUTO"}
+          </Btn>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function AdminProducts({ store }) {
-  const [edit, setEdit] = useState(null);
+  const [form, setForm] = useState(null); // null | "new" | produto
+  const [confirmDel, setConfirmDel] = useState(null);
+
   return (
     <div>
       <div className="flex items-center justify-between mb-4">
         <div style={{ color: "#8a8a8a", fontSize: 12 }}>{store.products.length} produtos cadastrados</div>
-        <Btn small onClick={() => store.toast("Formulário de novo produto")}>+ Novo produto</Btn>
+        <Btn small onClick={() => setForm("new")}>+ Novo produto</Btn>
       </div>
+
+      {confirmDel && (
+        <Card className="p-4 mb-4" style={{ borderColor: `${C.red}66`, background: `${C.red}12` }}>
+          <div style={{ color: C.white, fontWeight: 800, fontSize: 13 }}>
+            Excluir “{confirmDel.name}”?
+          </div>
+          <div style={{ color: "#9a9a9a", fontSize: 12, marginTop: 2 }}>
+            Se ele já entrou em algum pedido, recomendamos apenas despublicar.
+          </div>
+          <div className="flex gap-2 mt-3">
+            <Btn small variant="danger" onClick={() => { store.deleteProduct(confirmDel.id); setConfirmDel(null); }}>
+              Excluir de vez
+            </Btn>
+            <Btn small variant="dark" onClick={() => setConfirmDel(null)}>Cancelar</Btn>
+          </div>
+        </Card>
+      )}
+
       <div className="grid md:grid-cols-2 xl:grid-cols-3 gap-3">
         {store.products.map((p) => (
-          <Card key={p.id} className="p-3">
+          <Card key={p.id} className="p-3" style={{ opacity: p.available ? 1 : 0.55 }}>
             <div className="flex gap-3">
-              <div className="rounded-xl flex items-center justify-center shrink-0" style={{ width: 52, height: 52, background: C.gray800, fontSize: 26 }}>{p.emoji}</div>
+              <div className="rounded-xl overflow-hidden shrink-0" style={{ width: 56, height: 56, border: `1px solid ${C.gray800}` }}>
+                <SmartImg id={p.id} emoji={p.emoji} alt={p.name} fs={26} file={p.img} v={p.updatedAt} />
+              </div>
               <div className="flex-1 min-w-0">
-                <div style={{ color: C.white, fontWeight: 800, fontSize: 13.5 }}>{p.name}</div>
-                <div style={{ color: "#7a7a7a", fontSize: 11 }}>
-                  {CATEGORIES.find((c) => c.id === p.cat)?.label} · {p.time} min · estoque {p.stock}
+                <div style={{ color: C.white, fontWeight: 800, fontSize: 13.5 }}>
+                  {p.name} {p.builder && <span style={{ color: C.orange, fontSize: 11 }}>🛠️</span>}
                 </div>
-                {edit === p.id ? (
-                  <div className="flex items-center gap-2 mt-2">
-                    <input
-                      type="number" defaultValue={p.price} step="0.5"
-                      onBlur={(e) => { store.updateProduct(p.id, { price: parseFloat(e.target.value) || p.price }); setEdit(null); }}
-                      className="rounded-lg px-2 py-1 outline-none"
-                      style={{ background: C.gray800, color: C.white, border: `1px solid ${C.orange}`, fontSize: 12, width: 82 }}
-                      autoFocus
-                    />
-                    <span style={{ color: "#7a7a7a", fontSize: 10.5 }}>salva ao sair do campo</span>
-                  </div>
-                ) : (
-                  <button onClick={() => setEdit(p.id)} style={{ color: C.yellowLight, fontWeight: 900, fontSize: 13.5, marginTop: 4 }}>
-                    {brl(p.promo || p.price)} ✎
-                  </button>
-                )}
+                <div style={{ color: "#7a7a7a", fontSize: 11 }}>
+                  {store.categories.find((c) => c.id === p.cat)?.label} · {p.time} min · estoque {p.stock}
+                </div>
+                <div className="flex items-center gap-2">
+                  <span style={{ color: C.yellowLight, fontWeight: 900, fontSize: 13.5, marginTop: 2 }}>
+                    {brl(p.promo || p.price)}
+                  </span>
+                  {p.promo && <span style={{ color: "#6e6e6e", fontSize: 10.5, textDecoration: "line-through" }}>{brl(p.price)}</span>}
+                </div>
               </div>
             </div>
             <div className="flex items-center justify-between mt-3 pt-3" style={{ borderTop: `1px solid ${C.gray800}` }}>
-              <span style={{ color: p.available ? C.green : C.red, fontSize: 11.5, fontWeight: 700 }}>
-                {p.available ? "Disponível" : "Indisponível"}
-              </span>
+              <div className="flex items-center gap-1.5">
+                <button onClick={() => setForm(p)} className="rounded-lg px-2 py-1 font-bold"
+                  style={{ background: C.gray800, color: C.white, fontSize: 11 }}>✎ Editar</button>
+                <button onClick={() => setConfirmDel(p)} className="rounded-lg px-2 py-1 font-bold"
+                  style={{ background: "transparent", border: `1px solid ${C.red}55`, color: C.red, fontSize: 11 }}>🗑</button>
+              </div>
               <button
                 onClick={() => store.updateProduct(p.id, { available: !p.available })}
                 className="rounded-full"
@@ -1958,6 +2184,15 @@ function AdminProducts({ store }) {
           </Card>
         ))}
       </div>
+
+      {form && (
+        <ProductForm
+          key={form === "new" ? "new" : form.id}
+          initial={form === "new" ? null : form}
+          store={store}
+          onClose={() => setForm(null)}
+        />
+      )}
     </div>
   );
 }
@@ -1991,13 +2226,13 @@ function Table({ cols, rows }) {
   );
 }
 
-function AdminCustomers() {
+function AdminCustomers({ store }) {
   const tierColor = { VIP: C.yellowLight, Recorrente: C.green, Novo: C.blue, Inativo: "#7a7a7a" };
   return (
     <Card className="p-1">
       <Table
         cols={["Cliente", "WhatsApp", "Pedidos", "Gasto", "Ticket médio", "Último", "Classificação"]}
-        rows={CUSTOMERS.map((c) => [
+        rows={store.customers.map((c) => [
           c.name, c.phone, c.orders, brl(c.spent), brl(c.spent / c.orders), c.last,
           <span key="t" style={{ color: tierColor[c.tier], fontWeight: 800, fontSize: 11.5 }}>{c.tier.toUpperCase()}</span>,
         ])}
@@ -2044,7 +2279,253 @@ function AdminInventory({ store }) {
   );
 }
 
-function AdminPromos() {
+// ============================================================
+// FINANCEIRO — visão de caixa com dados reais dos pedidos
+// ============================================================
+
+const RANGES = [
+  ["hoje", "Hoje"],
+  ["7", "7 dias"],
+  ["30", "30 dias"],
+  ["tudo", "Tudo"],
+];
+
+function rangeStart(range, now) {
+  const DAY = 86400000;
+  if (range === "hoje") {
+    const d = new Date(now);
+    d.setHours(0, 0, 0, 0);
+    return d.getTime();
+  }
+  if (range === "7") return now - 7 * DAY;
+  if (range === "30") return now - 30 * DAY;
+  return 0;
+}
+
+function AdminFinance({ store, now }) {
+  const [range, setRange] = useState("hoje");
+  const from = rangeStart(range, now);
+
+  const valid = store.orders.filter((o) => o.createdAt >= from && o.status !== "CANCELADO");
+  const canceled = store.orders.filter((o) => o.createdAt >= from && o.status === "CANCELADO");
+  const revenue = valid.reduce((s, o) => s + o.total, 0);
+  const discounts = valid.reduce((s, o) => s + o.discount, 0);
+  const fees = valid.reduce((s, o) => s + o.fee, 0);
+  const ticket = valid.length ? revenue / valid.length : 0;
+  const canceledValue = canceled.reduce((s, o) => s + o.total, 0);
+
+  const byDay = {};
+  valid.forEach((o) => {
+    const k = new Date(o.createdAt).toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" });
+    byDay[k] = (byDay[k] || 0) + o.total;
+  });
+  const dayData = Object.entries(byDay)
+    .sort((a, b) => (a[0].split("/").reverse().join("") > b[0].split("/").reverse().join("") ? 1 : -1))
+    .slice(-14)
+    .map(([d, v]) => ({ d, v: Math.round(v) }));
+
+  const groupSum = (keyFn) => {
+    const m = new Map();
+    valid.forEach((o) => {
+      const k = keyFn(o);
+      m.set(k, (m.get(k) || 0) + o.total);
+    });
+    const total = [...m.values()].reduce((s, v) => s + v, 0) || 1;
+    return [...m.entries()].sort((a, b) => b[1] - a[1]).map(([k, v]) => ({ k, v, pct: Math.round((v / total) * 100) }));
+  };
+  const payments = groupSum((o) => o.payment.replace(/\s*\(.*\)/, ""));
+  const channels = groupSum((o) => CHANNELS[o.channel]?.label || o.channel);
+  const types = groupSum((o) => (o.type === "pickup" ? "Retirada" : "Delivery"));
+
+  const exportCSV = () => {
+    downloadCSV(`financeiro-sarro-${range}.csv`, [
+      ["TÔ NO SARRO! — Financeiro"],
+      ["Período", RANGES.find((r) => r[0] === range)?.[1] || range],
+      [],
+      ["Indicador", "Valor"],
+      ["Faturamento", revenue.toFixed(2)],
+      ["Pedidos válidos", valid.length],
+      ["Ticket médio", ticket.toFixed(2)],
+      ["Descontos concedidos", discounts.toFixed(2)],
+      ["Taxas de entrega", fees.toFixed(2)],
+      ["Cancelados", `${canceled.length} (${canceledValue.toFixed(2)})`],
+      [],
+      ["Dia", "Faturamento"],
+      ...dayData.map((d) => [d.d, d.v.toFixed(2)]),
+      [],
+      ["Forma de pagamento", "Total", "%"],
+      ...payments.map((p) => [p.k, p.v.toFixed(2), `${p.pct}%`]),
+      [],
+      ["Canal", "Total", "%"],
+      ...channels.map((p) => [p.k, p.v.toFixed(2), `${p.pct}%`]),
+    ]);
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-center gap-2">
+        {RANGES.map(([id, lbl]) => (
+          <Btn key={id} small variant={range === id ? "primary" : "dark"} onClick={() => setRange(id)}>{lbl}</Btn>
+        ))}
+        <div className="flex-1" />
+        <Btn small variant="dark" onClick={exportCSV}>⬇ Exportar CSV/Excel</Btn>
+      </div>
+
+      <div className="grid grid-cols-2 lg:grid-cols-3 gap-3">
+        <KPI icon="💰" label={`Faturamento (${RANGES.find((r) => r[0] === range)?.[1]})`} value={brl(revenue)} accent={C.yellowLight} />
+        <KPI icon="🧾" label="Pedidos válidos" value={valid.length} />
+        <KPI icon="📦" label="Ticket médio" value={brl(ticket)} />
+        <KPI icon="🎟" label="Descontos concedidos" value={brl(discounts)} accent={C.orange} />
+        <KPI icon="🛵" label="Taxas de entrega" value={brl(fees)} />
+        <KPI icon="❌" label={`Cancelados · ${brl(canceledValue)}`} value={canceled.length} accent={canceled.length ? C.red : C.white} />
+      </div>
+
+      <div className="grid lg:grid-cols-2 gap-3">
+        <Card className="p-4">
+          <div style={{ color: C.white, fontWeight: 800, fontSize: 13, marginBottom: 12 }}>Faturamento por dia</div>
+          {dayData.length ? <BarChart data={dayData} xKey="d" vKey="v" /> : <div style={{ color: "#6a6a6a", fontSize: 12 }}>Sem vendas no período.</div>}
+        </Card>
+        <Card className="p-4">
+          <div style={{ color: C.white, fontWeight: 800, fontSize: 13, marginBottom: 12 }}>Formas de pagamento</div>
+          {payments.length ? payments.map((p) => (
+            <div key={p.k} className="mb-2.5">
+              <div className="flex justify-between" style={{ fontSize: 12 }}>
+                <span style={{ color: "#d0d0d0" }}>{p.k}</span>
+                <span style={{ color: C.yellowLight, fontWeight: 800 }}>{brl(p.v)} · {p.pct}%</span>
+              </div>
+              <div style={{ height: 6, background: C.gray800, borderRadius: 9, marginTop: 4 }}>
+                <div style={{ width: `${p.pct}%`, height: "100%", borderRadius: 9, background: `linear-gradient(90deg, ${C.orange}, ${C.yellow})` }} />
+              </div>
+            </div>
+          )) : <div style={{ color: "#6a6a6a", fontSize: 12 }}>Sem dados.</div>}
+        </Card>
+        <Card className="p-4">
+          <div style={{ color: C.white, fontWeight: 800, fontSize: 13, marginBottom: 12 }}>Por canal</div>
+          {channels.length ? <Donut slices={channels.map((c, i) => ({ label: c.k, v: c.v, color: [C.orange, C.yellow, "#25D366", C.blue][i % 4] }))} size={130} /> : <div style={{ color: "#6a6a6a", fontSize: 12 }}>Sem dados.</div>}
+        </Card>
+        <Card className="p-4">
+          <div style={{ color: C.white, fontWeight: 800, fontSize: 13, marginBottom: 12 }}>Delivery x Retirada</div>
+          {types.length ? <Donut slices={types.map((t, i) => ({ label: t.k, v: t.v, color: i ? C.blue : C.orange }))} size={130} /> : <div style={{ color: "#6a6a6a", fontSize: 12 }}>Sem dados.</div>}
+        </Card>
+      </div>
+    </div>
+  );
+}
+
+// ============================================================
+// RELATÓRIOS — tabelas com exportação CSV e impressão A4
+// ============================================================
+
+function printReport(title, cols, rows) {
+  const thead = cols.map((c) => `<th style="text-align:left;padding:6px 10px;border-bottom:2px solid #000">${c}</th>`).join("");
+  const tbody = rows.map((r) => `<tr>${r.map((c) => `<td style="padding:5px 10px;border-bottom:1px solid #ddd">${c ?? ""}</td>`).join("")}</tr>`).join("");
+  const html = `<!doctype html><html><head><meta charset="utf-8"><title>${title}</title><style>
+    @page { size: A4 landscape; margin: 14mm; }
+    body { font-family: Arial, Helvetica, sans-serif; color: #000; font-size: 12px; }
+    h1 { font-size: 18px; margin: 0 0 2px; }
+    .sub { color: #444; font-size: 11px; margin-bottom: 12px; }
+    table { border-collapse: collapse; width: 100%; }
+  </style></head><body>
+    <h1>TÔ NO SARRO! — ${title}</h1>
+    <div class="sub">Gerado em ${new Date().toLocaleString("pt-BR")}</div>
+    <table><thead><tr>${thead}</tr></thead><tbody>${tbody}</tbody></table>
+  </body></html>`;
+  const w = window.open("", "_blank", "width=980,height=720");
+  if (!w) return;
+  w.document.open(); w.document.write(html); w.document.close();
+  setTimeout(() => { w.focus(); w.print(); }, 250);
+}
+
+function ReportCard({ title, cols, rows, csvName }) {
+  const hasData = rows.length > 0;
+  return (
+    <Card className="p-4">
+      <div className="flex items-center justify-between mb-3 gap-2">
+        <div style={{ color: C.white, fontWeight: 800, fontSize: 13 }}>{title}</div>
+        <div className="flex gap-1.5 shrink-0">
+          <Btn small variant="dark" onClick={() => printReport(title, cols, rows)}>🖨 PDF</Btn>
+          <Btn small variant="dark" onClick={() => downloadCSV(csvName, [cols, ...rows])}>⬇ CSV</Btn>
+        </div>
+      </div>
+      {hasData ? <Table cols={cols} rows={rows} /> : <div style={{ color: "#6a6a6a", fontSize: 12 }}>Sem dados no período.</div>}
+    </Card>
+  );
+}
+
+function AdminReports({ store, now }) {
+  const [range, setRange] = useState("7");
+  const from = rangeStart(range, now);
+  const orders = store.orders.filter((o) => o.createdAt >= from);
+
+  const dayMap = new Map();
+  orders.forEach((o) => {
+    const k = new Date(o.createdAt).toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" });
+    const cur = dayMap.get(k) || { n: 0, total: 0 };
+    cur.n += 1;
+    if (o.status !== "CANCELADO") cur.total += o.total;
+    dayMap.set(k, cur);
+  });
+  const salesRows = [...dayMap.entries()]
+    .sort((a, b) => (a[0].split("/").reverse().join("") > b[0].split("/").reverse().join("") ? 1 : -1))
+    .map(([d, v]) => [d, v.n, brl(v.total), brl(v.n ? v.total / v.n : 0)]);
+
+  const prodMap = new Map();
+  orders.filter((o) => o.status !== "CANCELADO").forEach((o) =>
+    o.items.forEach((i) => {
+      const cur = prodMap.get(i.name) || { qty: 0, total: 0 };
+      cur.qty += i.qty;
+      cur.total += i.unit * i.qty;
+      prodMap.set(i.name, cur);
+    })
+  );
+  const productRows = [...prodMap.entries()].sort((a, b) => b[1].qty - a[1].qty)
+    .map(([name, v]) => [name, v.qty, brl(v.total)]);
+
+  const paySet = [...new Set(orders.filter((o) => o.status !== "CANCELADO").map((o) => o.payment))];
+  const payRows = paySet.map((pay) => {
+    const list = orders.filter((o) => o.payment === pay && o.status !== "CANCELADO");
+    return [pay, list.length, brl(list.reduce((s, o) => s + o.total, 0))];
+  });
+  const channelRows = Object.keys(CHANNELS).map((k) => {
+    const list = orders.filter((o) => o.channel === k && o.status !== "CANCELADO");
+    return [CHANNELS[k].label, list.length, brl(list.reduce((s, o) => s + o.total, 0))];
+  });
+
+  const driverRows = store.drivers.map((d) => {
+    const done = orders.filter((o) => o.driverId === d.id && o.status === "ENTREGUE");
+    return [d.name, d.vehicle, done.length, brl(done.reduce((s, o) => s + o.total, 0))];
+  });
+
+  const customerRows = store.customers.slice(0, 10).map((c) => [
+    c.name, c.phone, c.orders, brl(c.spent), c.tier,
+  ]);
+
+  const canceledRows = orders.filter((o) => o.status === "CANCELADO")
+    .map((o) => [`#${o.code}`, o.customer.name, brl(o.total), fmtDT(o.createdAt), CHANNELS[o.channel]?.short || o.channel]);
+
+  return (
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-center gap-2">
+        <span style={{ color: "#8a8a8a", fontSize: 12 }}>Período:</span>
+        {RANGES.map(([id, lbl]) => (
+          <Btn key={id} small variant={range === id ? "primary" : "dark"} onClick={() => setRange(id)}>{lbl}</Btn>
+        ))}
+      </div>
+
+      <ReportCard title="Vendas por dia" cols={["Dia", "Pedidos", "Faturamento", "Ticket médio"]} rows={salesRows} csvName="sarro-vendas.csv" />
+      <ReportCard title="Produtos vendidos" cols={["Produto", "Qtd", "Receita"]} rows={productRows} csvName="sarro-produtos.csv" />
+      <div className="grid lg:grid-cols-2 gap-3">
+        <ReportCard title="Formas de pagamento" cols={["Pagamento", "Pedidos", "Total"]} rows={payRows} csvName="sarro-pagamentos.csv" />
+        <ReportCard title="Canais de venda" cols={["Canal", "Pedidos", "Total"]} rows={channelRows} csvName="sarro-canais.csv" />
+        <ReportCard title="Entregadores" cols={["Entregador", "Veículo", "Entregas", "Valor entregue"]} rows={driverRows} csvName="sarro-entregadores.csv" />
+        <ReportCard title="Top clientes" cols={["Cliente", "WhatsApp", "Pedidos", "Gasto", "Classe"]} rows={customerRows} csvName="sarro-clientes.csv" />
+      </div>
+      <ReportCard title="Cancelamentos" cols={["Pedido", "Cliente", "Valor", "Quando", "Canal"]} rows={canceledRows} csvName="sarro-cancelamentos.csv" />
+    </div>
+  );
+}
+
+function AdminPromos({ store }) {
   return (
     <div className="space-y-5">
       <div>
@@ -2052,9 +2533,9 @@ function AdminPromos() {
         <Card className="p-1">
           <Table
             cols={["Código", "Regra", "Mínimo", "Usos", "Limite", "Status"]}
-            rows={COUPONS.map((c) => [
+            rows={store.coupons.map((c) => [
               c.code, c.note, brl(c.min), c.uses, c.limit,
-              <span key="s" style={{ color: C.green, fontSize: 11.5, fontWeight: 800 }}>ATIVO</span>,
+              <span key="s" style={{ color: c.active ? C.green : "#7a7a7a", fontSize: 11.5, fontWeight: 800 }}>{c.active ? "ATIVO" : "PAUSADO"}</span>,
             ])}
           />
         </Card>
@@ -2062,7 +2543,7 @@ function AdminPromos() {
       <div>
         <div style={{ color: C.white, fontWeight: 900, fontSize: 14, marginBottom: 10 }}>Promoções programadas</div>
         <div className="grid md:grid-cols-3 gap-3">
-          {PROMOS.map((p) => (
+          {store.promos.map((p) => (
             <Card key={p.id} className="p-4">
               <div className="flex justify-between items-start">
                 <span style={{ color: C.white, fontWeight: 800, fontSize: 13.5 }}>{p.name}</span>
@@ -2080,53 +2561,415 @@ function AdminPromos() {
   );
 }
 
-function AdminIntegrations({ store }) {
+function AdminCategories({ store }) {
+  const [cat, setCat] = useState({ label: "", icon: "" });
+  const [grp, setGrp] = useState({ name: "", min: "0", max: "1", required: false });
+  const [opt, setOpt] = useState({}); // { groupId: {name, price} }
+  const [confirm, setConfirm] = useState(null); // {type, id}
+
+  const say = (m) => store.toast(m);
+
+  const addCategory = async () => {
+    try {
+      await api("/api/categories", { method: "POST", body: { label: cat.label, icon: cat.icon || "🍽" } });
+      setCat({ label: "", icon: "" });
+      say("Categoria criada ✓");
+    } catch (e) { say(e.message); }
+  };
+
+  const addGroup = async () => {
+    try {
+      await api("/api/option-groups", { method: "POST", body: { name: grp.name, min: grp.min, max: grp.max, required: grp.required } });
+      setGrp({ name: "", min: "0", max: "1", required: false });
+      say("Grupo criado ✓ — agora adicione os itens");
+    } catch (e) { say(e.message); }
+  };
+
+  const addOption = async (groupId) => {
+    const o = opt[groupId] || {};
+    try {
+      await api(`/api/option-groups/${groupId}/options`, { method: "POST", body: { name: o.name, price: o.price || 0 } });
+      setOpt({ ...opt, [groupId]: { name: "", price: "" } });
+      say("Item adicionado ✓");
+    } catch (e) { say(e.message); }
+  };
+
+  const patchGroup = async (g, patch) => {
+    try { await api(`/api/option-groups/${g.id}`, { method: "PATCH", body: patch }); say("Grupo atualizado ✓"); }
+    catch (e) { say(e.message); }
+  };
+
+  const doDelete = async () => {
+    const c = confirm;
+    setConfirm(null);
+    try {
+      if (c.type === "cat") await api(`/api/categories/${c.id}`, { method: "DELETE" });
+      if (c.type === "grp") await api(`/api/option-groups/${c.id}`, { method: "DELETE" });
+      if (c.type === "opt") await api(`/api/options/${c.id}`, { method: "DELETE" });
+      say("Excluído ✓");
+    } catch (e) { say(e.message); }
+  };
+
+  const inField = { background: C.black, border: `1px solid ${C.gray800}`, color: C.white, fontSize: 12 };
+  const delBtn = (type, id, extra = null) => (
+    confirm?.type === type && confirm?.id === id ? (
+      <button onClick={doDelete} className="rounded-lg px-2 py-1 font-bold shrink-0"
+        style={{ background: C.red, color: C.white, fontSize: 10.5 }}>confirmar?</button>
+    ) : (
+      <button onClick={() => setConfirm({ type, id })} className="rounded-lg px-2 py-1 font-bold shrink-0"
+        style={{ border: `1px solid ${C.red}55`, color: C.red, fontSize: 10.5 }}>
+        {extra || "🗑"}
+      </button>
+    )
+  );
+
   return (
-    <div className="grid md:grid-cols-2 gap-3">
-      {INTEGRATIONS.map((it) => (
-        <Card key={it.id} className="p-4">
+    <div className="grid lg:grid-cols-2 gap-3">
+      {/* CATEGORIAS */}
+      <Card className="p-4 self-start">
+        <div style={{ color: C.white, fontWeight: 900, fontSize: 14 }}>🗂 Categorias do cardápio</div>
+        <div style={{ color: "#8a8a8a", fontSize: 11.5, marginTop: 4 }}>
+          A ordem aqui é a ordem do menu do cliente.
+        </div>
+        <div className="mt-3 space-y-1.5">
+          {store.categories.map((c) => (
+            <div key={c.id} className="flex items-center gap-2 rounded-xl px-2.5 py-2" style={{ background: C.black, border: `1px solid ${C.gray800}` }}>
+              <input defaultValue={c.icon} key={c.id + c.icon} style={{ ...inField, width: 44, textAlign: "center" }}
+                className="rounded-lg px-2 py-1.5 outline-none"
+                onBlur={(e) => e.target.value !== c.icon && api(`/api/categories/${c.id}`, { method: "PATCH", body: { icon: e.target.value } }).catch((x) => say(x.message))} />
+              <input defaultValue={c.label} key={c.id + c.label} className="flex-1 rounded-lg px-2 py-1.5 outline-none" style={inField}
+                onBlur={(e) => e.target.value !== c.label && api(`/api/categories/${c.id}`, { method: "PATCH", body: { label: e.target.value } }).catch((x) => say(x.message))} />
+              <span style={{ color: "#5a5a5a", fontSize: 10.5, whiteSpace: "nowrap" }}>
+                {store.products.filter((p) => p.cat === c.id).length} 🍔
+              </span>
+              {delBtn("cat", c.id)}
+            </div>
+          ))}
+        </div>
+        <div className="flex gap-2 mt-3">
+          <input value={cat.icon} onChange={(e) => setCat({ ...cat, icon: e.target.value })} placeholder="🍔"
+            style={{ ...inField, width: 44, textAlign: "center" }} className="rounded-lg px-2 py-1.5 outline-none" />
+          <input value={cat.label} onChange={(e) => setCat({ ...cat, label: e.target.value })} placeholder="Nova categoria (ex.: Hot dogs)"
+            className="flex-1 rounded-lg px-2 py-1.5 outline-none" style={inField}
+            onKeyDown={(e) => e.key === "Enter" && cat.label.trim() && addCategory()} />
+          <Btn small disabled={!cat.label.trim()} onClick={addCategory}>+ Criar</Btn>
+        </div>
+      </Card>
+
+      {/* GRUPOS DE OPCIONAIS */}
+      <Card className="p-4 self-start">
+        <div style={{ color: C.white, fontWeight: 900, fontSize: 14 }}>➕ Grupos de opcionais</div>
+        <div style={{ color: "#8a8a8a", fontSize: 11.5, marginTop: 4 }}>
+          Vincule os grupos aos produtos no cardápio (editar produto → grupos).
+        </div>
+        <div className="mt-3 space-y-3">
+          {store.optionGroups.map((g) => (
+            <div key={g.id} className="rounded-xl p-3" style={{ background: C.black, border: `1px solid ${C.gray800}` }}>
+              <div className="flex items-center gap-2">
+                <span style={{ color: C.white, fontWeight: 800, fontSize: 13, flex: 1 }}>{g.name}</span>
+                {delBtn("grp", g.id)}
+              </div>
+              <div className="flex items-center gap-1.5 mt-2 flex-wrap">
+                <button onClick={() => patchGroup(g, { required: !g.required })} className="rounded-lg px-2 py-1 font-bold"
+                  style={{ background: g.required ? `${C.orange}22` : C.gray850, border: `1px solid ${g.required ? C.orange : C.gray800}`, color: g.required ? C.orange : "#9a9a9a", fontSize: 10.5 }}>
+                  {g.required ? "obrigatório" : "opcional"}
+                </button>
+                {["min", "max"].map((k) => (
+                  <label key={k} className="flex items-center gap-1" style={{ fontSize: 10.5, color: "#8a8a8a" }}>
+                    {k}
+                    <input type="number" defaultValue={g[k]} min={0} max={10}
+                      onBlur={(e) => Number(e.target.value) !== g[k] && patchGroup(g, { [k]: e.target.value })}
+                      className="rounded-lg px-1.5 py-1 outline-none" style={{ ...inField, width: 46 }} />
+                  </label>
+                ))}
+              </div>
+              <div className="mt-2 space-y-1">
+                {g.options.map((o) => (
+                  <div key={o.id} className="flex items-center gap-2">
+                    <input defaultValue={o.name} key={o.id + o.name} className="flex-1 rounded-lg px-2 py-1 outline-none" style={inField}
+                      onBlur={(e) => e.target.value !== o.name && api(`/api/options/${o.id}`, { method: "PATCH", body: { name: e.target.value } }).catch((x) => say(x.message))} />
+                    <input defaultValue={String(o.price).replace(".", ",")} key={o.id + o.price} inputMode="decimal"
+                      className="rounded-lg px-2 py-1 outline-none text-right" style={{ ...inField, width: 78 }}
+                      onBlur={(e) => {
+                        const v = parseFloat(String(e.target.value).replace(",", "."));
+                        if (Number.isFinite(v) && v !== o.price) api(`/api/options/${o.id}`, { method: "PATCH", body: { price: v } }).catch((x) => say(x.message));
+                      }} />
+                    {delBtn("opt", o.id)}
+                  </div>
+                ))}
+                <div className="flex items-center gap-2 pt-1">
+                  <input value={opt[g.id]?.name || ""} onChange={(e) => setOpt({ ...opt, [g.id]: { ...opt[g.id], name: e.target.value } })}
+                    placeholder="Novo item (ex.: Cheddar)" className="flex-1 rounded-lg px-2 py-1 outline-none"
+                    style={{ background: C.gray850, border: `1px solid ${C.gray800}`, color: C.white, fontSize: 12 }}
+                    onKeyDown={(e) => e.key === "Enter" && opt[g.id]?.name?.trim() && addOption(g.id)} />
+                  <input value={opt[g.id]?.price || ""} onChange={(e) => setOpt({ ...opt, [g.id]: { ...opt[g.id], price: e.target.value } })}
+                    placeholder="R$" inputMode="decimal" className="rounded-lg px-2 py-1 outline-none text-right"
+                    style={{ background: C.gray850, border: `1px solid ${C.gray800}`, color: C.white, fontSize: 12, width: 78 }} />
+                  <Btn small variant="dark" disabled={!opt[g.id]?.name?.trim()} onClick={() => addOption(g.id)}>+</Btn>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+        <div className="mt-3 pt-3" style={{ borderTop: `1px solid ${C.gray800}` }}>
+          <div style={{ color: "#9a9a9a", fontSize: 11, fontWeight: 700, marginBottom: 6 }}>Novo grupo</div>
+          <input value={grp.name} onChange={(e) => setGrp({ ...grp, name: e.target.value })} placeholder="Ex.: Escolha o molho"
+            className="w-full rounded-lg px-2 py-1.5 outline-none" style={inField} />
+          <div className="flex items-center gap-2 mt-2 flex-wrap">
+            {["min", "max"].map((k) => (
+              <label key={k} className="flex items-center gap-1" style={{ fontSize: 10.5, color: "#8a8a8a" }}>
+                {k}
+                <input value={grp[k]} onChange={(e) => setGrp({ ...grp, [k]: e.target.value })} inputMode="numeric"
+                  className="rounded-lg px-1.5 py-1 outline-none" style={{ ...inField, width: 46 }} />
+              </label>
+            ))}
+            <button onClick={() => setGrp({ ...grp, required: !grp.required })} className="rounded-lg px-2 py-1 font-bold"
+              style={{ background: grp.required ? `${C.orange}22` : C.gray850, border: `1px solid ${grp.required ? C.orange : C.gray800}`, color: grp.required ? C.orange : "#9a9a9a", fontSize: 10.5 }}>
+              {grp.required ? "obrigatório" : "opcional"}
+            </button>
+            <Btn small disabled={!grp.name.trim()} onClick={addGroup}>+ Criar grupo</Btn>
+          </div>
+        </div>
+      </Card>
+    </div>
+  );
+}
+function AdminIntegrations({ store }) {
+  const [ov, setOv] = useState(null);
+  const [wa, setWa] = useState({ phone_number_id: "", token: "", verify: "", template: "tonosarro_status" });
+  const [iff, setIff] = useState({ client_id: "", secret: "", merchant_id: "" });
+  const [testPhone, setTestPhone] = useState("");
+  const [busy, setBusy] = useState("");
+  const [msg, setMsg] = useState("");
+
+  const load = () => api("/api/integrations/overview").then(setOv).catch(() => {});
+  useEffect(() => {
+    load();
+    const t = setInterval(load, 6000);
+    return () => clearInterval(t);
+  }, []);
+
+  const say = (m) => { setMsg(m); setTimeout(() => setMsg(""), 4000); };
+  const inField = { background: C.black, border: `1px solid ${C.gray800}`, color: C.white, fontSize: 12 };
+
+  const saveWa = async (enabledDelta) => {
+    setBusy("wa");
+    try {
+      const body = {
+        wa_phone_number_id: wa.phone_number_id || undefined,
+        wa_verify_token: wa.verify || undefined,
+        wa_template: wa.template || undefined,
+        wa_access_token: wa.token || undefined,
+      };
+      if (typeof enabledDelta === "boolean") body.whatsapp_enabled = enabledDelta;
+      Object.keys(body).forEach((k) => body[k] === undefined && delete body[k]);
+      await api("/api/settings", { method: "PATCH", body });
+      setWa({ phone_number_id: "", token: "", verify: "", template: wa.template });
+      await load();
+      say(enabledDelta === undefined ? "Credenciais do WhatsApp salvas ✓" : enabledDelta ? "WhatsApp ativado ✓" : "WhatsApp pausado");
+    } catch (e) { say(e.message); }
+    setBusy("");
+  };
+
+  const saveIfood = async (enabledDelta) => {
+    setBusy("if");
+    try {
+      const body = {
+        ifood_client_id: iff.client_id || undefined,
+        ifood_merchant_id: iff.merchant_id || undefined,
+        ifood_client_secret: iff.secret || undefined,
+      };
+      if (typeof enabledDelta === "boolean") body.ifood_enabled = enabledDelta;
+      Object.keys(body).forEach((k) => body[k] === undefined && delete body[k]);
+      await api("/api/settings", { method: "PATCH", body });
+      setIff({ client_id: "", secret: "", merchant_id: "" });
+      await load();
+      say(enabledDelta === undefined ? "Credenciais do iFood salvas ✓" : enabledDelta ? "iFood ativado — poller a cada 30s ✓" : "iFood pausado");
+    } catch (e) { say(e.message); }
+    setBusy("");
+  };
+
+  const testWa = async () => {
+    setBusy("twa");
+    try {
+      await api("/api/integrations/whatsapp/test", { method: "POST", body: { phone: testPhone } });
+      say("Mensagem disparada — veja o resultado na fila abaixo");
+      await load();
+    } catch (e) { say(e.message); await load(); }
+    setBusy("");
+  };
+
+  const testIfood = async () => {
+    setBusy("tif");
+    try {
+      await api("/api/integrations/ifood/test", { method: "POST" });
+      say("Conexão com o iFood OK ✓");
+      await load();
+    } catch (e) { say(e.message); await load(); }
+    setBusy("");
+  };
+
+  const w = ov?.whatsapp || {};
+  const f = ov?.ifood || {};
+
+  return (
+    <div className="space-y-4">
+      {msg && (
+        <div className="rounded-xl px-3 py-2.5" style={{ background: `${C.orange}18`, color: C.orange, fontSize: 12.5, fontWeight: 700 }}>
+          {msg}
+        </div>
+      )}
+
+      <div className="grid lg:grid-cols-2 gap-3">
+        {/* WHATSAPP */}
+        <Card className="p-4">
           <div className="flex items-center justify-between">
-            <span style={{ color: C.white, fontWeight: 900, fontSize: 15 }}>{it.name}</span>
+            <span className="inline-flex items-center gap-2" style={{ color: C.white, fontWeight: 900, fontSize: 15 }}>
+              <WaIcon size={16} color="#25D366" /> WhatsApp Cloud API
+            </span>
             <span
               className="rounded-full px-2.5 py-1 font-bold"
               style={{
-                fontSize: 10, background: it.status === "conectado" ? `${C.green}1f` : `${C.yellow}1f`,
-                color: it.status === "conectado" ? C.green : C.yellow,
-                border: `1px solid ${it.status === "conectado" ? C.green : C.yellow}44`,
+                fontSize: 10,
+                background: w.configured ? `${C.green}1f` : `${C.yellow}1f`,
+                color: w.configured ? C.green : C.yellow,
+                border: `1px solid ${w.configured ? C.green : C.yellow}44`,
               }}
             >
-              {it.status.toUpperCase()}
+              {w.configured ? (w.enabled ? "ATIVO" : "CONFIGURADO · PAUSADO") : "FALTA CREDENCIAL"}
             </span>
           </div>
-          <p style={{ color: "#9a9a9a", fontSize: 12, marginTop: 8, lineHeight: 1.5 }}>{it.desc}</p>
+          <p style={{ color: "#8a8a8a", fontSize: 11.5, marginTop: 6, lineHeight: 1.5 }}>
+            Mensagens automáticas a cada status do pedido (recebido, pagamento, chapa, pronto, saiu, entregue).
+            Requer um app no <span style={{ color: "#c0c0c0" }}>developers.facebook.com</span> com template aprovado
+            ({w.template || "tonosarro_status"}, 1 parâmetro de corpo).
+          </p>
           <div className="mt-3 space-y-2">
-            {it.fields.map((fl) => (
-              <div key={fl} className="flex items-center gap-2">
-                <span style={{ color: "#7a7a7a", fontSize: 11, width: 118 }}>{fl}</span>
-                <input
-                  defaultValue={it.status === "conectado" ? "••••••••••••" : ""}
-                  placeholder="não configurado"
-                  className="flex-1 rounded-lg px-2.5 py-1.5 outline-none"
-                  style={{ background: C.black, border: `1px solid ${C.gray800}`, color: "#c0c0c0", fontSize: 11.5 }}
-                />
+            <input value={wa.phone_number_id} onChange={(e) => setWa({ ...wa, phone_number_id: e.target.value })}
+              placeholder={w.phoneId ? `Phone Number ID: ${w.phoneId}` : "Phone Number ID (ex.: 1234567890)"} className="w-full rounded-lg px-2.5 py-2 outline-none" style={inField} />
+            <input value={wa.token} onChange={(e) => setWa({ ...wa, token: e.target.value })} type="password"
+              placeholder={w.hasToken ? "Access Token •••• salvo (deixe vazio p/ manter)" : "Access Token permanente"} className="w-full rounded-lg px-2.5 py-2 outline-none" style={inField} />
+            <input value={wa.verify} onChange={(e) => setWa({ ...wa, verify: e.target.value })} type="password"
+              placeholder={w.hasVerify ? "Verify Token •••• salvo (deixe vazio p/ manter)" : "Verify Token (o que você cadastrar na Meta)"} className="w-full rounded-lg px-2.5 py-2 outline-none" style={inField} />
+            <input value={wa.template} onChange={(e) => setWa({ ...wa, template: e.target.value })}
+              placeholder="Nome do template" className="w-full rounded-lg px-2.5 py-2 outline-none" style={inField} />
+          </div>
+          <div className="flex flex-wrap gap-2 mt-3">
+            <Btn small disabled={busy === "wa"} onClick={() => saveWa(undefined)}>Salvar credenciais</Btn>
+            <Btn small variant={w.enabled ? "dark" : "green"} disabled={busy === "wa"} onClick={() => saveWa(!w.enabled)}>
+              {w.enabled ? "⏸ Pausar" : "▶ Ativar"}
+            </Btn>
+          </div>
+          {w.enabled && (
+            <div className="mt-3 pt-3" style={{ borderTop: `1px solid ${C.gray800}` }}>
+              <div style={{ color: "#8a8a8a", fontSize: 11, marginBottom: 6 }}>Testar envio real:</div>
+              <div className="flex gap-2">
+                <input value={testPhone} onChange={(e) => setTestPhone(e.target.value)} placeholder="(81) 99999-0000"
+                  className="flex-1 rounded-lg px-2.5 py-2 outline-none" style={inField} />
+                <Btn small disabled={busy === "twa" || !testPhone} onClick={testWa}>{busy === "twa" ? "…" : "Enviar teste"}</Btn>
               </div>
-            ))}
+            </div>
+          )}
+        </Card>
+
+        {/* IFOOD */}
+        <Card className="p-4">
+          <div className="flex items-center justify-between">
+            <span style={{ color: C.white, fontWeight: 900, fontSize: 15 }}>🔴 iFood — API oficial</span>
+            <span
+              className="rounded-full px-2.5 py-1 font-bold"
+              style={{
+                fontSize: 10,
+                background: f.configured ? `${C.green}1f` : `${C.yellow}1f`,
+                color: f.configured ? C.green : C.yellow,
+                border: `1px solid ${f.configured ? C.green : C.yellow}44`,
+              }}
+            >
+              {f.configured ? (f.enabled ? "ATIVO · POLLING 30s" : "CONFIGURADO · PAUSADO") : "FALTA CREDENCIAL"}
+            </span>
           </div>
-          <div className="flex gap-2 mt-3">
-            <Btn small onClick={() => store.toast(`${it.name}: credenciais salvas`)}>Salvar</Btn>
-            <Btn small variant="dark" onClick={() => store.toast(`Testando conexão com ${it.name}…`)}>Testar conexão</Btn>
-            {it.id === "ifood" && (
-              <Btn small variant="dark" onClick={() => store.injectExternal("IFOOD")}>Simular pedido</Btn>
-            )}
-            {it.id === "99food" && (
-              <Btn small variant="dark" onClick={() => store.injectExternal("NNFOOD")}>Simular pedido</Btn>
-            )}
+          <p style={{ color: "#8a8a8a", fontSize: 11.5, marginTop: 6, lineHeight: 1.5 }}>
+            Pedidos do iFood entram sozinhos na fila (evento PLC) e aparecem no Kanban, KDS e expedição.
+            Confirmação/pronto/despacho aqui dentro são espelhados de volta no iFood.
+            Credenciais do portal <span style={{ color: "#c0c0c0" }}>novopedido.ifood.com.br</span> (Integrações → API).
+          </p>
+          <div className="mt-3 space-y-2">
+            <input value={iff.client_id} onChange={(e) => setIff({ ...iff, client_id: e.target.value })}
+              placeholder={f.clientId ? `Client ID: ${f.clientId}` : "Client ID"} className="w-full rounded-lg px-2.5 py-2 outline-none" style={inField} />
+            <input value={iff.secret} onChange={(e) => setIff({ ...iff, secret: e.target.value })} type="password"
+              placeholder={f.configured ? "Client Secret •••• salvo (deixe vazio p/ manter)" : "Client Secret"} className="w-full rounded-lg px-2.5 py-2 outline-none" style={inField} />
+            <input value={iff.merchant_id} onChange={(e) => setIff({ ...iff, merchant_id: e.target.value })}
+              placeholder={f.merchantId ? `Merchant ID: ${f.merchantId}` : "Merchant ID (opcional)"} className="w-full rounded-lg px-2.5 py-2 outline-none" style={inField} />
           </div>
-          <div style={{ color: "#5a5a5a", fontSize: 10.5, marginTop: 10 }}>
-            Tokens ficam no servidor, em variáveis de ambiente. O frontend nunca recebe credenciais.
+          <div className="flex flex-wrap gap-2 mt-3">
+            <Btn small disabled={busy === "if"} onClick={() => saveIfood(undefined)}>Salvar credenciais</Btn>
+            <Btn small variant={f.enabled ? "dark" : "green"} disabled={busy === "if"} onClick={() => saveIfood(!f.enabled)}>
+              {f.enabled ? "⏸ Pausar" : "▶ Ativar polling"}
+            </Btn>
+            <Btn small variant="dark" disabled={busy === "tif"} onClick={testIfood}>{busy === "tif" ? "…" : "Testar conexão"}</Btn>
           </div>
         </Card>
-      ))}
+      </div>
+
+      {/* FILA DE MENSAGENS */}
+      <Card className="p-4">
+        <div style={{ color: C.white, fontWeight: 900, fontSize: 14, marginBottom: 4 }}>
+          📤 Fila de mensagens — o que o cliente recebe
+        </div>
+        <div style={{ color: "#7a7a7a", fontSize: 11.5, marginBottom: 10 }}>
+          Sem credenciais (ou sem internet) as mensagens ficam na fila; com a integração ativa, saem de verdade.
+        </div>
+        <div className="space-y-2">
+          {(ov?.outbox || []).length === 0 && (
+            <div style={{ color: "#6a6a6a", fontSize: 12 }}>Nenhuma mensagem ainda — mova um pedido pelo fluxo para ver.</div>
+          )}
+          {(ov?.outbox || []).map((m) => (
+            <div key={m.id} className="rounded-xl p-3" style={{ background: C.black, border: `1px solid ${C.gray800}` }}>
+              <div className="flex items-center justify-between gap-2 mb-1.5">
+                <span style={{ color: "#9a9a9a", fontSize: 10.5 }}>
+                  {m.to} {m.code ? `· pedido #${m.code}` : ""} · {new Date(m.at).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}
+                </span>
+                <span
+                  className="rounded-md px-1.5 py-0.5 font-bold"
+                  style={{
+                    fontSize: 9.5,
+                    background: m.status === "enviada" ? `${C.green}1f` : m.status === "erro" ? `${C.red}1f` : `${C.yellow}1f`,
+                    color: m.status === "enviada" ? C.green : m.status === "erro" ? C.red : C.yellow,
+                  }}
+                >
+                  {m.status === "enviada" ? "✓ ENVIADA" : m.status === "erro" ? "ERRO" : "NA FILA"}
+                </span>
+              </div>
+              <div style={{ color: "#d0d0d0", fontSize: 12, whiteSpace: "pre-wrap", lineHeight: 1.5 }}>{m.body}</div>
+              {m.error && <div style={{ color: C.red, fontSize: 10.5, marginTop: 4 }}>⚠ {m.error}</div>}
+            </div>
+          ))}
+        </div>
+      </Card>
+
+      {/* DIÁRIO */}
+      <Card className="p-4">
+        <div style={{ color: C.white, fontWeight: 900, fontSize: 14, marginBottom: 8 }}>📜 Diário de integrações</div>
+        {(ov?.logs || []).length === 0 && <div style={{ color: "#6a6a6a", fontSize: 12 }}>Sem eventos ainda.</div>}
+        <div className="space-y-1">
+          {(ov?.logs || []).map((l) => (
+            <div key={l.id} className="flex items-start gap-2" style={{ fontSize: 11.5 }}>
+              <span style={{ color: "#5a5a5a", whiteSpace: "nowrap" }}>{new Date(l.at).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit", second: "2-digit" })}</span>
+              <span
+                className="rounded px-1 font-bold"
+                style={{
+                  background: l.level === "ok" ? `${C.green}1a` : l.level === "erro" ? `${C.red}1a` : C.gray800,
+                  color: l.level === "ok" ? C.green : l.level === "erro" ? C.red : "#9a9a9a",
+                  fontSize: 9.5, whiteSpace: "nowrap",
+                }}
+              >
+                {l.channel}
+              </span>
+              <span style={{ color: l.level === "erro" ? C.red : "#c0c0c0" }}>{l.msg}</span>
+            </div>
+          ))}
+        </div>
+      </Card>
     </div>
   );
 }
@@ -2147,9 +2990,199 @@ function Input({ v, w = 220 }) {
   );
 }
 
+function AdminPaymentsCard({ store }) {
+  const [handle, setHandle] = useState(store.settings.payHandle || "");
+  const [base, setBase] = useState(store.settings.appBaseUrl || "");
+  const [info, setInfo] = useState(null);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    api("/api/settings/payments").then(setInfo).catch(() => {});
+  }, []);
+
+  const save = async () => {
+    setBusy(true);
+    try {
+      await api("/api/settings", { method: "PATCH", body: { pay_handle: handle, app_base_url: base } });
+      setInfo(await api("/api/settings/payments"));
+      store.toast("InfinitePay configurada ✓");
+    } catch (e) {
+      store.toast(e.message);
+    }
+    setBusy(false);
+  };
+
+  const copy = (t) => {
+    navigator.clipboard?.writeText(t).then(
+      () => store.toast("URL copiada ✓"),
+      () => store.toast("Copie manualmente")
+    );
+  };
+
+  const inField = { background: C.black, border: `1px solid ${C.gray800}`, color: C.white, fontSize: 12.5 };
+
+  return (
+    <Card className="p-4" style={{ borderColor: `${C.orange}44` }}>
+      <div className="flex items-center justify-between">
+        <div style={{ color: C.white, fontWeight: 900, fontSize: 14 }}>♾️ Pagamentos — InfinitePay</div>
+        <span
+          className="rounded-full px-2.5 py-1 font-bold"
+          style={{
+            fontSize: 10,
+            background: store.settings.payHandle ? `${C.green}1f` : `${C.yellow}1f`,
+            color: store.settings.payHandle ? C.green : C.yellow,
+            border: `1px solid ${store.settings.payHandle ? C.green : C.yellow}44`,
+          }}
+        >
+          {store.settings.payHandle ? "CONFIGURADO" : "FALTA CONFIGURAR"}
+        </span>
+      </div>
+      <div style={{ color: "#8a8a8a", fontSize: 11.5, marginTop: 6, lineHeight: 1.5 }}>
+        Pix e cartão (até 12x) no checkout seguro da InfinitePay. Confirmação automática por webhook.
+      </div>
+
+      <div className="mt-3 space-y-2.5">
+        <label className="block">
+          <span style={{ color: "#9a9a9a", fontSize: 11, fontWeight: 700 }}>Sua InfiniteTag (handle, sem o $)</span>
+          <input
+            value={handle}
+            onChange={(e) => setHandle(e.target.value)}
+            placeholder="ex.: tonosarro"
+            className="w-full rounded-lg px-2.5 py-2 mt-1 outline-none"
+            style={inField}
+          />
+        </label>
+        <label className="block">
+          <span style={{ color: "#9a9a9a", fontSize: 11, fontWeight: 700 }}>URL pública do sistema (opcional)</span>
+          <input
+            value={base}
+            onChange={(e) => setBase(e.target.value)}
+            placeholder="ex.: https://pedidos.tonosarro.com.br"
+            className="w-full rounded-lg px-2.5 py-2 mt-1 outline-none"
+            style={inField}
+          />
+          <span style={{ color: "#6a6a6a", fontSize: 10 }}>
+            Usada no webhook e no retorno do pagamento. Vazio = usa o endereço atual.
+          </span>
+        </label>
+
+        {info?.webhookUrl && (
+          <div>
+            <span style={{ color: "#9a9a9a", fontSize: 11, fontWeight: 700 }}>Webhook de confirmação</span>
+            <div className="flex gap-2 mt-1">
+              <code
+                className="flex-1 rounded-lg px-2 py-2 truncate"
+                style={{ background: C.black, border: `1px solid ${C.gray800}`, color: "#c0c0c0", fontSize: 10.5 }}
+              >
+                {info.webhookUrl}
+              </code>
+              <Btn small variant="dark" onClick={() => copy(info.webhookUrl)}>Copiar</Btn>
+            </div>
+            <span style={{ color: "#6a6a6a", fontSize: 10 }}>
+              Já é enviado automaticamente a cada cobrança — guarde esta URL caso precise configurar algo manualmente.
+            </span>
+          </div>
+        )}
+      </div>
+
+      <div className="flex gap-2 mt-3">
+        <Btn small disabled={busy} onClick={save}>{busy ? "SALVANDO…" : "Salvar"}</Btn>
+        <Btn small variant="dark" onClick={() => store.toast("Teste: faça um pedido com Pix e aprove no app InfinitePay")}>
+          Como testar?
+        </Btn>
+      </div>
+    </Card>
+  );
+}
+
+function AdminPrinterCard({ store }) {
+  const [host, setHost] = useState("");
+  const [port, setPort] = useState("9100");
+  const [info, setInfo] = useState(null);
+  const [busy, setBusy] = useState(false);
+
+  const load = () => api("/api/settings/printer").then((d) => { setInfo(d); setHost(d.host || ""); setPort(d.port || "9100"); }).catch(() => {});
+  useEffect(() => { load(); }, []);
+
+  const save = async (extra = {}) => {
+    setBusy(true);
+    try {
+      await api("/api/settings", { method: "PATCH", body: { printer_host: host, printer_port: port, ...extra } });
+      await load();
+      store.toast("Impressora salva ✓");
+    } catch (e) { store.toast(e.message); }
+    setBusy(false);
+  };
+
+  const test = async () => {
+    setBusy(true);
+    try {
+      await api("/api/print/test", { method: "POST" });
+      store.toast("Página de teste enviada ✓");
+    } catch (e) { store.toast(e.message); }
+    setBusy(false);
+  };
+
+  const enabled = info?.enabled;
+  return (
+    <Card className="p-4" style={{ borderColor: `${C.orange}44` }}>
+      <div className="flex items-center justify-between">
+        <div style={{ color: C.white, fontWeight: 900, fontSize: 14 }}>🖨 Impressora térmica</div>
+        <span
+          className="rounded-full px-2.5 py-1 font-bold"
+          style={{
+            fontSize: 10,
+            background: info?.configured ? `${C.green}1f` : `${C.yellow}1f`,
+            color: info?.configured ? C.green : C.yellow,
+            border: `1px solid ${info?.configured ? C.green : C.yellow}44`,
+          }}
+        >
+          {info?.configured ? "CONECTADA" : "NÃO CONFIGURADA"}
+        </span>
+      </div>
+      <div style={{ color: "#8a8a8a", fontSize: 11.5, marginTop: 6, lineHeight: 1.5 }}>
+        Imprime comandas direto na térmica ESC/POS de rede (80mm, porta 9100) —
+        sem diálogo do navegador. Sem impressora, os botões usam a impressão do navegador.
+      </div>
+      <div className="mt-3 space-y-2">
+        <div className="grid grid-cols-3 gap-2">
+          <label className="col-span-2 block">
+            <span style={{ color: "#9a9a9a", fontSize: 11, fontWeight: 700 }}>IP da impressora</span>
+            <input value={host} onChange={(e) => setHost(e.target.value)} placeholder="ex.: 192.168.0.110"
+              className="w-full rounded-lg px-2.5 py-2 mt-1 outline-none"
+              style={{ background: C.black, border: `1px solid ${C.gray800}`, color: C.white, fontSize: 12.5 }} />
+          </label>
+          <label className="block">
+            <span style={{ color: "#9a9a9a", fontSize: 11, fontWeight: 700 }}>Porta</span>
+            <input value={port} onChange={(e) => setPort(e.target.value)}
+              className="w-full rounded-lg px-2.5 py-2 mt-1 outline-none"
+              style={{ background: C.black, border: `1px solid ${C.gray800}`, color: C.white, fontSize: 12.5 }} />
+          </label>
+        </div>
+        {host.trim() && (
+          <div className="flex gap-2 flex-wrap">
+            <Btn small variant={enabled ? "dark" : "green"} disabled={busy} onClick={() => save({ printer_enabled: !enabled })}>
+              {enabled ? "⏸ Desativar" : "▶ Ativar"}
+            </Btn>
+            <Btn small variant={info?.auto ? "dark" : "primary"} disabled={busy} onClick={() => save({ printer_auto: !info?.auto })}>
+              {info?.auto ? "Auto-print ON (clique p/ desligar)" : "Auto-print OFF (clique p/ ligar)"}
+            </Btn>
+          </div>
+        )}
+        <div className="flex gap-2">
+          <Btn small disabled={busy} onClick={() => save()}>Salvar</Btn>
+          <Btn small variant="dark" disabled={busy || !host.trim()} onClick={test}>Testar impressão</Btn>
+        </div>
+      </div>
+    </Card>
+  );
+}
 function AdminSettings({ store }) {
   return (
     <div className="grid lg:grid-cols-2 gap-3">
+      <AdminPaymentsCard store={store} />
+      <AdminPrinterCard store={store} />
+
       <Card className="p-4">
         <div style={{ color: C.white, fontWeight: 900, fontSize: 14, marginBottom: 4 }}>Loja</div>
         <Row label="Nome"><Input v="TÔ NO SARRO! Burgers & Açaí" /></Row>
@@ -2190,8 +3223,17 @@ function AdminSettings({ store }) {
       <Card className="p-4">
         <div style={{ color: C.white, fontWeight: 900, fontSize: 14, marginBottom: 10 }}>Impressão</div>
         <div className="flex flex-wrap gap-2">
-          {["Comanda da cozinha", "Comanda de expedição", "Cupom do cliente", "Etiqueta da sacola"].map((t) => (
-            <Btn key={t} small variant="dark" onClick={() => store.toast(`Imprimindo: ${t}`)}>🖨 {t}</Btn>
+          {[
+            ["Comanda da cozinha", printKitchen],
+            ["Comanda de expedição", printExpedition],
+            ["Cupom do cliente", (o) => printReceipt(o, store.settings)],
+            ["Etiqueta da sacola", printLabel],
+          ].map(([t, fn]) => (
+            <Btn key={t} small variant="dark" onClick={() => {
+              const demo = store.orders[0];
+              if (!demo) return store.toast("Crie um pedido para testar a impressão");
+              fn(demo);
+            }}>🖨 {t}</Btn>
           ))}
         </div>
         <div style={{ color: "#7a7a7a", fontSize: 11.5, marginTop: 12 }}>
@@ -2220,9 +3262,12 @@ const ADMIN_NAV = [
   { id: "dashboard", icon: "📊", label: "Dashboard" },
   { id: "pedidos", icon: "🧾", label: "Pedidos" },
   { id: "produtos", icon: "🍔", label: "Cardápio" },
+  { id: "categorias", icon: "🗂", label: "Categorias" },
   { id: "clientes", icon: "👥", label: "Clientes" },
   { id: "promos", icon: "🎟", label: "Promoções" },
   { id: "estoque", icon: "📦", label: "Estoque" },
+  { id: "financeiro", icon: "💰", label: "Financeiro" },
+  { id: "relatorios", icon: "📈", label: "Relatórios" },
   { id: "integracoes", icon: "🔌", label: "Integrações" },
   { id: "config", icon: "⚙️", label: "Configurações" },
 ];
@@ -2307,9 +3352,12 @@ function AdminApp({ store, now }) {
         {sec === "dashboard" && <AdminDashboard store={store} now={now} />}
         {sec === "pedidos" && <AdminOrders store={store} now={now} />}
         {sec === "produtos" && <AdminProducts store={store} />}
-        {sec === "clientes" && <AdminCustomers />}
-        {sec === "promos" && <AdminPromos />}
+        {sec === "categorias" && <AdminCategories store={store} />}
+        {sec === "clientes" && <AdminCustomers store={store} />}
+        {sec === "promos" && <AdminPromos store={store} />}
         {sec === "estoque" && <AdminInventory store={store} />}
+        {sec === "financeiro" && <AdminFinance store={store} now={now} />}
+        {sec === "relatorios" && <AdminReports store={store} now={now} />}
         {sec === "integracoes" && <AdminIntegrations store={store} />}
         {sec === "config" && <AdminSettings store={store} />}
       </main>
@@ -2321,6 +3369,13 @@ function AdminApp({ store, now }) {
 // ============================================================
 
 function KitchenApp({ store, now }) {
+  const [autoPrint, setAutoPrint] = useState(() => localStorage.getItem("sarro_autoprint") === "1");
+  const toggleAutoPrint = () => {
+    const v = autoPrint ? "0" : "1";
+    localStorage.setItem("sarro_autoprint", v);
+    setAutoPrint(!autoPrint);
+    store.toast(v === "1" ? "Impressão automática ligada 🖨" : "Impressão automática desligada");
+  };
   const queue = store.orders
     .filter((o) => ["NOVO", "CONFIRMADO", "PREPARO"].includes(o.status))
     .sort((a, b) => a.createdAt - b.createdAt);
@@ -2340,6 +3395,17 @@ function KitchenApp({ store, now }) {
           </div>
         </div>
         <div className="flex items-center gap-2">
+          <button
+            onClick={toggleAutoPrint}
+            className="rounded-lg px-2.5 py-1.5 font-bold"
+            style={{
+              background: autoPrint ? `${C.orange}22` : C.gray850,
+              border: `1px solid ${autoPrint ? C.orange : C.gray800}`,
+              color: autoPrint ? C.orange : "#8a8a8a", fontSize: 11, whiteSpace: "nowrap",
+            }}
+          >
+            🖨 Auto-print {autoPrint ? "ON" : "OFF"}
+          </button>
           <span style={{ color: "#7a7a7a", fontSize: 11.5 }}>Prontos hoje</span>
           <span style={{ color: C.green, fontWeight: 900, fontSize: 20 }}>
             {store.orders.filter((o) => ["PRONTO", "EMBALADO", "AGUARDANDO", "ROTA", "ENTREGUE"].includes(o.status)).length}
@@ -2370,6 +3436,14 @@ function KitchenApp({ store, now }) {
                 <div className="flex items-center gap-2">
                   <span style={{ color: C.white, fontFamily: font.display, fontStyle: "italic", fontSize: 22 }}>#{o.code}</span>
                   <ChannelPill channel={o.channel} />
+                  {o.paymentStatus === "pendente" && (
+                    <span
+                      className="rounded-md px-1.5 py-0.5 font-bold"
+                      style={{ background: `${C.yellow}1f`, color: C.yellow, fontSize: 9.5, border: `1px solid ${C.yellow}44` }}
+                    >
+                      ⏳ PGTO PENDENTE
+                    </span>
+                  )}
                   {late && <Badge color={C.red} text={C.white}>ATRASADO</Badge>}
                 </div>
                 <span style={{ color: late ? C.red : C.yellowLight, fontWeight: 900, fontSize: 20, fontVariantNumeric: "tabular-nums" }}>
@@ -2398,7 +3472,15 @@ function KitchenApp({ store, now }) {
                   {o.customer.name} · {o.type === "pickup" ? "🏪 retirada" : "🛵 delivery"}
                 </div>
 
-                <div className="mt-3">
+                <div className="mt-3 space-y-2">
+                  <Btn small full variant="dark" onClick={async () => {
+                    try {
+                      await api(`/api/print/kitchen/${o.id}`, { method: "POST" });
+                      store.toast("Comanda enviada à impressora ✓");
+                    } catch {
+                      printKitchen(o); // sem impressora: diálogo do navegador
+                    }
+                  }}>🖨 IMPRIMIR COMANDA</Btn>
                   {o.status !== "PREPARO" ? (
                     <Btn full onClick={() => store.setStatus(o.id, "PREPARO")}>INICIAR PREPARO</Btn>
                   ) : (
@@ -2455,8 +3537,18 @@ function ExpeditionApp({ store, now }) {
                 {o.type === "pickup" ? "🏪 Retirada na loja" : `🛵 ${o.customer.addr}`}
               </div>
 
+              <div className="mt-3">
+                <Btn small full variant="dark" onClick={async () => {
+                  try {
+                    await api(`/api/print/expedition/${o.id}`, { method: "POST" });
+                    store.toast("Comanda enviada à impressora ✓");
+                  } catch {
+                    printExpedition(o);
+                  }
+                }}>🖨 IMPRIMIR EXPEDIÇÃO</Btn>
+              </div>
               {o.type === "pickup" ? (
-                <div className="mt-3">
+                <div className="mt-2">
                   <Btn full variant="green" onClick={() => store.setStatus(o.id, "ENTREGUE")}>CLIENTE RETIROU</Btn>
                 </div>
               ) : (
@@ -2467,7 +3559,7 @@ function ExpeditionApp({ store, now }) {
                     <div>
                       <div style={{ color: "#8a8a8a", fontSize: 11.5, marginBottom: 7 }}>Atribuir entregador</div>
                       <div className="flex flex-wrap gap-2">
-                        {DRIVERS.map((d) => (
+                        {store.drivers.map((d) => (
                           <Btn key={d.id} small variant="dark" onClick={() => store.assignDriver(o.id, d.id)}>
                             🛵 {d.name.split(" ")[0]}
                           </Btn>
@@ -2483,7 +3575,7 @@ function ExpeditionApp({ store, now }) {
 
         <div className="space-y-3">
           <div style={{ color: C.white, fontWeight: 900, fontSize: 14 }}>Entregadores</div>
-          {DRIVERS.map((d) => {
+          {store.drivers.map((d) => {
             const load = store.orders.filter((o) => o.driverId === d.id && o.status === "ROTA").length;
             return (
               <Card key={d.id} className="p-3 flex items-center gap-3">
@@ -2509,22 +3601,22 @@ function ExpeditionApp({ store, now }) {
 // ============================================================
 
 function DriverApp({ store, now }) {
-  const [me, setMe] = useState(DRIVERS[0].id);
-  const driver = DRIVERS.find((d) => d.id === me);
-  const mine = store.orders.filter((o) => o.driverId === me && ["ROTA", "ENTREGUE"].includes(o.status));
-  const open = store.orders.filter((o) => o.status === "AGUARDANDO");
+  // O entregador logado enxerga só o que é dele (o servidor também valida).
+  const meDriver = store.drivers.find((d) => d.id === store.me?.driverId) || store.drivers[0];
+  const meId = meDriver?.id;
+  const mine = store.orders.filter((o) => o.driverId === meId && ["ROTA", "ENTREGUE"].includes(o.status));
+  const open = store.orders.filter((o) => o.status === "AGUARDANDO" && o.type === "delivery");
 
   return (
     <div style={{ background: C.black, minHeight: "100%" }} className="p-4 pb-10">
       <div className="flex items-center justify-between mb-4">
-        <Logo size={38} withText={false} />
-        <select
-          value={me} onChange={(e) => setMe(e.target.value)}
-          className="rounded-lg px-2.5 py-1.5 outline-none"
+        <Logo size={38} />
+        <span
+          className="rounded-lg px-2.5 py-1.5 font-bold"
           style={{ background: C.gray850, color: C.white, border: `1px solid ${C.gray800}`, fontSize: 12 }}
         >
-          {DRIVERS.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
-        </select>
+          🛵 {meDriver ? meDriver.name.split(" ")[0] : "…"} · {meDriver?.vehicle}
+        </span>
       </div>
 
       <h2 style={{ fontFamily: font.display, fontStyle: "italic", fontSize: 26, color: C.white, letterSpacing: "-0.02em" }}>
@@ -2545,7 +3637,7 @@ function DriverApp({ store, now }) {
                   <span style={{ color: C.yellowLight, fontWeight: 900, fontSize: 14 }}>{brl(o.total)}</span>
                 </div>
                 <div style={{ color: "#9a9a9a", fontSize: 12, marginTop: 4 }}>{o.customer.addr}</div>
-                <div className="mt-3"><Btn full onClick={() => store.assignDriver(o.id, me)}>ACEITAR ENTREGA</Btn></div>
+                <div className="mt-3"><Btn full onClick={() => store.assignDriver(o.id, meId)}>ACEITAR ENTREGA</Btn></div>
               </Card>
             ))}
           </div>
@@ -2596,6 +3688,9 @@ function DriverApp({ store, now }) {
 
 // ============================================================
 // APP RAIZ — estado compartilhado entre todos os painéis
+//
+// Fonte da verdade: API REST (/api/bootstrap) + WebSocket (/ws).
+// O carrinho e o pedido do cliente ficam no localStorage.
 // ============================================================
 
 const ROLES = [
@@ -2606,128 +3701,436 @@ const ROLES = [
   { id: "entregador", label: "Entregador", icon: "🛵" },
 ];
 
+// Papéis autorizados em cada painel (o servidor valida de novo em cada rota)
+const STAFF_GATE = {
+  admin: ["ADMIN", "GERENTE"],
+  cozinha: ["COZINHA", "GERENTE", "ADMIN"],
+  expedicao: ["EXPEDICAO", "GERENTE", "ADMIN"],
+  entregador: ["ENTREGADOR"],
+};
+
+async function api(path, opts = {}) {
+  const r = await fetch(path, {
+    method: opts.method || "GET",
+    headers: { "Content-Type": "application/json" },
+    credentials: "same-origin",
+    body: opts.body !== undefined ? JSON.stringify(opts.body) : undefined,
+  });
+  let data = {};
+  try { data = await r.json(); } catch { /* resposta vazia */ }
+  if (!r.ok) {
+    const err = new Error(data.error || "Não foi possível falar com o servidor.");
+    err.status = r.status;
+    throw err;
+  }
+  return data;
+}
+
+function Splash({ error, onRetry }) {
+  return (
+    <div className="min-h-screen flex flex-col items-center justify-center px-6 text-center" style={{ background: C.black }}>
+      <img
+        src={LOGO_ROUND} alt="TÔ NO SARRO!" width={110} height={110}
+        style={{ borderRadius: "50%", animation: error ? "none" : "sarrofloat 1.6s ease-in-out infinite" }}
+      />
+      <div style={{ fontFamily: font.display, fontStyle: "italic", color: C.orange, fontSize: 24, marginTop: 22 }}>
+        {error ? "A CHAPA APAGOU!" : "ACENDENDO A CHAPA…"}
+      </div>
+      <div style={{ color: "#8a8a8a", fontSize: 13, marginTop: 8, maxWidth: 300, lineHeight: 1.5 }}>
+        {error
+          ? "Não conseguimos falar com o servidor. Confere se a API está rodando (npm run dev:all)."
+          : "TÔ NO SARRO! Smart Food System"}
+      </div>
+      {error && <div className="mt-6"><Btn onClick={onRetry}>Tentar de novo</Btn></div>}
+    </div>
+  );
+}
+
+function LoginScreen({ target, me, onDone, onCancel }) {
+  const [u, setU] = useState("");
+  const [p, setP] = useState("");
+  const [err, setErr] = useState("");
+  const [busy, setBusy] = useState(false);
+  const label = ROLES.find((r) => r.id === target)?.label || target;
+
+  const submit = async (e) => {
+    e?.preventDefault();
+    if (busy) return;
+    setBusy(true); setErr("");
+    try {
+      const d = await api("/api/auth/login", { method: "POST", body: { username: u, password: p } });
+      const gate = STAFF_GATE[target] || [];
+      if (!gate.includes(d.user.role)) {
+        setErr(`“${d.user.username}” não tem acesso ao painel ${label}.`);
+        return;
+      }
+      onDone(d.user);
+    } catch (ex) {
+      setErr(ex.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const demo = [
+    ["admin", "admin123", "Administrador"],
+    ["cozinha", "cozinha123", "Cozinha"],
+    ["rafael", "entregador123", "Entregador"],
+  ];
+
+  return (
+    <div className="min-h-screen flex items-center justify-center px-4" style={{ background: C.black }}>
+      <div className="w-full" style={{ maxWidth: 400 }}>
+        <div className="flex flex-col items-center mb-6">
+          <img src={LOGO_ROUND} alt="TÔ NO SARRO!" width={86} height={86} style={{ borderRadius: "50%" }} />
+          <div style={{ fontFamily: font.display, fontStyle: "italic", fontSize: 22, color: C.white, marginTop: 14 }}>
+            ÁREA DA EQUIPE
+          </div>
+          <div style={{ color: "#8a8a8a", fontSize: 12.5, marginTop: 4 }}>
+            Painel de {label} · entre com sua conta
+          </div>
+        </div>
+
+        <Card className="p-5">
+          <form onSubmit={submit} className="space-y-3">
+            <label className="block">
+              <span style={{ color: "#9a9a9a", fontSize: 11.5, fontWeight: 700 }}>Usuário</span>
+              <input
+                value={u} onChange={(e) => setU(e.target.value)} autoFocus autoCapitalize="none"
+                className="w-full rounded-xl px-3 py-3 mt-1.5 outline-none"
+                style={{ background: C.gray850, border: `1px solid ${C.gray800}`, color: C.white, fontSize: 14 }}
+              />
+            </label>
+            <label className="block">
+              <span style={{ color: "#9a9a9a", fontSize: 11.5, fontWeight: 700 }}>Senha</span>
+              <input
+                value={p} onChange={(e) => setP(e.target.value)} type="password"
+                className="w-full rounded-xl px-3 py-3 mt-1.5 outline-none"
+                style={{ background: C.gray850, border: `1px solid ${C.gray800}`, color: C.white, fontSize: 14 }}
+              />
+            </label>
+            {err && (
+              <div className="rounded-lg px-3 py-2" style={{ background: `${C.red}18`, color: C.red, fontSize: 12, fontWeight: 700 }}>
+                {err}
+              </div>
+            )}
+            <Btn full disabled={busy || !u.trim() || !p}>
+              {busy ? "ENTRANDO…" : `ENTRAR NO PAINEL`}
+            </Btn>
+          </form>
+
+          <div className="mt-4 pt-4" style={{ borderTop: `1px solid ${C.gray800}` }}>
+            <div style={{ color: "#6a6a6a", fontSize: 10.5, marginBottom: 8 }}>
+              Contas de demonstração (toque para preencher):
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {demo.map(([us, pw, lbl]) => (
+                <button
+                  key={us}
+                  onClick={() => { setU(us); setP(pw); }}
+                  className="rounded-lg px-2.5 py-1.5 font-bold"
+                  style={{ background: C.gray850, border: `1px solid ${C.gray800}`, color: "#c0c0c0", fontSize: 11 }}
+                >
+                  {lbl}: {us}
+                </button>
+              ))}
+            </div>
+          </div>
+        </Card>
+
+        <div className="mt-4 text-center">
+          <button onClick={onCancel} style={{ color: "#8a8a8a", fontSize: 13 }}>
+            ← Voltar para o cardápio
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function App() {
+  const [ready, setReady] = useState(false);
+  const [bootError, setBootError] = useState(false);
+  const [me, setMe] = useState(null);
   const [role, setRole] = useState("cliente");
+  const [loginFor, setLoginFor] = useState(null);
   const [tab, setTab] = useState("inicio");
-  const [orders, setOrders] = useState(seedOrders);
-  const [products, setProducts] = useState(PRODUCTS);
-  const [inventory, setInventory] = useState(INVENTORY);
-  const [cart, setCart] = useState([]);
+
+  const [orders, setOrders] = useState([]);
+  const [products, setProducts] = useState([]);
+  const [inventory, setInventory] = useState([]);
+  const [drivers, setDrivers] = useState([]);
+  const [customers, setCustomers] = useState([]);
+  const [coupons, setCoupons] = useState([]);
+  const [promos, setPromos] = useState([]);
+  const [settings, setSettings] = useState({ open: true, fee: 7.9, minOrder: 25, eta: "35–45 min" });
+  const [catalog, setCatalog] = useState({ categories: [], optionGroups: [], builder: [] });
+
+  const [cart, setCart] = useState(() => {
+    try { return JSON.parse(localStorage.getItem("sarro_cart")) || []; } catch { return []; }
+  });
   const [coupon, setCoupon] = useState(null);
-  const [myOrderId, setMyOrderId] = useState(null);
-  const [open, setOpen] = useState(true);
+  const [myOrderId, setMyOrderId] = useState(() => localStorage.getItem("sarro_my_order") || null);
+  const [myOrder, setMyOrder] = useState(null);
   const [toastMsg, setToastMsg] = useState("");
   const [confetti, setConfetti] = useState(false);
   const [notifications, setNotifications] = useState([]);
   const [now, setNow] = useState(Date.now());
+
+  const known = useRef(null);
+  const roleRef = useRef(role);
+  roleRef.current = role;
 
   useEffect(() => {
     const t = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(t);
   }, []);
 
+  useEffect(() => {
+    localStorage.setItem("sarro_cart", JSON.stringify(cart));
+  }, [cart]);
+
   const toast = (msg) => {
     setToastMsg(msg);
-    setTimeout(() => setToastMsg(""), 2200);
+    setTimeout(() => setToastMsg(""), 2400);
   };
 
   const notify = (msg) => {
     setNotifications((n) => [{ id: uid(), msg, at: Date.now() }, ...n].slice(0, 20));
   };
 
+  const applySync = (d) => {
+    // Alerta de pedido novo para a equipe (o cliente tem o próprio fluxo)
+    if (known.current && roleRef.current !== "cliente") {
+      const fresh = d.orders.filter((o) => !known.current.has(o.id));
+      if (fresh.length) {
+        beep(880);
+        fresh.slice(0, 3).forEach((o) =>
+          notify(`🔥 Novo pedido ${CHANNELS[o.channel]?.short || ""} #${o.code} · ${brl(o.total)}`)
+        );
+        // Impressão automática da comanda quando o KDS está aberto com o modo ligado
+        if (roleRef.current === "cozinha" && localStorage.getItem("sarro_autoprint") === "1") {
+          fresh.slice(0, 3).forEach((o) => printKitchen(o));
+        }
+      }
+    }
+    known.current = new Set(d.orders.map((o) => o.id));
+    setOrders(d.orders);
+    setProducts(d.products);
+    setInventory(d.inventory);
+    setDrivers(d.drivers);
+    setCustomers(d.customers);
+    setCoupons(d.coupons);
+    setPromos(d.promos);
+    setSettings(d.settings);
+  };
+
+  const load = () => {
+    setBootError(false);
+    api("/api/bootstrap")
+      .then((d) => {
+        setCatalog({ categories: d.categories, optionGroups: d.optionGroups, builder: d.builder });
+        setMe(d.me);
+        const myId = localStorage.getItem("sarro_my_order");
+        if (myId) {
+          const t = encodeURIComponent(localStorage.getItem("sarro_my_token") || "");
+          api(`/api/track/${myId}?t=${t}`).then((r) => setMyOrder(r.order)).catch(() => {});
+        }
+        known.current = new Set(d.orders.map((o) => o.id));
+        applySync(d);
+        setReady(true);
+      })
+      .catch(() => setBootError(true));
+  };
+
+  useEffect(() => { load(); }, []);
+
+  // Tempo real: um canal só, snapshot a cada mudança
+  useEffect(() => {
+    let ws = null;
+    let closed = false;
+    let retry = null;
+    const connect = () => {
+      const proto = location.protocol === "https:" ? "wss" : "ws";
+      ws = new WebSocket(`${proto}://${location.host}/ws`);
+      ws.onmessage = (ev) => {
+        try {
+          const m = JSON.parse(ev.data);
+          if (m.type === "sync") applySync(m.data);
+        } catch { /* ignora */ }
+      };
+      ws.onclose = () => { if (!closed) retry = setTimeout(connect, 2000); };
+      ws.onerror = () => ws.close();
+    };
+    connect();
+    return () => { closed = true; clearTimeout(retry); ws?.close(); };
+  }, []);
+
   const store = {
-    role, tab, setTab, orders, products, inventory, cart, coupon, setCoupon,
-    myOrderId, open, setOpen, notifications, toast,
+    role, tab, setTab, me,
+    orders, products, inventory, drivers, customers, coupons, promos, settings,
+    optionGroups: catalog.optionGroups, builder: catalog.builder, categories: catalog.categories,
+    cart, coupon, setCoupon, myOrderId, myOrder, notifications, toast,
+    refreshMyOrder: async () => {
+      const id = localStorage.getItem("sarro_my_order");
+      if (!id) return null;
+      const t = encodeURIComponent(localStorage.getItem("sarro_my_token") || "");
+      const d = await api(`/api/track/${id}?t=${t}`);
+      setMyOrder(d.order);
+      return d.order;
+    },
+    open: settings.open,
+    fee: settings.fee,
 
     addItem: (item) => setCart((c) => [...c, item]),
     removeItem: (id) => setCart((c) => c.filter((i) => i.id !== id)),
     setQty: (id, qty) =>
       setCart((c) => (qty <= 0 ? c.filter((i) => i.id !== id) : c.map((i) => (i.id === id ? { ...i, qty } : i)))),
 
-    placeOrder: (order) => {
-      setOrders((o) => [order, ...o]);
-      setCart([]); setCoupon(null); setMyOrderId(order.id); setTab("pedidos");
-      setConfetti(true); setTimeout(() => setConfetti(false), 2600);
-      notify(`Novo pedido #${order.code} · ${brl(order.total)}`);
-      beep(1040);
-      toast(`Pedido #${order.code} enviado para a cozinha`);
-      // Simula o webhook do gateway confirmando o Pix.
-      setTimeout(() => {
-        setOrders((os) => os.map((x) => (x.id === order.id && x.status === "NOVO" ? { ...x, status: "CONFIRMADO" } : x)));
-      }, 4000);
+    checkPayment: async (orderId) => {
+      const t = encodeURIComponent(localStorage.getItem("sarro_my_token") || "");
+      const d = await api(`/api/orders/${orderId}/payment_status?t=${t}`, { method: "POST" });
+      return d;
     },
 
-    setStatus: (id, status) =>
-      setOrders((os) =>
-        os.map((o) => {
-          if (o.id !== id) return o;
-          if (status === "PREPARO") notify(`Pedido #${o.code} entrou na chapa`);
-          if (status === "PRONTO") { notify(`Pedido #${o.code} está pronto`); beep(760); }
-          if (status === "ENTREGUE") notify(`Pedido #${o.code} entregue`);
-          return { ...o, status, startedAt: o.startedAt || Date.now() };
-        })
-      ),
+    validateCoupon: async (code, subtotal) => {
+      const d = await api("/api/coupons/validate", { method: "POST", body: { code, subtotal } });
+      return d.coupon;
+    },
 
-    advance: (id) =>
-      setOrders((os) =>
-        os.map((o) => {
-          if (o.id !== id) return o;
-          const i = FLOW.indexOf(o.status);
-          const next = FLOW[i + 1] || o.status;
-          return { ...o, status: next, startedAt: o.startedAt || Date.now() };
-        })
-      ),
+    placeOrder: async (payload) => {
+      try {
+        const d = await api("/api/orders", { method: "POST", body: payload });
+        const order = d.order;
+        known.current?.add(order.id);
+        setOrders((o) => [order, ...o.filter((x) => x.id !== order.id)]);
+        setCart([]);
+        setCoupon(null);
+        setMyOrderId(order.id);
+        setMyOrder(order);
+        localStorage.setItem("sarro_my_order", order.id);
+        localStorage.setItem("sarro_my_token", order.trackToken || "");
+        setTab("pedidos");
+        setConfetti(true);
+        setTimeout(() => setConfetti(false), 2600);
+        notify(`Pedido #${order.code} recebido · ${brl(order.total)}`);
+        beep(1040);
+        toast(`Pedido #${order.code} confirmado! 🍔`);
+
+        // Pagamento online (Pix/cartão): abre o checkout seguro da InfinitePay.
+        // A confirmação volta por webhook e o status atualiza sozinho.
+        if (["PIX", "CARTAO_ONLINE"].includes(payload.payment)) {
+          try {
+            const pd = await api(`/api/orders/${order.id}/pay?t=${encodeURIComponent(order.trackToken || "")}`, { method: "POST" });
+            if (pd.url) {
+              setOrders((os) => os.map((x) => (x.id === order.id ? { ...x, payUrl: pd.url } : x)));
+              setMyOrder((m) => (m && m.id === order.id ? { ...m, payUrl: pd.url } : m));
+              window.open(pd.url, "_blank");
+            }
+          } catch (pe) {
+            toast(pe.message);
+          }
+        }
+        return true;
+      } catch (e) {
+        toast(e.message);
+        return false;
+      }
+    },
+
+    setStatus: (id, status) => {
+      api(`/api/orders/${id}/status`, { method: "PATCH", body: { status } })
+        .catch((e) => toast(e.message));
+    },
+
+    advance: (id) => {
+      const o = orders.find((x) => x.id === id);
+      if (!o) return;
+      const next = FLOW[FLOW.indexOf(o.status) + 1];
+      if (next) store.setStatus(id, next);
+    },
 
     assignDriver: (id, driverId) => {
-      setOrders((os) => os.map((o) => (o.id === id ? { ...o, driverId, status: "ROTA", startedAt: Date.now() } : o)));
-      const d = DRIVERS.find((x) => x.id === driverId);
-      toast(`${d.name} saiu para entrega`);
-      notify(`${d.name} saiu para entrega`);
+      api(`/api/orders/${id}/driver`, { method: "PATCH", body: { driverId } })
+        .then(() => {
+          const d = drivers.find((x) => x.id === driverId);
+          toast(`${d ? d.name.split(" ")[0] : "Entregador"} saiu para entrega 🛵`);
+          notify(`${d ? d.name : "Entregador"} assumiu o pedido`);
+        })
+        .catch((e) => toast(e.message));
     },
 
-    updateProduct: (id, patch) => setProducts((ps) => ps.map((p) => (p.id === id ? { ...p, ...patch } : p))),
+    updateProduct: (id, patch) => {
+      api(`/api/products/${id}`, { method: "PATCH", body: patch }).catch((e) => toast(e.message));
+    },
 
-    moveStock: (id, delta) =>
-      setInventory((inv) =>
-        inv.map((i) => {
-          if (i.id !== id) return i;
-          const qty = Math.max(0, Math.round((i.qty + delta) * 10) / 10);
-          if (qty <= i.min && i.qty > i.min) notify(`⚠️ Estoque baixo: ${i.name}`);
-          return { ...i, qty };
-        })
-      ),
+    saveProduct: async (id, payload, file) => {
+      let pid = id;
+      if (id) {
+        await api(`/api/products/${id}`, { method: "PATCH", body: payload });
+      } else {
+        const d = await api("/api/products", { method: "POST", body: payload });
+        pid = d.product.id;
+      }
+      if (file) {
+        const r = await fetch(`/api/products/${pid}/image`, {
+          method: "POST",
+          headers: { "Content-Type": file.type },
+          credentials: "same-origin",
+          body: file,
+        });
+        if (!r.ok) {
+          const d = await r.json().catch(() => ({}));
+          throw new Error(d.error || "Falha ao enviar a foto.");
+        }
+      }
+    },
+
+    deleteProduct: (id) => {
+      api(`/api/products/${id}`, { method: "DELETE" })
+        .then(() => toast("Produto excluído"))
+        .catch((e) => toast(e.message));
+    },
+
+    moveStock: (id, delta) => {
+      api(`/api/inventory/${id}`, { method: "PATCH", body: { delta } }).catch((e) => toast(e.message));
+    },
+
+    setOpen: (v) => {
+      api("/api/settings", { method: "PATCH", body: { open: v } }).catch((e) => toast(e.message));
+    },
 
     injectExternal: (channel) => {
-      const pool = products.filter((p) => p.available && !p.builder);
-      const pick = pool[Math.floor(Math.random() * pool.length)];
-      const names = ["Tiago Ramos", "Juliana Melo", "Diego Alves", "Camila Rocha"];
-      const order = makeOrder({
-        channel,
-        customer: {
-          name: names[Math.floor(Math.random() * names.length)],
-          phone: "(81) 9" + Math.floor(10000000 + Math.random() * 89999999),
-          addr: "Rua Projetada, 100 — Janga, Paulista/PE",
-        },
-        items: [{ id: uid(), productId: pick.id, name: pick.name, emoji: pick.emoji, qty: 1, unit: pick.promo || pick.price, opts: [], note: "" }],
-        payment: channel === "IFOOD" ? "Cartão (iFood)" : "Cartão (99Food)",
-      });
-      setOrders((o) => [order, ...o]);
-      notify(`Novo pedido ${CHANNELS[channel].label} #${order.code}`);
-      beep(620);
-      toast(`Pedido #${order.code} recebido do ${CHANNELS[channel].label}`);
+      api("/api/orders/external", { method: "POST", body: { channel } })
+        .then((d) => {
+          notify(`Novo pedido ${CHANNELS[channel].label} #${d.order.code}`);
+          beep(620);
+          toast(`Pedido #${d.order.code} recebido do ${CHANNELS[channel].label}`);
+        })
+        .catch((e) => toast(e.message));
+    },
+
+    logout: () => {
+      api("/api/auth/logout", { method: "POST" })
+        .then(() => { setMe(null); setRole("cliente"); toast("Você saiu da conta"); })
+        .catch(() => {});
     },
   };
 
-  const css = `
-    @import url('https://fonts.googleapis.com/css2?family=Archivo+Black&family=Inter:wght@400;600;700;800;900&display=swap');
-    @keyframes sarrofall { to { transform: translateY(105vh) rotate(720deg); opacity: 0 } }
-    @keyframes sarropulse { 0%,100% { opacity: 1 } 50% { opacity: .55 } }
-    .line-clamp-2 { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
-    ::-webkit-scrollbar { height: 6px; width: 6px }
-    ::-webkit-scrollbar-thumb { background: #2d2d2d; border-radius: 9px }
-    button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px solid ${C.yellow}; outline-offset: 2px }
-    @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important } }
-  `;
+  const pickRole = (r) => {
+    const gate = STAFF_GATE[r];
+    if (gate && (!me || !gate.includes(me.role))) {
+      setLoginFor(r);
+      return;
+    }
+    setRole(r);
+    setLoginFor(null);
+  };
+
+  if (!ready) return <Splash error={bootError} onRetry={load} />;
+
+  const gate = STAFF_GATE[role];
+  const allowed = !gate || (me && gate.includes(me.role));
 
   return (
     <div style={{ background: C.black, minHeight: "100vh", fontFamily: font.body, color: C.white }}>
@@ -2737,28 +4140,64 @@ export default function App() {
         className="flex items-center gap-1.5 px-3 py-2 overflow-x-auto"
         style={{ background: C.gray900, borderBottom: `1px solid ${C.gray800}`, position: "sticky", top: 0, zIndex: 40 }}
       >
-        <span style={{ color: "#5a5a5a", fontSize: 10, fontWeight: 800, marginRight: 4, whiteSpace: "nowrap" }}>VER COMO</span>
-        {ROLES.map((r) => (
-          <button
-            key={r.id}
-            onClick={() => setRole(r.id)}
-            className="shrink-0 rounded-lg px-2.5 py-1.5 font-bold"
-            style={{
-              background: role === r.id ? `linear-gradient(100deg, ${C.orange}, ${C.yellow})` : "transparent",
-              color: role === r.id ? C.black : "#8a8a8a",
-              border: `1px solid ${role === r.id ? "transparent" : C.gray800}`, fontSize: 11.5, whiteSpace: "nowrap",
-            }}
-          >
-            {r.icon} {r.label}
-          </button>
-        ))}
+        <span style={{ color: "#5a5a5a", fontSize: 10, fontWeight: 800, marginRight: 4, whiteSpace: "nowrap" }}>
+          SMART FOOD SYSTEM
+        </span>
+        {ROLES.map((r) => {
+          const locked = STAFF_GATE[r] && (!me || !STAFF_GATE[r].includes(me.role));
+          return (
+            <button
+              key={r.id}
+              onClick={() => pickRole(r.id)}
+              className="shrink-0 rounded-lg px-2.5 py-1.5 font-bold"
+              style={{
+                background: role === r.id ? `linear-gradient(100deg, ${C.orange}, ${C.yellow})` : "transparent",
+                color: role === r.id ? C.black : "#8a8a8a",
+                border: `1px solid ${role === r.id ? "transparent" : C.gray800}`,
+                fontSize: 11.5, whiteSpace: "nowrap",
+              }}
+            >
+              {r.icon} {r.label}{locked ? " 🔒" : ""}
+            </button>
+          );
+        })}
+        <div className="flex-1" />
+        {me ? (
+          <span className="shrink-0 flex items-center gap-2">
+            <span style={{ color: "#8a8a8a", fontSize: 11 }}>
+              {me.name.split(" ")[0]} · {me.role}
+            </span>
+            <button
+              onClick={store.logout}
+              className="rounded-lg px-2 py-1 font-bold"
+              style={{ border: `1px solid ${C.gray800}`, color: "#c0c0c0", fontSize: 10.5 }}
+            >
+              Sair
+            </button>
+          </span>
+        ) : (
+          <span style={{ color: "#5a5a5a", fontSize: 10.5, whiteSpace: "nowrap" }}>
+            painéis da equipe exigem login
+          </span>
+        )}
       </div>
 
-      {role === "cliente" && <ClientApp store={store} now={now} />}
-      {role === "admin" && <AdminApp store={store} now={now} />}
-      {role === "cozinha" && <KitchenApp store={store} now={now} />}
-      {role === "expedicao" && <ExpeditionApp store={store} now={now} />}
-      {role === "entregador" && <DriverApp store={store} now={now} />}
+      {!allowed ? (
+        <LoginScreen
+          target={loginFor || role}
+          me={me}
+          onDone={(user) => { setMe(user); setRole(loginFor || role); setLoginFor(null); toast(`Bem-vindo, ${user.name.split(" ")[0]}!`); }}
+          onCancel={() => { setLoginFor(null); setRole("cliente"); }}
+        />
+      ) : (
+        <>
+          {role === "cliente" && <ClientApp store={store} now={now} />}
+          {role === "admin" && <AdminApp store={store} now={now} />}
+          {role === "cozinha" && <KitchenApp store={store} now={now} />}
+          {role === "expedicao" && <ExpeditionApp store={store} now={now} />}
+          {role === "entregador" && <DriverApp store={store} now={now} />}
+        </>
+      )}
 
       <Toast msg={toastMsg} />
       <Confetti on={confetti} />
