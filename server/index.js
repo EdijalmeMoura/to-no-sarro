@@ -372,39 +372,179 @@ app.patch("/api/orders/:id/driver", requireRole("ADMIN", "GERENTE", "EXPEDICAO")
 // ------------------------------------------------------------
 // PRODUTOS / ESTOQUE / CONFIG (admin)
 // ------------------------------------------------------------
+
+const BADGES_OK = new Set(["maisvendido", "novidade", "promocao"]);
+
+// Valida e normaliza o payload de produto; devolve { patch } ou { error }
+function productPatch(body, { partial = true } = {}) {
+  const b = body || {};
+  const patch = {};
+  const req = (cond, msg) => { if (!cond) throw new Error(msg); };
+
+  try {
+    if (b.name !== undefined || !partial) {
+      const v = String(b.name ?? "").trim();
+      req(v.length >= 3 && v.length <= 80, "Nome deve ter entre 3 e 80 caracteres.");
+      patch.name = v;
+    }
+    if (b.cat !== undefined || !partial) {
+      const v = String(b.cat ?? "");
+      req(db.prepare("SELECT 1 FROM categories WHERE id = ?").get(v), "Categoria inválida.");
+      patch.cat = v;
+    }
+    if (b.price !== undefined || !partial) {
+      const v = Number(b.price);
+      req(Number.isFinite(v) && v >= 0 && v <= 999, "Preço inválido.");
+      patch.price = Math.round(v * 100) / 100;
+    }
+    if (b.promo !== undefined) {
+      if (b.promo === null || b.promo === "") patch.promo = null;
+      else {
+        const v = Number(b.promo);
+        req(Number.isFinite(v) && v >= 0 && v <= 999, "Preço promocional inválido.");
+        patch.promo = Math.round(v * 100) / 100;
+      }
+    }
+    if (patch.price !== undefined && patch.promo != null && patch.promo >= patch.price) {
+      return { error: "O preço promocional precisa ser menor que o preço normal." };
+    }
+    if (b.description !== undefined) {
+      patch.description = String(b.description ?? "").trim().slice(0, 300);
+    }
+    if (b.ingredients !== undefined) {
+      req(Array.isArray(b.ingredients), "Ingredientes inválidos.");
+      const list = b.ingredients.map((x) => String(x).trim().slice(0, 60)).filter(Boolean).slice(0, 15);
+      patch.ingredients = JSON.stringify(list);
+    }
+    if (b.emoji !== undefined) patch.emoji = String(b.emoji ?? "🍔").slice(0, 8) || "🍔";
+    if (b.time !== undefined) {
+      const v = Math.floor(Number(b.time));
+      req(Number.isFinite(v) && v >= 1 && v <= 180, "Tempo de preparo inválido.");
+      patch.time = v;
+    }
+    if (b.badges !== undefined) {
+      req(Array.isArray(b.badges) && b.badges.every((x) => BADGES_OK.has(x)), "Selo inválido.");
+      patch.badges = JSON.stringify(b.badges);
+    }
+    if (b.groups !== undefined) {
+      req(Array.isArray(b.groups), "Grupos de opcionais inválidos.");
+      const known = new Set(db.prepare("SELECT id FROM option_groups").all().map((g) => g.id));
+      req(b.groups.every((g) => known.has(g)), "Grupo de opcionais desconhecido.");
+      patch.groups = JSON.stringify(b.groups);
+    }
+    if (b.available !== undefined) patch.available = b.available ? 1 : 0;
+    if (b.builder !== undefined) patch.builder = b.builder ? 1 : 0;
+    if (b.stock !== undefined) {
+      const v = Math.floor(Number(b.stock));
+      req(Number.isFinite(v) && v >= 0 && v <= 9999, "Estoque inválido.");
+      patch.stock = v;
+    }
+  } catch (e) {
+    return { error: e.message };
+  }
+  return { patch };
+}
+
+const touchProduct = (id) => db.prepare("UPDATE products SET updated_at = ? WHERE id = ?").run(Date.now(), id);
+
+app.post("/api/products", requireRole("ADMIN", "GERENTE"), (req, res) => {
+  const { patch, error } = productPatch(req.body, { partial: false });
+  if (error) return res.status(400).json({ error });
+  const id = "p" + crypto.randomBytes(4).toString("hex");
+  db.prepare(`
+    INSERT INTO products (id, name, cat, emoji, description, ingredients, price, promo, time, badges, available, groups, stock, builder)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(id, patch.name, patch.cat, patch.emoji || "🍔", patch.description || "",
+    patch.ingredients || "[]", patch.price, patch.promo ?? null, patch.time ?? 15,
+    patch.badges || "[]", patch.available ?? 1, patch.groups || "[]", patch.stock ?? 0, patch.builder ?? 0);
+
+  audit(req.user.username, "produto_criado", `${patch.name} (${id})`);
+  broadcast();
+  res.status(201).json({ product: getProducts().find((p) => p.id === id) });
+});
+
 app.patch("/api/products/:id", requireRole("ADMIN", "GERENTE"), (req, res) => {
   const p = db.prepare("SELECT * FROM products WHERE id = ?").get(req.params.id);
   if (!p) return res.status(404).json({ error: "Produto não encontrado." });
-  const b = req.body || {};
-  const patch = {};
-  if (b.price !== undefined) {
-    const v = Number(b.price);
-    if (!Number.isFinite(v) || v < 0 || v > 999) return res.status(400).json({ error: "Preço inválido." });
-    patch.price = v;
-  }
-  if (b.promo !== undefined) {
-    if (b.promo === null) patch.promo = null;
-    else {
-      const v = Number(b.promo);
-      if (!Number.isFinite(v) || v < 0 || v > 999) return res.status(400).json({ error: "Preço promocional inválido." });
-      patch.promo = v;
-    }
-  }
-  if (b.available !== undefined) patch.available = b.available ? 1 : 0;
-  if (b.name !== undefined && String(b.name).trim()) patch.name = String(b.name).trim().slice(0, 80);
-  if (b.stock !== undefined) {
-    const v = Math.floor(Number(b.stock));
-    if (!Number.isFinite(v) || v < 0) return res.status(400).json({ error: "Estoque inválido." });
-    patch.stock = v;
-  }
+  const { patch, error } = productPatch(req.body, { partial: true });
+  if (error) return res.status(400).json({ error });
   const keys = Object.keys(patch);
   if (!keys.length) return res.status(400).json({ error: "Nada para atualizar." });
+
+  const price = patch.price ?? p.price;
+  const promo = patch.promo !== undefined ? patch.promo : p.promo;
+  if (promo != null && promo >= price) {
+    return res.status(400).json({ error: "O preço promocional precisa ser menor que o preço normal." });
+  }
+
   const set = keys.map((k) => `${k} = ?`).join(", ");
   db.prepare(`UPDATE products SET ${set} WHERE id = ?`).run(...keys.map((k) => patch[k]), p.id);
+  touchProduct(p.id);
 
-  audit(req.user.username, "produto_atualizado", `${p.name}: ${JSON.stringify(patch)}`);
+  audit(req.user.username, "produto_atualizado", `${p.name}: ${JSON.stringify(patch).slice(0, 200)}`);
   broadcast();
   res.json({ ok: true });
+});
+
+app.delete("/api/products/:id", requireRole("ADMIN", "GERENTE"), (req, res) => {
+  const p = db.prepare("SELECT * FROM products WHERE id = ?").get(req.params.id);
+  if (!p) return res.status(404).json({ error: "Produto não encontrado." });
+  const used = db.prepare("SELECT COUNT(*) AS n FROM order_items WHERE product_id = ?").get(p.id).n;
+  if (used > 0) {
+    return res.status(409).json({
+      error: `“${p.name}” consta em ${used} pedido(s) do histórico. Despublique o produto em vez de excluir.`,
+    });
+  }
+  db.prepare("DELETE FROM products WHERE id = ?").run(p.id);
+  for (const ext of ["jpg", "png", "webp"]) {
+    const f = path.join(__dirname, "..", "public", "img", "products", `${p.id}.${ext}`);
+    if (fs.existsSync(f)) fs.rmSync(f);
+  }
+  audit(req.user.username, "produto_excluido", p.name);
+  broadcast();
+  res.json({ ok: true });
+});
+
+// Upload de foto do produto (binário cru; sem dependências de multipart)
+const UPLOAD_DIR = path.join(__dirname, "data", "uploads");
+fs.mkdirSync(UPLOAD_DIR, { recursive: true });
+app.use("/img-up", express.static(UPLOAD_DIR, { maxAge: "1h" }));
+
+app.post("/api/products/:id/image", requireRole("ADMIN", "GERENTE"), (req, res) => {
+  const p = db.prepare("SELECT * FROM products WHERE id = ?").get(req.params.id);
+  if (!p) return res.status(404).json({ error: "Produto não encontrado." });
+
+  const ctype = req.headers["content-type"] || "";
+  const ext = ctype.includes("png") ? "png" : ctype.includes("webp") ? "webp" : ctype.includes("jpeg") ? "jpg" : null;
+  if (!ext) return res.status(400).json({ error: "Envie a imagem em JPG, PNG ou WebP." });
+
+  const chunks = [];
+  let size = 0;
+  let aborted = false;
+  req.on("data", (c) => {
+    size += c.length;
+    if (size > 3 * 1024 * 1024) {
+      aborted = true;
+      res.status(413).json({ error: "Imagem acima de 3MB." });
+      req.destroy();
+      return;
+    }
+    chunks.push(c);
+  });
+  req.on("end", () => {
+    if (aborted) return;
+    const name = `${p.id}-${Date.now().toString(36)}.${ext}`;
+    fs.writeFileSync(path.join(UPLOAD_DIR, name), Buffer.concat(chunks));
+    // remove uploads antigos deste produto
+    for (const f of fs.readdirSync(UPLOAD_DIR)) {
+      if (f.startsWith(`${p.id}-`) && f !== name) fs.rmSync(path.join(UPLOAD_DIR, f));
+    }
+    db.prepare("UPDATE products SET img = ?, updated_at = ? WHERE id = ?").run(name, Date.now(), p.id);
+    audit(req.user.username, "produto_foto", `${p.name} → ${name}`);
+    broadcast();
+    res.json({ ok: true, img: name });
+  });
+  req.on("error", () => { if (!aborted) res.status(500).json({ error: "Falha no upload." }); });
 });
 
 app.patch("/api/inventory/:id", requireRole("ADMIN", "GERENTE"), (req, res) => {

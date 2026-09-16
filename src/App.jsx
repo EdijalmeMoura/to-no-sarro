@@ -141,9 +141,16 @@ function Logo({ size = 44, glow = false, style = {} }) {
 
 // Foto do produto com fallback para o emoji: enquanto a foto real não existir
 // (ou estiver carregando em conexão ruim), o card continua apresentável.
-function SmartImg({ id, emoji, alt = "", fs = 34, className = "", style = {} }) {
+// `file` = foto enviada pelo admin (servida em /img-up); sem ela usa a foto
+// padrão img/products/<id>.jpg gerada para o catálogo.
+function SmartImg({ id, emoji, alt = "", fs = 34, className = "", style = {}, file, v = 0 }) {
   const [broken, setBroken] = useState(false);
-  if (!id || broken) {
+  useEffect(() => setBroken(false), [file, id, v]);
+  const src = file
+    ? `img-up/${file}?v=${v}`
+    : `${IMG_BASE}/${id}.jpg?v=${v}`;
+
+  if (broken) {
     return (
       <span
         className={`flex items-center justify-center w-full h-full ${className}`}
@@ -155,7 +162,7 @@ function SmartImg({ id, emoji, alt = "", fs = 34, className = "", style = {} }) 
   }
   return (
     <img
-      src={`${IMG_BASE}/${id}.jpg`}
+      src={src}
       alt={alt}
       loading="lazy"
       draggable={false}
@@ -280,6 +287,130 @@ function ChannelPill({ channel }) {
 }
 
 // ============================================================
+// IMPRESSÃO — comandas 80mm via iframe (cozinha, expedição,
+// cupom do cliente e etiqueta de sacola)
+// ============================================================
+
+function printHTML(body) {
+  const html = `<!doctype html><html><head><meta charset="utf-8"><title>Tô no Sarro</title><style>
+    @page { size: 80mm auto; margin: 4mm; }
+    * { box-sizing: border-box; }
+    body { font-family: "Courier New", ui-monospace, monospace; color: #000; font-size: 12.5px; margin: 0; }
+    h1 { font-size: 17px; margin: 0 0 2px; text-align: center; letter-spacing: 1px; }
+    .sub { text-align: center; font-size: 10.5px; margin-bottom: 6px; }
+    hr { border: 0; border-top: 1px dashed #000; margin: 7px 0; }
+    .big { font-size: 16px; font-weight: 700; }
+    .row { display: flex; justify-content: space-between; gap: 8px; }
+    .item { font-size: 14.5px; font-weight: 700; margin-top: 7px; }
+    .opt { font-size: 11.5px; padding-left: 12px; }
+    .note { background: #000; color: #fff; padding: 3px 6px; font-weight: 700; margin: 3px 0 3px 12px; font-size: 12px; }
+    .kv { margin: 2px 0; }
+    .total { font-size: 15px; font-weight: 700; }
+    .c { text-align: center; }
+  </style></head><body>${body}</body></html>`;
+
+  const f = document.createElement("iframe");
+  f.setAttribute("aria-hidden", "true");
+  f.style.cssText = "position:fixed;right:0;bottom:0;width:0;height:0;border:0;";
+  document.body.appendChild(f);
+  const doc = f.contentWindow.document;
+  doc.open(); doc.write(html); doc.close();
+  f.contentWindow.focus();
+  setTimeout(() => {
+    f.contentWindow.print();
+    setTimeout(() => f.remove(), 4000);
+  }, 150);
+}
+
+const fmtDT = (ts) =>
+  new Date(ts).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
+
+const channelName = (ch) => CHANNELS[ch]?.label || ch;
+
+function printKitchen(o) {
+  const items = o.items.map((i) => `
+    <div class="item">${i.qty}x ${i.name}</div>
+    ${i.opts.map((op) => `<div class="opt">+ ${op.name}</div>`).join("")}
+    ${i.note ? `<div class="note">OBS: ${i.note}</div>` : ""}
+  `).join("");
+  printHTML(`
+    <h1>COMANDA — COZINHA</h1>
+    <div class="sub">${channelName(o.channel)} · ${fmtDT(o.createdAt)}</div>
+    <div class="big">#${o.code} · ${o.type === "pickup" ? "RETIRADA" : "DELIVERY"}</div>
+    <hr />
+    ${items}
+    ${o.note ? `<hr /><div class="note">OBS GERAL: ${o.note}</div>` : ""}
+  `);
+}
+
+function printExpedition(o) {
+  const items = o.items.map((i) => `<div class="kv">${i.qty}x ${i.name}</div>`).join("");
+  printHTML(`
+    <h1>EXPEDIÇÃO</h1>
+    <div class="sub">${channelName(o.channel)} · ${fmtDT(o.createdAt)}</div>
+    <div class="big">#${o.code}</div>
+    <hr />
+    <div class="kv"><strong>Cliente:</strong> ${o.customer.name}</div>
+    <div class="kv"><strong>Telefone:</strong> ${o.customer.phone}</div>
+    <div class="kv"><strong>${o.type === "pickup" ? "Retirada na loja" : "Endereço"}:</strong> ${o.customer.addr}</div>
+    <div class="kv"><strong>Pagamento:</strong> ${o.payment}</div>
+    <hr />
+    ${items}
+  `);
+}
+
+function printReceipt(o, settings = {}) {
+  const items = o.items.map((i) => `
+    <div class="row"><span>${i.qty}x ${i.name}</span><span>${brl(i.unit * i.qty)}</span></div>
+    ${i.opts.filter((op) => op.price > 0).map((op) => `<div class="opt">+ ${op.name} (${brl(op.price)})</div>`).join("")}
+  `).join("");
+  printHTML(`
+    <h1>TÔ NO SARRO!</h1>
+    <div class="sub">Burgers & Açaí · Janga, Paulista/PE<br />${settings.address || ""}</div>
+    <hr />
+    <div class="kv">Pedido <strong>#${o.code}</strong> · ${fmtDT(o.createdAt)}</div>
+    <div class="kv">Cliente: ${o.customer.name}</div>
+    <div class="kv">${o.type === "pickup" ? "Retirada na loja" : "Delivery"} · ${o.customer.addr}</div>
+    <hr />
+    ${items}
+    <hr />
+    <div class="row"><span>Subtotal</span><span>${brl(o.subtotal)}</span></div>
+    <div class="row"><span>Taxa de entrega</span><span>${o.fee ? brl(o.fee) : "grátis"}</span></div>
+    ${o.discount ? `<div class="row"><span>Desconto</span><span>-${brl(o.discount)}</span></div>` : ""}
+    <div class="row total"><span>TOTAL</span><span>${brl(o.total)}</span></div>
+    <div class="kv" style="margin-top:4px">Pagamento: ${o.payment}</div>
+    <hr />
+    <div class="c">Obrigado! Volta sempre 🔥<br />tonosarro · cardápio digital</div>
+  `);
+}
+
+function printLabel(o) {
+  printHTML(`
+    <h1>SARRO #${o.code}</h1>
+    <hr />
+    <div class="big">${o.customer.name}</div>
+    <div class="kv">${o.customer.phone}</div>
+    <div class="kv">${o.type === "pickup" ? "RETIRADA NA LOJA" : o.customer.addr}</div>
+    <hr />
+    ${o.items.map((i) => `<div class="kv">${i.qty}x ${i.name}</div>`).join("")}
+  `);
+}
+
+// ============================================================
+// EXPORTAÇÃO CSV (abre no Excel — BOM + separador ;)
+// ============================================================
+
+function downloadCSV(name, rows) {
+  const esc = (c) => `"${String(c ?? "").replace(/"/g, '""')}"`;
+  const csv = "\uFEFF" + rows.map((r) => r.map(esc).join(";")).join("\r\n");
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
+  a.download = name;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+}
+
+// ============================================================
 // PEDIDOS — SEED + CRIAÇÃO
 // ============================================================
 
@@ -371,7 +502,7 @@ function ProductCard({ p, onOpen }) {
         className="shrink-0 rounded-xl overflow-hidden sarro-imgzoom"
         style={{ width: 88, height: 88, border: `1px solid ${p.promo ? `${C.orange}70` : C.gray800}` }}
       >
-        <SmartImg id={p.id} emoji={p.emoji} alt={p.name} fs={36} />
+        <SmartImg id={p.id} emoji={p.emoji} alt={p.name} fs={36} file={p.img} v={p.updatedAt} />
       </div>
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-1.5 flex-wrap mb-1">
@@ -451,7 +582,7 @@ function ProductModal({ p, store, onClose, onAdd }) {
         style={{ background: C.gray900, borderTop: `3px solid ${C.orange}`, borderRadius: "22px 22px 0 0" }}
       >
         <div className="relative sarro-imgzoom" style={{ height: 172, background: `linear-gradient(135deg, ${C.orange}33, ${C.black})` }}>
-          <SmartImg id={p.id} emoji={p.emoji} alt={p.name} fs={72} />
+          <SmartImg id={p.id} emoji={p.emoji} alt={p.name} fs={72} file={p.img} v={p.updatedAt} />
           <div
             className="absolute inset-x-0 bottom-0 pointer-events-none"
             style={{ height: 90, background: `linear-gradient(180deg, transparent, ${C.gray900})` }}
@@ -723,7 +854,7 @@ function HomeScreen({ store, onOpen, goMenu }) {
         {items.map((p) => (
           <Card key={p.id} onClick={() => onOpen(p)} className="shrink-0 p-2.5 sarro-imgzoom" style={{ width: 174, cursor: "pointer" }}>
             <div className="rounded-xl overflow-hidden mb-2" style={{ height: 110, border: `1px solid ${C.gray800}` }}>
-              <SmartImg id={p.id} emoji={p.emoji} alt={p.name} fs={44} />
+              <SmartImg id={p.id} emoji={p.emoji} alt={p.name} fs={44} file={p.img} v={p.updatedAt} />
             </div>
             <div style={{ color: C.white, fontWeight: 800, fontSize: 13.5 }}>{p.name}</div>
             <div className="flex items-baseline gap-2 mt-1">
@@ -864,7 +995,7 @@ function CartScreen({ store, goCheckout, onOpen }) {
           {upsell.map((p) => (
             <Card key={p.id} className="shrink-0 p-2.5 sarro-imgzoom" style={{ width: 138 }}>
               <div className="rounded-lg overflow-hidden mb-2" style={{ height: 66, border: `1px solid ${C.gray800}` }}>
-                <SmartImg id={p.id} emoji={p.emoji} alt={p.name} fs={30} />
+                <SmartImg id={p.id} emoji={p.emoji} alt={p.name} fs={30} file={p.img} v={p.updatedAt} />
               </div>
               <div style={{ color: C.white, fontSize: 12, fontWeight: 700, lineHeight: 1.25 }}>{p.name}</div>
               <div style={{ color: C.yellowLight, fontWeight: 900, fontSize: 12.5, margin: "4px 0 8px" }}>{brl(p.promo || p.price)}</div>
@@ -1580,7 +1711,17 @@ function OrderCard({ o, store, now, compact }) {
           <span style={{ color: C.white, fontWeight: 900, fontSize: 14 }}>#{o.code}</span>
           <ChannelPill channel={o.channel} />
         </div>
-        <span style={{ color: "#7a7a7a", fontSize: 10.5 }}>{elapsed(o.createdAt, now)}</span>
+        <div className="flex items-center gap-1.5">
+          <span style={{ color: "#7a7a7a", fontSize: 10.5 }}>{elapsed(o.createdAt, now)}</span>
+          <button
+            onClick={() => printReceipt(o, store.settings)}
+            title="Imprimir cupom"
+            className="rounded-md px-1.5 py-0.5"
+            style={{ background: C.gray800, color: "#c9c9c9", fontSize: 11 }}
+          >
+            🖨
+          </button>
+        </div>
       </div>
       <div style={{ color: "#c9c9c9", fontSize: 12, fontWeight: 700 }}>{o.customer.name}</div>
       {!compact && <div style={{ color: "#7a7a7a", fontSize: 11, marginTop: 2 }}>{o.customer.addr}</div>}
@@ -1665,48 +1806,298 @@ function AdminOrders({ store, now }) {
   );
 }
 
+const BADGE_OPTS = [
+  ["maisvendido", "Mais vendido", C.yellow],
+  ["novidade", "Novidade", C.white],
+  ["promocao", "Promoção", C.red],
+];
+
+function ProductForm({ initial, store, onClose }) {
+  const [f, setF] = useState(() => (initial ? {
+    name: initial.name, cat: initial.cat, emoji: initial.emoji || "🍔",
+    description: initial.desc || "",
+    ingredients: (initial.ingredients || []).join("\n"),
+    price: String(initial.price).replace(".", ","),
+    promoOn: initial.promo != null,
+    promo: initial.promo != null ? String(initial.promo).replace(".", ",") : "",
+    time: String(initial.time ?? 15), stock: String(initial.stock ?? 0),
+    badges: initial.badges || [], groups: initial.groups || [],
+    available: initial.available, builder: initial.builder,
+  } : {
+    name: "", cat: "burgers", emoji: "🍔", description: "", ingredients: "",
+    price: "", promoOn: false, promo: "", time: "15", stock: "0",
+    badges: [], groups: [], available: true, builder: false,
+  }));
+  const [file, setFile] = useState(null);
+  const [preview, setPreview] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+
+  const set = (k, v) => setF((p) => ({ ...p, [k]: v }));
+  const toggleIn = (k, id) =>
+    setF((p) => ({ ...p, [k]: p[k].includes(id) ? p[k].filter((x) => x !== id) : [...p[k], id] }));
+
+  const pickFile = (fl) => {
+    if (!fl) return;
+    setFile(fl);
+    setPreview(URL.createObjectURL(fl));
+  };
+
+  const num = (s) => parseFloat(String(s).replace(",", "."));
+  const save = async () => {
+    if (busy) return;
+    setErr("");
+    const price = num(f.price);
+    const promo = f.promoOn ? num(f.promo) : null;
+    if (f.name.trim().length < 3) return setErr("Dê um nome com pelo menos 3 letras.");
+    if (!Number.isFinite(price) || price <= 0) return setErr("Informe um preço válido.");
+    if (f.promoOn && (!Number.isFinite(promo) || promo <= 0)) return setErr("Informe o preço promocional.");
+    if (f.promoOn && promo >= price) return setErr("A promoção precisa ser menor que o preço normal.");
+
+    setBusy(true);
+    try {
+      await store.saveProduct(initial?.id, {
+        name: f.name.trim(), cat: f.cat, emoji: f.emoji || "🍔",
+        description: f.description.trim(),
+        ingredients: f.ingredients.split("\n").map((s) => s.trim()).filter(Boolean),
+        price, promo: f.promoOn ? promo : null,
+        time: Math.max(1, parseInt(f.time) || 15),
+        stock: Math.max(0, parseInt(f.stock) || 0),
+        badges: f.badges, groups: f.groups,
+        available: f.available, builder: f.builder,
+      }, file);
+      store.toast(initial ? "Produto atualizado ✓" : "Produto criado ✓");
+      onClose();
+    } catch (e) {
+      setErr(e.message);
+    }
+    setBusy(false);
+  };
+
+  const inField = { background: C.gray850, border: `1px solid ${C.gray800}`, color: C.white, fontSize: 13 };
+
+  return (
+    <div className="fixed inset-0 z-40 flex items-end sm:items-center justify-center" style={{ background: "rgba(0,0,0,.8)" }}>
+      <div
+        className="w-full sm:max-w-2xl max-h-[92vh] overflow-y-auto"
+        style={{ background: C.gray900, borderTop: `3px solid ${C.orange}`, borderRadius: "20px 20px 0 0" }}
+      >
+        <div className="flex items-center justify-between p-4" style={{ borderBottom: `1px solid ${C.gray800}` }}>
+          <h3 style={{ fontFamily: font.display, fontStyle: "italic", fontSize: 20, color: C.white }}>
+            {initial ? "EDITAR PRODUTO" : "NOVO PRODUTO"}
+          </h3>
+          <button onClick={onClose} className="rounded-full flex items-center justify-center"
+            style={{ width: 32, height: 32, background: C.gray850, color: C.white }}>✕</button>
+        </div>
+
+        <div className="p-4 space-y-4">
+          <div className="flex gap-4">
+            <div>
+              <div className="rounded-xl overflow-hidden" style={{ width: 96, height: 96, border: `1px solid ${C.gray800}`, background: C.gray850 }}>
+                {preview ? (
+                  <img src={preview} alt="Prévia" className="sarro-img" />
+                ) : (
+                  <SmartImg id={initial?.id} emoji={f.emoji} file={initial?.img} v={initial?.updatedAt} fs={40} />
+                )}
+              </div>
+              <label className="block text-center mt-2 cursor-pointer rounded-lg px-2 py-1.5"
+                style={{ background: C.gray850, border: `1px solid ${C.gray800}`, color: C.yellowLight, fontSize: 11, fontWeight: 800 }}>
+                📷 {initial?.img || preview ? "Trocar foto" : "Enviar foto"}
+                <input type="file" accept="image/jpeg,image/png,image/webp" className="hidden"
+                  onChange={(e) => pickFile(e.target.files?.[0])} />
+              </label>
+              <div style={{ color: "#6a6a6a", fontSize: 9.5, marginTop: 4, width: 96, textAlign: "center" }}>
+                JPG/PNG/WebP · até 3MB
+              </div>
+            </div>
+
+            <div className="flex-1 space-y-3">
+              <label className="block">
+                <span style={{ color: "#9a9a9a", fontSize: 11, fontWeight: 700 }}>Nome *</span>
+                <input value={f.name} onChange={(e) => set("name", e.target.value)}
+                  className="w-full rounded-xl px-3 py-2.5 mt-1 outline-none" style={inField}
+                  placeholder="Ex.: Sarro Burger Vegano" />
+              </label>
+              <div className="grid grid-cols-2 gap-3">
+                <label className="block">
+                  <span style={{ color: "#9a9a9a", fontSize: 11, fontWeight: 700 }}>Categoria</span>
+                  <select value={f.cat} onChange={(e) => set("cat", e.target.value)}
+                    className="w-full rounded-xl px-3 py-2.5 mt-1 outline-none" style={inField}>
+                    {store.categories.map((c) => <option key={c.id} value={c.id}>{c.icon} {c.label}</option>)}
+                  </select>
+                </label>
+                <label className="block">
+                  <span style={{ color: "#9a9a9a", fontSize: 11, fontWeight: 700 }}>Emoji (fallback)</span>
+                  <input value={f.emoji} onChange={(e) => set("emoji", e.target.value)}
+                    className="w-full rounded-xl px-3 py-2.5 mt-1 outline-none" style={inField} />
+                </label>
+              </div>
+            </div>
+          </div>
+
+          <label className="block">
+            <span style={{ color: "#9a9a9a", fontSize: 11, fontWeight: 700 }}>Descrição</span>
+            <input value={f.description} onChange={(e) => set("description", e.target.value)}
+              className="w-full rounded-xl px-3 py-2.5 mt-1 outline-none" style={inField}
+              placeholder="Uma frase que dá água na boca" />
+          </label>
+
+          <label className="block">
+            <span style={{ color: "#9a9a9a", fontSize: 11, fontWeight: 700 }}>Ingredientes (um por linha)</span>
+            <textarea value={f.ingredients} onChange={(e) => set("ingredients", e.target.value)} rows={4}
+              className="w-full rounded-xl px-3 py-2.5 mt-1 outline-none resize-y" style={inField}
+              placeholder={"Pão brioche\nBlend 180g\nCheddar"} />
+          </label>
+
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            <label className="block">
+              <span style={{ color: "#9a9a9a", fontSize: 11, fontWeight: 700 }}>Preço R$ *</span>
+              <input value={f.price} onChange={(e) => set("price", e.target.value)} inputMode="decimal"
+                className="w-full rounded-xl px-3 py-2.5 mt-1 outline-none" style={inField} placeholder="29,90" />
+            </label>
+            <label className="block">
+              <span style={{ color: "#9a9a9a", fontSize: 11, fontWeight: 700 }}>Promoção?</span>
+              <button type="button" onClick={() => set("promoOn", !f.promoOn)}
+                className="w-full rounded-xl px-3 py-2.5 mt-1 font-bold"
+                style={{ background: f.promoOn ? `${C.orange}26` : C.gray850, border: `1px solid ${f.promoOn ? C.orange : C.gray800}`, color: f.promoOn ? C.orange : "#9a9a9a", fontSize: 12.5 }}>
+                {f.promoOn ? "✓ Com promo" : "Sem promo"}
+              </button>
+            </label>
+            {f.promoOn && (
+              <label className="block">
+                <span style={{ color: "#9a9a9a", fontSize: 11, fontWeight: 700 }}>Preço promo R$</span>
+                <input value={f.promo} onChange={(e) => set("promo", e.target.value)} inputMode="decimal"
+                  className="w-full rounded-xl px-3 py-2.5 mt-1 outline-none" style={inField} placeholder="24,90" />
+              </label>
+            )}
+            <label className="block">
+              <span style={{ color: "#9a9a9a", fontSize: 11, fontWeight: 700 }}>Preparo (min)</span>
+              <input value={f.time} onChange={(e) => set("time", e.target.value)} inputMode="numeric"
+                className="w-full rounded-xl px-3 py-2.5 mt-1 outline-none" style={inField} />
+            </label>
+            <label className="block">
+              <span style={{ color: "#9a9a9a", fontSize: 11, fontWeight: 700 }}>Estoque</span>
+              <input value={f.stock} onChange={(e) => set("stock", e.target.value)} inputMode="numeric"
+                className="w-full rounded-xl px-3 py-2.5 mt-1 outline-none" style={inField} />
+            </label>
+          </div>
+
+          <div>
+            <span style={{ color: "#9a9a9a", fontSize: 11, fontWeight: 700 }}>Selos</span>
+            <div className="flex gap-2 mt-1.5 flex-wrap">
+              {BADGE_OPTS.map(([id, lbl, color]) => {
+                const on = f.badges.includes(id);
+                return (
+                  <button key={id} type="button" onClick={() => toggleIn("badges", id)} className="rounded-full px-3 py-1.5 font-bold"
+                    style={{ background: on ? `${color}26` : C.gray850, border: `1px solid ${on ? color : C.gray800}`, color: on ? color : "#9a9a9a", fontSize: 11.5 }}>
+                    {on ? "✓" : "+"} {lbl}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          <div>
+            <span style={{ color: "#9a9a9a", fontSize: 11, fontWeight: 700 }}>Grupos de opcionais</span>
+            <div className="flex gap-2 mt-1.5 flex-wrap">
+              {store.optionGroups.map((g) => {
+                const on = f.groups.includes(g.id);
+                return (
+                  <button key={g.id} type="button" onClick={() => toggleIn("groups", g.id)} className="rounded-full px-3 py-1.5 font-bold"
+                    style={{ background: on ? `${C.orange}22` : C.gray850, border: `1px solid ${on ? C.orange : C.gray800}`, color: on ? C.orange : "#9a9a9a", fontSize: 11.5 }}>
+                    {on ? "✓" : "+"} {g.name}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          <div className="flex gap-2 flex-wrap">
+            <button type="button" onClick={() => set("available", !f.available)} className="rounded-xl px-3 py-2 font-bold"
+              style={{ background: f.available ? `${C.green}1e` : C.gray850, border: `1px solid ${f.available ? C.green : C.gray800}`, color: f.available ? C.green : "#9a9a9a", fontSize: 12 }}>
+              {f.available ? "🟢 Disponível" : "🔴 Indisponível"}
+            </button>
+            <button type="button" onClick={() => set("builder", !f.builder)} className="rounded-xl px-3 py-2 font-bold"
+              style={{ background: f.builder ? `${C.orange}1e` : C.gray850, border: `1px solid ${f.builder ? C.orange : C.gray800}`, color: f.builder ? C.orange : "#9a9a9a", fontSize: 12 }}>
+              🛠️ Monte seu Sarro {f.builder ? "✓" : ""}
+            </button>
+          </div>
+
+          {err && (
+            <div className="rounded-lg px-3 py-2" style={{ background: `${C.red}18`, color: C.red, fontSize: 12, fontWeight: 700 }}>
+              {err}
+            </div>
+          )}
+        </div>
+
+        <div className="sticky bottom-0 p-4 flex gap-3" style={{ background: C.black, borderTop: `1px solid ${C.gray800}` }}>
+          <Btn variant="dark" onClick={onClose}>Cancelar</Btn>
+          <Btn full disabled={busy} onClick={save}>
+            {busy ? "SALVANDO…" : initial ? "SALVAR ALTERAÇÕES" : "CRIAR PRODUTO"}
+          </Btn>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function AdminProducts({ store }) {
-  const [edit, setEdit] = useState(null);
+  const [form, setForm] = useState(null); // null | "new" | produto
+  const [confirmDel, setConfirmDel] = useState(null);
+
   return (
     <div>
       <div className="flex items-center justify-between mb-4">
         <div style={{ color: "#8a8a8a", fontSize: 12 }}>{store.products.length} produtos cadastrados</div>
-        <Btn small onClick={() => store.toast("Formulário de novo produto")}>+ Novo produto</Btn>
+        <Btn small onClick={() => setForm("new")}>+ Novo produto</Btn>
       </div>
+
+      {confirmDel && (
+        <Card className="p-4 mb-4" style={{ borderColor: `${C.red}66`, background: `${C.red}12` }}>
+          <div style={{ color: C.white, fontWeight: 800, fontSize: 13 }}>
+            Excluir “{confirmDel.name}”?
+          </div>
+          <div style={{ color: "#9a9a9a", fontSize: 12, marginTop: 2 }}>
+            Se ele já entrou em algum pedido, recomendamos apenas despublicar.
+          </div>
+          <div className="flex gap-2 mt-3">
+            <Btn small variant="danger" onClick={() => { store.deleteProduct(confirmDel.id); setConfirmDel(null); }}>
+              Excluir de vez
+            </Btn>
+            <Btn small variant="dark" onClick={() => setConfirmDel(null)}>Cancelar</Btn>
+          </div>
+        </Card>
+      )}
+
       <div className="grid md:grid-cols-2 xl:grid-cols-3 gap-3">
         {store.products.map((p) => (
-          <Card key={p.id} className="p-3">
+          <Card key={p.id} className="p-3" style={{ opacity: p.available ? 1 : 0.55 }}>
             <div className="flex gap-3">
               <div className="rounded-xl overflow-hidden shrink-0" style={{ width: 56, height: 56, border: `1px solid ${C.gray800}` }}>
-                <SmartImg id={p.id} emoji={p.emoji} alt={p.name} fs={26} />
+                <SmartImg id={p.id} emoji={p.emoji} alt={p.name} fs={26} file={p.img} v={p.updatedAt} />
               </div>
               <div className="flex-1 min-w-0">
-                <div style={{ color: C.white, fontWeight: 800, fontSize: 13.5 }}>{p.name}</div>
-                <div style={{ color: "#7a7a7a", fontSize: 11 }}>
-                  {CATEGORIES.find((c) => c.id === p.cat)?.label} · {p.time} min · estoque {p.stock}
+                <div style={{ color: C.white, fontWeight: 800, fontSize: 13.5 }}>
+                  {p.name} {p.builder && <span style={{ color: C.orange, fontSize: 11 }}>🛠️</span>}
                 </div>
-                {edit === p.id ? (
-                  <div className="flex items-center gap-2 mt-2">
-                    <input
-                      type="number" defaultValue={p.price} step="0.5"
-                      onBlur={(e) => { store.updateProduct(p.id, { price: parseFloat(e.target.value) || p.price }); setEdit(null); }}
-                      className="rounded-lg px-2 py-1 outline-none"
-                      style={{ background: C.gray800, color: C.white, border: `1px solid ${C.orange}`, fontSize: 12, width: 82 }}
-                      autoFocus
-                    />
-                    <span style={{ color: "#7a7a7a", fontSize: 10.5 }}>salva ao sair do campo</span>
-                  </div>
-                ) : (
-                  <button onClick={() => setEdit(p.id)} style={{ color: C.yellowLight, fontWeight: 900, fontSize: 13.5, marginTop: 4 }}>
-                    {brl(p.promo || p.price)} ✎
-                  </button>
-                )}
+                <div style={{ color: "#7a7a7a", fontSize: 11 }}>
+                  {store.categories.find((c) => c.id === p.cat)?.label} · {p.time} min · estoque {p.stock}
+                </div>
+                <div className="flex items-center gap-2">
+                  <span style={{ color: C.yellowLight, fontWeight: 900, fontSize: 13.5, marginTop: 2 }}>
+                    {brl(p.promo || p.price)}
+                  </span>
+                  {p.promo && <span style={{ color: "#6e6e6e", fontSize: 10.5, textDecoration: "line-through" }}>{brl(p.price)}</span>}
+                </div>
               </div>
             </div>
             <div className="flex items-center justify-between mt-3 pt-3" style={{ borderTop: `1px solid ${C.gray800}` }}>
-              <span style={{ color: p.available ? C.green : C.red, fontSize: 11.5, fontWeight: 700 }}>
-                {p.available ? "Disponível" : "Indisponível"}
-              </span>
+              <div className="flex items-center gap-1.5">
+                <button onClick={() => setForm(p)} className="rounded-lg px-2 py-1 font-bold"
+                  style={{ background: C.gray800, color: C.white, fontSize: 11 }}>✎ Editar</button>
+                <button onClick={() => setConfirmDel(p)} className="rounded-lg px-2 py-1 font-bold"
+                  style={{ background: "transparent", border: `1px solid ${C.red}55`, color: C.red, fontSize: 11 }}>🗑</button>
+              </div>
               <button
                 onClick={() => store.updateProduct(p.id, { available: !p.available })}
                 className="rounded-full"
@@ -1723,6 +2114,15 @@ function AdminProducts({ store }) {
           </Card>
         ))}
       </div>
+
+      {form && (
+        <ProductForm
+          key={form === "new" ? "new" : form.id}
+          initial={form === "new" ? null : form}
+          store={store}
+          onClose={() => setForm(null)}
+        />
+      )}
     </div>
   );
 }
@@ -1805,6 +2205,252 @@ function AdminInventory({ store }) {
           );
         })}
       </div>
+    </div>
+  );
+}
+
+// ============================================================
+// FINANCEIRO — visão de caixa com dados reais dos pedidos
+// ============================================================
+
+const RANGES = [
+  ["hoje", "Hoje"],
+  ["7", "7 dias"],
+  ["30", "30 dias"],
+  ["tudo", "Tudo"],
+];
+
+function rangeStart(range, now) {
+  const DAY = 86400000;
+  if (range === "hoje") {
+    const d = new Date(now);
+    d.setHours(0, 0, 0, 0);
+    return d.getTime();
+  }
+  if (range === "7") return now - 7 * DAY;
+  if (range === "30") return now - 30 * DAY;
+  return 0;
+}
+
+function AdminFinance({ store, now }) {
+  const [range, setRange] = useState("hoje");
+  const from = rangeStart(range, now);
+
+  const valid = store.orders.filter((o) => o.createdAt >= from && o.status !== "CANCELADO");
+  const canceled = store.orders.filter((o) => o.createdAt >= from && o.status === "CANCELADO");
+  const revenue = valid.reduce((s, o) => s + o.total, 0);
+  const discounts = valid.reduce((s, o) => s + o.discount, 0);
+  const fees = valid.reduce((s, o) => s + o.fee, 0);
+  const ticket = valid.length ? revenue / valid.length : 0;
+  const canceledValue = canceled.reduce((s, o) => s + o.total, 0);
+
+  const byDay = {};
+  valid.forEach((o) => {
+    const k = new Date(o.createdAt).toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" });
+    byDay[k] = (byDay[k] || 0) + o.total;
+  });
+  const dayData = Object.entries(byDay)
+    .sort((a, b) => (a[0].split("/").reverse().join("") > b[0].split("/").reverse().join("") ? 1 : -1))
+    .slice(-14)
+    .map(([d, v]) => ({ d, v: Math.round(v) }));
+
+  const groupSum = (keyFn) => {
+    const m = new Map();
+    valid.forEach((o) => {
+      const k = keyFn(o);
+      m.set(k, (m.get(k) || 0) + o.total);
+    });
+    const total = [...m.values()].reduce((s, v) => s + v, 0) || 1;
+    return [...m.entries()].sort((a, b) => b[1] - a[1]).map(([k, v]) => ({ k, v, pct: Math.round((v / total) * 100) }));
+  };
+  const payments = groupSum((o) => o.payment.replace(/\s*\(.*\)/, ""));
+  const channels = groupSum((o) => CHANNELS[o.channel]?.label || o.channel);
+  const types = groupSum((o) => (o.type === "pickup" ? "Retirada" : "Delivery"));
+
+  const exportCSV = () => {
+    downloadCSV(`financeiro-sarro-${range}.csv`, [
+      ["TÔ NO SARRO! — Financeiro"],
+      ["Período", RANGES.find((r) => r[0] === range)?.[1] || range],
+      [],
+      ["Indicador", "Valor"],
+      ["Faturamento", revenue.toFixed(2)],
+      ["Pedidos válidos", valid.length],
+      ["Ticket médio", ticket.toFixed(2)],
+      ["Descontos concedidos", discounts.toFixed(2)],
+      ["Taxas de entrega", fees.toFixed(2)],
+      ["Cancelados", `${canceled.length} (${canceledValue.toFixed(2)})`],
+      [],
+      ["Dia", "Faturamento"],
+      ...dayData.map((d) => [d.d, d.v.toFixed(2)]),
+      [],
+      ["Forma de pagamento", "Total", "%"],
+      ...payments.map((p) => [p.k, p.v.toFixed(2), `${p.pct}%`]),
+      [],
+      ["Canal", "Total", "%"],
+      ...channels.map((p) => [p.k, p.v.toFixed(2), `${p.pct}%`]),
+    ]);
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-center gap-2">
+        {RANGES.map(([id, lbl]) => (
+          <Btn key={id} small variant={range === id ? "primary" : "dark"} onClick={() => setRange(id)}>{lbl}</Btn>
+        ))}
+        <div className="flex-1" />
+        <Btn small variant="dark" onClick={exportCSV}>⬇ Exportar CSV/Excel</Btn>
+      </div>
+
+      <div className="grid grid-cols-2 lg:grid-cols-3 gap-3">
+        <KPI icon="💰" label={`Faturamento (${RANGES.find((r) => r[0] === range)?.[1]})`} value={brl(revenue)} accent={C.yellowLight} />
+        <KPI icon="🧾" label="Pedidos válidos" value={valid.length} />
+        <KPI icon="📦" label="Ticket médio" value={brl(ticket)} />
+        <KPI icon="🎟" label="Descontos concedidos" value={brl(discounts)} accent={C.orange} />
+        <KPI icon="🛵" label="Taxas de entrega" value={brl(fees)} />
+        <KPI icon="❌" label={`Cancelados · ${brl(canceledValue)}`} value={canceled.length} accent={canceled.length ? C.red : C.white} />
+      </div>
+
+      <div className="grid lg:grid-cols-2 gap-3">
+        <Card className="p-4">
+          <div style={{ color: C.white, fontWeight: 800, fontSize: 13, marginBottom: 12 }}>Faturamento por dia</div>
+          {dayData.length ? <BarChart data={dayData} xKey="d" vKey="v" /> : <div style={{ color: "#6a6a6a", fontSize: 12 }}>Sem vendas no período.</div>}
+        </Card>
+        <Card className="p-4">
+          <div style={{ color: C.white, fontWeight: 800, fontSize: 13, marginBottom: 12 }}>Formas de pagamento</div>
+          {payments.length ? payments.map((p) => (
+            <div key={p.k} className="mb-2.5">
+              <div className="flex justify-between" style={{ fontSize: 12 }}>
+                <span style={{ color: "#d0d0d0" }}>{p.k}</span>
+                <span style={{ color: C.yellowLight, fontWeight: 800 }}>{brl(p.v)} · {p.pct}%</span>
+              </div>
+              <div style={{ height: 6, background: C.gray800, borderRadius: 9, marginTop: 4 }}>
+                <div style={{ width: `${p.pct}%`, height: "100%", borderRadius: 9, background: `linear-gradient(90deg, ${C.orange}, ${C.yellow})` }} />
+              </div>
+            </div>
+          )) : <div style={{ color: "#6a6a6a", fontSize: 12 }}>Sem dados.</div>}
+        </Card>
+        <Card className="p-4">
+          <div style={{ color: C.white, fontWeight: 800, fontSize: 13, marginBottom: 12 }}>Por canal</div>
+          {channels.length ? <Donut slices={channels.map((c, i) => ({ label: c.k, v: c.v, color: [C.orange, C.yellow, "#25D366", C.blue][i % 4] }))} size={130} /> : <div style={{ color: "#6a6a6a", fontSize: 12 }}>Sem dados.</div>}
+        </Card>
+        <Card className="p-4">
+          <div style={{ color: C.white, fontWeight: 800, fontSize: 13, marginBottom: 12 }}>Delivery x Retirada</div>
+          {types.length ? <Donut slices={types.map((t, i) => ({ label: t.k, v: t.v, color: i ? C.blue : C.orange }))} size={130} /> : <div style={{ color: "#6a6a6a", fontSize: 12 }}>Sem dados.</div>}
+        </Card>
+      </div>
+    </div>
+  );
+}
+
+// ============================================================
+// RELATÓRIOS — tabelas com exportação CSV e impressão A4
+// ============================================================
+
+function printReport(title, cols, rows) {
+  const thead = cols.map((c) => `<th style="text-align:left;padding:6px 10px;border-bottom:2px solid #000">${c}</th>`).join("");
+  const tbody = rows.map((r) => `<tr>${r.map((c) => `<td style="padding:5px 10px;border-bottom:1px solid #ddd">${c ?? ""}</td>`).join("")}</tr>`).join("");
+  const html = `<!doctype html><html><head><meta charset="utf-8"><title>${title}</title><style>
+    @page { size: A4 landscape; margin: 14mm; }
+    body { font-family: Arial, Helvetica, sans-serif; color: #000; font-size: 12px; }
+    h1 { font-size: 18px; margin: 0 0 2px; }
+    .sub { color: #444; font-size: 11px; margin-bottom: 12px; }
+    table { border-collapse: collapse; width: 100%; }
+  </style></head><body>
+    <h1>TÔ NO SARRO! — ${title}</h1>
+    <div class="sub">Gerado em ${new Date().toLocaleString("pt-BR")}</div>
+    <table><thead><tr>${thead}</tr></thead><tbody>${tbody}</tbody></table>
+  </body></html>`;
+  const w = window.open("", "_blank", "width=980,height=720");
+  if (!w) return;
+  w.document.open(); w.document.write(html); w.document.close();
+  setTimeout(() => { w.focus(); w.print(); }, 250);
+}
+
+function ReportCard({ title, cols, rows, csvName }) {
+  const hasData = rows.length > 0;
+  return (
+    <Card className="p-4">
+      <div className="flex items-center justify-between mb-3 gap-2">
+        <div style={{ color: C.white, fontWeight: 800, fontSize: 13 }}>{title}</div>
+        <div className="flex gap-1.5 shrink-0">
+          <Btn small variant="dark" onClick={() => printReport(title, cols, rows)}>🖨 PDF</Btn>
+          <Btn small variant="dark" onClick={() => downloadCSV(csvName, [cols, ...rows])}>⬇ CSV</Btn>
+        </div>
+      </div>
+      {hasData ? <Table cols={cols} rows={rows} /> : <div style={{ color: "#6a6a6a", fontSize: 12 }}>Sem dados no período.</div>}
+    </Card>
+  );
+}
+
+function AdminReports({ store, now }) {
+  const [range, setRange] = useState("7");
+  const from = rangeStart(range, now);
+  const orders = store.orders.filter((o) => o.createdAt >= from);
+
+  const dayMap = new Map();
+  orders.forEach((o) => {
+    const k = new Date(o.createdAt).toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" });
+    const cur = dayMap.get(k) || { n: 0, total: 0 };
+    cur.n += 1;
+    if (o.status !== "CANCELADO") cur.total += o.total;
+    dayMap.set(k, cur);
+  });
+  const salesRows = [...dayMap.entries()]
+    .sort((a, b) => (a[0].split("/").reverse().join("") > b[0].split("/").reverse().join("") ? 1 : -1))
+    .map(([d, v]) => [d, v.n, brl(v.total), brl(v.n ? v.total / v.n : 0)]);
+
+  const prodMap = new Map();
+  orders.filter((o) => o.status !== "CANCELADO").forEach((o) =>
+    o.items.forEach((i) => {
+      const cur = prodMap.get(i.name) || { qty: 0, total: 0 };
+      cur.qty += i.qty;
+      cur.total += i.unit * i.qty;
+      prodMap.set(i.name, cur);
+    })
+  );
+  const productRows = [...prodMap.entries()].sort((a, b) => b[1].qty - a[1].qty)
+    .map(([name, v]) => [name, v.qty, brl(v.total)]);
+
+  const paySet = [...new Set(orders.filter((o) => o.status !== "CANCELADO").map((o) => o.payment))];
+  const payRows = paySet.map((pay) => {
+    const list = orders.filter((o) => o.payment === pay && o.status !== "CANCELADO");
+    return [pay, list.length, brl(list.reduce((s, o) => s + o.total, 0))];
+  });
+  const channelRows = Object.keys(CHANNELS).map((k) => {
+    const list = orders.filter((o) => o.channel === k && o.status !== "CANCELADO");
+    return [CHANNELS[k].label, list.length, brl(list.reduce((s, o) => s + o.total, 0))];
+  });
+
+  const driverRows = store.drivers.map((d) => {
+    const done = orders.filter((o) => o.driverId === d.id && o.status === "ENTREGUE");
+    return [d.name, d.vehicle, done.length, brl(done.reduce((s, o) => s + o.total, 0))];
+  });
+
+  const customerRows = store.customers.slice(0, 10).map((c) => [
+    c.name, c.phone, c.orders, brl(c.spent), c.tier,
+  ]);
+
+  const canceledRows = orders.filter((o) => o.status === "CANCELADO")
+    .map((o) => [`#${o.code}`, o.customer.name, brl(o.total), fmtDT(o.createdAt), CHANNELS[o.channel]?.short || o.channel]);
+
+  return (
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-center gap-2">
+        <span style={{ color: "#8a8a8a", fontSize: 12 }}>Período:</span>
+        {RANGES.map(([id, lbl]) => (
+          <Btn key={id} small variant={range === id ? "primary" : "dark"} onClick={() => setRange(id)}>{lbl}</Btn>
+        ))}
+      </div>
+
+      <ReportCard title="Vendas por dia" cols={["Dia", "Pedidos", "Faturamento", "Ticket médio"]} rows={salesRows} csvName="sarro-vendas.csv" />
+      <ReportCard title="Produtos vendidos" cols={["Produto", "Qtd", "Receita"]} rows={productRows} csvName="sarro-produtos.csv" />
+      <div className="grid lg:grid-cols-2 gap-3">
+        <ReportCard title="Formas de pagamento" cols={["Pagamento", "Pedidos", "Total"]} rows={payRows} csvName="sarro-pagamentos.csv" />
+        <ReportCard title="Canais de venda" cols={["Canal", "Pedidos", "Total"]} rows={channelRows} csvName="sarro-canais.csv" />
+        <ReportCard title="Entregadores" cols={["Entregador", "Veículo", "Entregas", "Valor entregue"]} rows={driverRows} csvName="sarro-entregadores.csv" />
+        <ReportCard title="Top clientes" cols={["Cliente", "WhatsApp", "Pedidos", "Gasto", "Classe"]} rows={customerRows} csvName="sarro-clientes.csv" />
+      </div>
+      <ReportCard title="Cancelamentos" cols={["Pedido", "Cliente", "Valor", "Quando", "Canal"]} rows={canceledRows} csvName="sarro-cancelamentos.csv" />
     </div>
   );
 }
@@ -1955,8 +2601,17 @@ function AdminSettings({ store }) {
       <Card className="p-4">
         <div style={{ color: C.white, fontWeight: 900, fontSize: 14, marginBottom: 10 }}>Impressão</div>
         <div className="flex flex-wrap gap-2">
-          {["Comanda da cozinha", "Comanda de expedição", "Cupom do cliente", "Etiqueta da sacola"].map((t) => (
-            <Btn key={t} small variant="dark" onClick={() => store.toast(`Imprimindo: ${t}`)}>🖨 {t}</Btn>
+          {[
+            ["Comanda da cozinha", printKitchen],
+            ["Comanda de expedição", printExpedition],
+            ["Cupom do cliente", (o) => printReceipt(o, store.settings)],
+            ["Etiqueta da sacola", printLabel],
+          ].map(([t, fn]) => (
+            <Btn key={t} small variant="dark" onClick={() => {
+              const demo = store.orders[0];
+              if (!demo) return store.toast("Crie um pedido para testar a impressão");
+              fn(demo);
+            }}>🖨 {t}</Btn>
           ))}
         </div>
         <div style={{ color: "#7a7a7a", fontSize: 11.5, marginTop: 12 }}>
@@ -1988,6 +2643,8 @@ const ADMIN_NAV = [
   { id: "clientes", icon: "👥", label: "Clientes" },
   { id: "promos", icon: "🎟", label: "Promoções" },
   { id: "estoque", icon: "📦", label: "Estoque" },
+  { id: "financeiro", icon: "💰", label: "Financeiro" },
+  { id: "relatorios", icon: "📈", label: "Relatórios" },
   { id: "integracoes", icon: "🔌", label: "Integrações" },
   { id: "config", icon: "⚙️", label: "Configurações" },
 ];
@@ -2075,6 +2732,8 @@ function AdminApp({ store, now }) {
         {sec === "clientes" && <AdminCustomers store={store} />}
         {sec === "promos" && <AdminPromos store={store} />}
         {sec === "estoque" && <AdminInventory store={store} />}
+        {sec === "financeiro" && <AdminFinance store={store} now={now} />}
+        {sec === "relatorios" && <AdminReports store={store} now={now} />}
         {sec === "integracoes" && <AdminIntegrations store={store} />}
         {sec === "config" && <AdminSettings store={store} />}
       </main>
@@ -2086,6 +2745,13 @@ function AdminApp({ store, now }) {
 // ============================================================
 
 function KitchenApp({ store, now }) {
+  const [autoPrint, setAutoPrint] = useState(() => localStorage.getItem("sarro_autoprint") === "1");
+  const toggleAutoPrint = () => {
+    const v = autoPrint ? "0" : "1";
+    localStorage.setItem("sarro_autoprint", v);
+    setAutoPrint(!autoPrint);
+    store.toast(v === "1" ? "Impressão automática ligada 🖨" : "Impressão automática desligada");
+  };
   const queue = store.orders
     .filter((o) => ["NOVO", "CONFIRMADO", "PREPARO"].includes(o.status))
     .sort((a, b) => a.createdAt - b.createdAt);
@@ -2105,6 +2771,17 @@ function KitchenApp({ store, now }) {
           </div>
         </div>
         <div className="flex items-center gap-2">
+          <button
+            onClick={toggleAutoPrint}
+            className="rounded-lg px-2.5 py-1.5 font-bold"
+            style={{
+              background: autoPrint ? `${C.orange}22` : C.gray850,
+              border: `1px solid ${autoPrint ? C.orange : C.gray800}`,
+              color: autoPrint ? C.orange : "#8a8a8a", fontSize: 11, whiteSpace: "nowrap",
+            }}
+          >
+            🖨 Auto-print {autoPrint ? "ON" : "OFF"}
+          </button>
           <span style={{ color: "#7a7a7a", fontSize: 11.5 }}>Prontos hoje</span>
           <span style={{ color: C.green, fontWeight: 900, fontSize: 20 }}>
             {store.orders.filter((o) => ["PRONTO", "EMBALADO", "AGUARDANDO", "ROTA", "ENTREGUE"].includes(o.status)).length}
@@ -2163,7 +2840,8 @@ function KitchenApp({ store, now }) {
                   {o.customer.name} · {o.type === "pickup" ? "🏪 retirada" : "🛵 delivery"}
                 </div>
 
-                <div className="mt-3">
+                <div className="mt-3 space-y-2">
+                  <Btn small full variant="dark" onClick={() => printKitchen(o)}>🖨 IMPRIMIR COMANDA</Btn>
                   {o.status !== "PREPARO" ? (
                     <Btn full onClick={() => store.setStatus(o.id, "PREPARO")}>INICIAR PREPARO</Btn>
                   ) : (
@@ -2220,8 +2898,11 @@ function ExpeditionApp({ store, now }) {
                 {o.type === "pickup" ? "🏪 Retirada na loja" : `🛵 ${o.customer.addr}`}
               </div>
 
+              <div className="mt-3">
+                <Btn small full variant="dark" onClick={() => printExpedition(o)}>🖨 IMPRIMIR EXPEDIÇÃO</Btn>
+              </div>
               {o.type === "pickup" ? (
-                <div className="mt-3">
+                <div className="mt-2">
                   <Btn full variant="green" onClick={() => store.setStatus(o.id, "ENTREGUE")}>CLIENTE RETIROU</Btn>
                 </div>
               ) : (
@@ -2580,6 +3261,10 @@ export default function App() {
         fresh.slice(0, 3).forEach((o) =>
           notify(`🔥 Novo pedido ${CHANNELS[o.channel]?.short || ""} #${o.code} · ${brl(o.total)}`)
         );
+        // Impressão automática da comanda quando o KDS está aberto com o modo ligado
+        if (roleRef.current === "cozinha" && localStorage.getItem("sarro_autoprint") === "1") {
+          fresh.slice(0, 3).forEach((o) => printKitchen(o));
+        }
       }
     }
     known.current = new Set(d.orders.map((o) => o.id));
@@ -2694,6 +3379,34 @@ export default function App() {
 
     updateProduct: (id, patch) => {
       api(`/api/products/${id}`, { method: "PATCH", body: patch }).catch((e) => toast(e.message));
+    },
+
+    saveProduct: async (id, payload, file) => {
+      let pid = id;
+      if (id) {
+        await api(`/api/products/${id}`, { method: "PATCH", body: payload });
+      } else {
+        const d = await api("/api/products", { method: "POST", body: payload });
+        pid = d.product.id;
+      }
+      if (file) {
+        const r = await fetch(`/api/products/${pid}/image`, {
+          method: "POST",
+          headers: { "Content-Type": file.type },
+          credentials: "same-origin",
+          body: file,
+        });
+        if (!r.ok) {
+          const d = await r.json().catch(() => ({}));
+          throw new Error(d.error || "Falha ao enviar a foto.");
+        }
+      }
+    },
+
+    deleteProduct: (id) => {
+      api(`/api/products/${id}`, { method: "DELETE" })
+        .then(() => toast("Produto excluído"))
+        .catch((e) => toast(e.message));
     },
 
     moveStock: (id, delta) => {

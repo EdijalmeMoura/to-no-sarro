@@ -1,9 +1,9 @@
 # TÔ NO SARRO! — Smart Food System
 
 Sistema de pedidos da hamburgueria **TÔ NO SARRO! Burgers & Açaí** (Janga, Paulista/PE):
-cardápio digital, central de pedidos multicanal, painel da cozinha, expedição e app do
-entregador — com **backend real** (SQLite + API REST + WebSocket) e estado sincronizado
-em tempo real entre todos os painéis.
+cardápio digital, central de pedidos multicanal, painel da cozinha, expedição, app do
+entregador, financeiro, relatórios e impressão de comandas — com **backend real**
+(SQLite + API REST + WebSocket) e estado sincronizado em tempo real entre todos os painéis.
 
 ## Rodando
 
@@ -51,19 +51,24 @@ As senhas são semente de demonstração — o banco guarda apenas hash bcrypt. 
 - Conta com histórico e Clube do Sarro (1 ponto a cada R$ 10)
 
 **Equipe** (com login e permissões por papel)
-- **Admin:** operação agora, KPIs reais a partir dos pedidos, vendas por hora/semana,
-  pedidos por canal, produtos mais vendidos, central em Kanban ou lista com filtro por
-  canal, cardápio com edição de preço/disponibilidade (grava no banco), clientes com
-  classificação automática, cupons, promoções, estoque com alerta, integrações e
-  configurações (abrir/fechar a loja muda o cardápio na hora)
-- **Cozinha (KDS):** cards grandes, cronômetro, alerta sonoro a cada pedido novo que
-  chega pelo WebSocket, observações em destaque; cozinha só avança preparo/pronto
+- **Admin:** operação agora, KPIs reais, central em Kanban ou lista com filtro por canal
+- **Cardápio (CRUD completo):** criar, editar e excluir produtos com foto (upload até 3MB),
+  preço/promoção, ingredientes, selos, grupos de opcionais, estoque e disponibilidade
+- **Financeiro:** faturamento por período (hoje/7/30/tudo), ticket médio, descontos,
+  taxas, cancelados, quebra por dia/pagamento/canal/delivery — exporta CSV/Excel
+- **Relatórios:** vendas por dia, produtos, pagamentos, canais, entregadores, top
+  clientes e cancelamentos — cada tabela exporta CSV e imprime em A4/PDF
+- **Impressão:** comanda da cozinha, comanda de expedição, cupom do cliente e etiqueta
+  de sacola em layout térmico 80mm — manual ou automática (KDS com auto-print ligado)
+- **Cozinha (KDS):** cards grandes, cronômetro, alerta sonoro a cada pedido novo,
+  observações em destaque; cozinha só avança preparo/pronto
 - **Expedição:** fila de prontos, embalar, atribuir entregador, retirada no balcão
 - **Entregador:** mobile-first, cada um vê só as próprias entregas (validado no servidor)
 
 **Integridade**
 - Preços, cupons, taxa e total são **recalculados no servidor** — o cliente não manda valor
 - Adicionais só são aceitos se pertencerem aos grupos do produto (anti-tampering)
+- Produto com histórico de pedidos não é excluído (só despublicado)
 - Sessão em cookie httpOnly, senhas bcrypt, rate limit no login, log de auditoria
 - Toda mutação dispara um broadcast WebSocket; os cinco painéis atualizam sozinhos
 
@@ -85,7 +90,8 @@ do 99Food na fila via API — entram marcados com o canal e seguem o mesmo fluxo
 | Branco | `#FFFFFF` |
 
 Tipografia: Archivo Black itálico nos títulos (o peso da logo), Inter no corpo.
-Logo oficial em `public/assets/`, fotos dos produtos em `public/img/products/`.
+Logo oficial em `public/assets/`, fotos dos produtos em `public/img/products/`
+(fotos enviadas pelo admin vão para `server/data/uploads`, servidas em `/img-up`).
 
 ## Estrutura
 
@@ -93,7 +99,7 @@ Logo oficial em `public/assets/`, fotos dos produtos em `public/img/products/`.
 src/App.jsx            frontend completo (dados vêm da API; UI dos cinco painéis)
 src/main.jsx           entrada React + registro do service worker
 server/index.js        API REST + WebSocket + serving de produção
-server/db.js           esquema SQLite, seed e leituras
+server/db.js           esquema SQLite, migrações, seed e leituras
 server/auth.js         sessões (cookie httpOnly), bcrypt, permissões por papel
 server/data.js         catálogo de semente (produtos, adicionais, cupons, equipe)
 public/                logo, ícones PWA, fotos dos produtos, service worker
@@ -106,8 +112,9 @@ O banco SQLite vive em `server/data/sarro.db` (fora do git). `npm run seed` recr
 
 ## Próximos passos
 
-1. CRUD completo de produtos no admin (hoje: preço, promo, disponibilidade e estoque)
-2. Pix real via gateway (arquitetura desacoplada já prevista em `docs/ARQUITETURA.md`)
-3. WhatsApp Cloud API + webhooks iFood/99Food assinados (módulos prontos para credenciais)
-4. Impressão de comandas (QZ Tray / escpos)
-5. Geolocalização do entregador em rota
+1. **Pix real** — plugar Mercado Pago/PagBank na camada desacoplada (`PAYMENT_PROVIDER`)
+2. **WhatsApp Cloud API** — mensagens de status com templates aprovados
+3. **iFood/99Food oficiais** — webhooks assinados com as credenciais da loja
+4. Gestão de categorias e grupos de opcionais no admin (hoje o catálogo de grupos é fixo)
+5. Impressão direta em impressora térmica (QZ Tray / escpos) sem diálogo do navegador
+6. Geolocalização do entregador em rota

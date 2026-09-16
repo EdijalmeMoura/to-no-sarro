@@ -145,6 +145,14 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_items_order ON order_items(order_id);
 `);
 
+// Migrações leves: adiciona colunas novas em bancos já existentes
+function addColumnIfMissing(table, col, ddl) {
+  const cols = db.prepare(`PRAGMA table_info(${table})`).all().map((c) => c.name);
+  if (!cols.includes(col)) db.exec(`ALTER TABLE ${table} ADD COLUMN ${ddl}`);
+}
+addColumnIfMissing("products", "img", "img TEXT");
+addColumnIfMissing("products", "updated_at", "updated_at INTEGER DEFAULT 0");
+
 export function audit(user, action, detail = "") {
   db.prepare("INSERT INTO audit_logs (at, user, action, detail) VALUES (?, ?, ?, ?)")
     .run(Date.now(), user || "sistema", action, String(detail).slice(0, 500));
@@ -254,11 +262,12 @@ export function seedIfEmpty() {
 const jparse = (s, fb = []) => { try { return JSON.parse(s ?? "") ?? fb; } catch { return fb; } };
 
 export function getProducts() {
-  return db.prepare("SELECT * FROM products ORDER BY id").all().map((p) => ({
+  return db.prepare("SELECT * FROM products ORDER BY rowid").all().map((p) => ({
     id: p.id, name: p.name, cat: p.cat, emoji: p.emoji, desc: p.description,
     ingredients: jparse(p.ingredients), price: p.price, promo: p.promo,
     time: p.time, badges: jparse(p.badges), available: !!p.available,
     groups: jparse(p.groups), stock: p.stock, builder: !!p.builder,
+    img: p.img || null, updatedAt: p.updated_at || 0,
   }));
 }
 
