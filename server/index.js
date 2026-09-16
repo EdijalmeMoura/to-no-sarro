@@ -23,9 +23,12 @@ import {
   getProducts, getOptionGroups, getBuilder, getCategories, getCoupons,
   getDrivers, getCustomers, getInventory, getPromos, getSettings,
   getSetting, setSetting, getOrders, getPaymentSettings,
+  logIntegration, enqueueWhatsApp, markOutbox, getOutbox, getIntegrationLogs,
 } from "./db.js";
 import { attachUser, requireRole, login, logout, publicUser } from "./auth.js";
 import { createCheckoutLink, paymentCheck, cents } from "./payments/infinitepay.js";
+import { waCredentials, normalizePhone, buildOrderMessage, sendWhatsApp } from "./messaging/whatsapp.js";
+import * as ifood from "./integrations/ifood.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = process.env.PORT || 3001;
@@ -71,6 +74,59 @@ function broadcast() {
   const msg = JSON.stringify({ type: "sync", data: snapshot() });
   for (const c of wss.clients) {
     if (c.readyState === 1) c.send(msg);
+  }
+}
+
+// ------------------------------------------------------------
+// WhatsApp — enfileira e tenta enviar a mensagem de status
+// ------------------------------------------------------------
+function staffSettings() {
+  const rows = db.prepare("SELECT key, value FROM settings").all();
+  return Object.fromEntries(rows.map((r) => [r.key, r.value]));
+}
+
+function fireWhatsApp(order, event, extra = {}) {
+  try {
+    const st = staffSettings();
+    const wa = waCredentials(st);
+    if (!wa.enabled) return;
+    const to = normalizePhone(order.customer?.phone);
+    const text = buildOrderMessage(event, order, extra);
+    if (!to) {
+      logIntegration("whatsapp", "erro", `Telefone inválido no pedido #${order.code}: ${order.customer?.phone}`);
+      return;
+    }
+    const mid = enqueueWhatsApp({ to, event, body: text, code: order.code });
+    if (!wa.phoneId || !wa.token) return; // fica na fila até configurar credenciais
+    sendWhatsApp({ phoneId: wa.phoneId, token: wa.token }, to, wa.template, text)
+      .then(() => {
+        markOutbox(mid, "enviada", null);
+        logIntegration("whatsapp", "ok", `Mensagem "${event}" enviada para ${to} (pedido #${order.code})`);
+      })
+      .catch((e) => {
+        markOutbox(mid, "erro", e.message);
+        logIntegration("whatsapp", "erro", `Falha ao enviar "${event}" (pedido #${order.code}): ${e.message}`);
+      });
+  } catch (e) {
+    logIntegration("whatsapp", "erro", e.message);
+  }
+}
+
+const WA_EVENTS = { PREPARO: "preparo", PRONTO: "pronto", ROTA: "rota", ENTREGUE: "entregue" };
+
+// Espelha mudanças de status internas para o iFood quando o pedido veio de lá
+function mirrorToIfood(order, status) {
+  if (order.channel !== "IFOOD" || !order.ext_ref) return;
+  const st = staffSettings();
+  if (st.ifood_enabled !== "1" || !st.ifood_client_id || !st.ifood_client_secret) return;
+  const creds = { clientId: st.ifood_client_id, clientSecret: st.ifood_client_secret };
+  const actions = [];
+  if (status === "CONFIRMADO") actions.push(() => ifood.confirmOrder(creds, order.ext_ref));
+  if (status === "PRONTO" || status === "EMBALADO") actions.push(() => ifood.readyToPickup(creds, order.ext_ref));
+  if (status === "ROTA") actions.push(() => ifood.dispatchOrder(creds, order.ext_ref));
+  for (const fn of actions) {
+    fn().then(() => logIntegration("ifood", "ok", `Status "${status}" espelhado para o iFood (${order.ext_ref})`))
+      .catch((e) => logIntegration("ifood", "erro", `Espelhar "${status}" (${order.ext_ref}): ${e.message}`));
   }
 }
 
@@ -290,6 +346,7 @@ app.post("/api/orders", (req, res) => {
   broadcast();
 
   const created = getOrders().find((o) => o.id === id);
+  if (created) fireWhatsApp(created, "recebido");
   res.status(201).json({ order: shapeOrder(created) });
 });
 
@@ -357,7 +414,17 @@ app.patch("/api/orders/:id/status", requireRole("ADMIN", "GERENTE", "ATENDIMENTO
 
   audit(req.user.username, "pedido_status", `#${o.code} → ${status}`);
   broadcast();
-  res.json({ order: getOrders().find((x) => x.id === o.id) });
+  const updated = getOrders().find((x) => x.id === o.id);
+  if (updated) {
+    if (WA_EVENTS[status]) {
+      const driver = status === "ROTA" && updated.driverId
+        ? db.prepare("SELECT name FROM drivers WHERE id = ?").get(updated.driverId)?.name
+        : null;
+      fireWhatsApp(updated, WA_EVENTS[status], { driver });
+    }
+    mirrorToIfood({ ...updated, ext_ref: o.ext_ref }, status);
+  }
+  res.json({ order: updated });
 });
 
 app.patch("/api/orders/:id/driver", requireRole("ADMIN", "GERENTE", "EXPEDICAO"), (req, res) => {
@@ -405,6 +472,8 @@ function confirmPayment(orderId, { slug, transactionNsu, captureMethod, paidAmou
     WHERE id = ?
   `).run(orderId);
   broadcast();
+  const paid = getOrders().find((x) => x.id === orderId);
+  if (paid) fireWhatsApp(paid, "pagamento_ok");
 }
 
 // Gera (ou reaproveita) o link de pagamento do pedido
@@ -547,6 +616,171 @@ app.post("/api/orders/:id/payment_status", async (req, res) => {
 
   res.json({ paid: false, paymentStatus: o.payment_status });
 });
+
+// ------------------------------------------------------------
+// INTEGRAÇÕES — WhatsApp Cloud API + iFood
+// ------------------------------------------------------------
+
+// Webhook do WhatsApp: verificação GET (hub.challenge) e eventos POST
+app.get("/api/integrations/whatsapp/webhook", (req, res) => {
+  const st = staffSettings();
+  const mode = req.query["hub.mode"];
+  const token = req.query["hub.verify_token"];
+  const challenge = req.query["hub.challenge"];
+  if (mode === "subscribe" && token && token === st.wa_verify_token) {
+    return res.status(200).send(challenge || "");
+  }
+  return res.sendStatus(403);
+});
+
+app.post("/api/integrations/whatsapp/webhook", (req, res) => {
+  try {
+    const value = req.body?.entry?.[0]?.changes?.[0]?.value;
+    for (const st of value?.statuses || []) {
+      logIntegration("whatsapp", "info", "Meta: entrega " + st.status + " para " + st.recipient_id);
+    }
+  } catch { /* ack sempre */ }
+  res.sendStatus(200);
+});
+
+app.post("/api/integrations/whatsapp/test", requireRole("ADMIN", "GERENTE"), async (req, res) => {
+  const st = staffSettings();
+  const wa = waCredentials(st);
+  if (!wa.enabled || !wa.phoneId || !wa.token) {
+    return res.status(400).json({ error: "Preencha as credenciais e ative o WhatsApp primeiro." });
+  }
+  const to = normalizePhone(req.body?.phone || "");
+  if (!to) return res.status(400).json({ error: "Informe um telefone válido com DDD." });
+  const text = buildOrderMessage("teste", { code: 0, items: [], customer: {}, total: 0 });
+  const mid = enqueueWhatsApp({ to, event: "teste", body: text });
+  try {
+    await sendWhatsApp({ phoneId: wa.phoneId, token: wa.token }, to, wa.template, text);
+    markOutbox(mid, "enviada", null);
+    logIntegration("whatsapp", "ok", "Mensagem de teste enviada para " + to);
+    res.json({ ok: true });
+  } catch (e) {
+    markOutbox(mid, "erro", e.message);
+    logIntegration("whatsapp", "erro", "Teste falhou: " + e.message);
+    res.status(502).json({ error: e.message });
+  }
+});
+
+// Visão geral: configuração mascarada + fila + diário
+app.get("/api/integrations/overview", requireRole("ADMIN", "GERENTE"), (_req, res) => {
+  const st = staffSettings();
+  res.json({
+    whatsapp: {
+      enabled: st.whatsapp_enabled === "1",
+      configured: !!(st.wa_phone_number_id && st.wa_access_token),
+      hasToken: !!st.wa_access_token,
+      phoneId: st.wa_phone_number_id || "",
+      template: st.wa_template || "tonosarro_status",
+      hasVerify: !!st.wa_verify_token,
+    },
+    ifood: {
+      enabled: st.ifood_enabled === "1",
+      configured: !!(st.ifood_client_id && st.ifood_client_secret),
+      clientId: st.ifood_client_id || "",
+      merchantId: st.ifood_merchant_id || "",
+    },
+    outbox: getOutbox(25),
+    logs: getIntegrationLogs(50),
+  });
+});
+
+// Ingestão de pedido do iFood no fluxo interno
+async function ingestIfoodOrder(details) {
+  const mapped = ifood.mapIfoodOrder(details);
+  if (!mapped.extRef) return;
+  if (db.prepare("SELECT 1 FROM orders WHERE ext_ref = ?").get(mapped.extRef)) return;
+
+  const code = (parseInt(getSetting("seq") || "1047", 10) || 1047) + 1;
+  setSetting("seq", code);
+  const id = crypto.randomUUID();
+  const now = Date.now();
+
+  const items = mapped.items.map((it) => ({
+    ...it,
+    unit: Math.max(0, Math.round(it.unit || 0) / 100), // iFood manda em centavos
+  }));
+  const subtotal = Math.round(items.reduce((sum, i) => sum + i.unit * i.qty, 0) * 100) / 100;
+  const fee = Math.max(0, Math.round(mapped.fee || 0) / 100);
+  const discount = Math.max(0, Math.round(mapped.discount || 0) / 100);
+  const total = Math.max(0, subtotal + fee - discount);
+
+  db.exec("BEGIN");
+  try {
+    db.prepare(`
+      INSERT INTO orders (id, code, channel, status, created_at, customer_name, customer_phone, customer_addr, payment, type, note, subtotal, fee, discount, total, payment_status, ext_ref)
+      VALUES (?, ?, 'IFOOD', 'NOVO', ?, ?, ?, ?, ?, ?, '', ?, ?, ?, ?, 'pago', ?)
+    `).run(id, code, now, mapped.customer.name, mapped.customer.phone, mapped.customer.addr,
+      mapped.payment, mapped.type, subtotal, fee, discount, total, mapped.extRef);
+    const insItem = db.prepare("INSERT INTO order_items (id, order_id, product_id, name, emoji, qty, unit, opts, note) VALUES (?, ?, NULL, ?, '🍔', ?, ?, ?, ?)");
+    for (const it of items) {
+      insItem.run(crypto.randomUUID(), id, it.name.slice(0, 80), it.qty, it.unit,
+        JSON.stringify((it.options || []).map((o) => ({ id: o.name, name: o.name, price: o.price }))),
+        it.note || "");
+    }
+    db.exec("COMMIT");
+  } catch (e) {
+    db.exec("ROLLBACK");
+    throw e;
+  }
+
+  logIntegration("ifood", "ok", "Pedido #" + code + " importado do iFood (" + mapped.extRef + ")");
+  audit("ifood", "pedido_criado", "#" + code + " · " + mapped.extRef);
+  broadcast();
+}
+
+app.post("/api/integrations/ifood/test", requireRole("ADMIN", "GERENTE"), async (req, res) => {
+  const st = staffSettings();
+  const creds = { clientId: st.ifood_client_id || "", clientSecret: st.ifood_client_secret || "" };
+  if (!creds.clientId || !creds.clientSecret) {
+    return res.status(400).json({ error: "Salve o Client ID e o Client Secret primeiro." });
+  }
+  try {
+    await ifood.getToken(creds);
+    logIntegration("ifood", "ok", "Conexão autenticada com sucesso");
+    res.json({ ok: true });
+  } catch (e) {
+    logIntegration("ifood", "erro", "Teste de conexão: " + e.message);
+    res.status(502).json({ error: e.message });
+  }
+});
+
+// Poller do iFood: busca eventos a cada 30s quando ativado
+async function ifoodPollTick() {
+  const st = staffSettings();
+  if (st.ifood_enabled !== "1") return;
+  const creds = { clientId: st.ifood_client_id || "", clientSecret: st.ifood_client_secret || "" };
+  if (!creds.clientId || !creds.clientSecret) return;
+  try {
+    const events = await ifood.pollEvents(creds);
+    for (const ev of events) {
+      try {
+        if (ev.code === "PLC") {
+          const d = await ifood.getOrderDetails(creds, ev.orderId);
+          await ingestIfoodOrder(d);
+        } else if (ev.code === "CON" || ev.code === "CAN") {
+          const row = db.prepare("SELECT * FROM orders WHERE ext_ref = ?").get(ev.orderId);
+          if (!row) continue;
+          const newStatus = ev.code === "CON" ? "CONFIRMADO" : "CANCELADO";
+          if (row.status === "NOVO" || (ev.code === "CAN" && !["ENTREGUE", "CANCELADO"].includes(row.status))) {
+            db.prepare("UPDATE orders SET status = ? WHERE id = ?").run(newStatus, row.id);
+            logIntegration("ifood", "ok", "Pedido #" + row.code + " -> " + newStatus + " (evento " + ev.code + ")");
+            broadcast();
+          }
+        }
+      } catch (e) {
+        logIntegration("ifood", "erro", ev.code + " " + ev.orderId + ": " + e.message);
+      }
+    }
+  } catch (e) {
+    logIntegration("ifood", "erro", "polling: " + e.message);
+  }
+}
+setInterval(ifoodPollTick, 30000);
+setTimeout(ifoodPollTick, 4000);
 
 // ------------------------------------------------------------
 // PRODUTOS / ESTOQUE / CONFIG (admin)
@@ -755,6 +989,17 @@ app.patch("/api/settings", requireRole("ADMIN", "GERENTE"), (req, res) => {
     }
     setSetting("app_base_url", v);
   }
+  if (typeof b.wa_phone_number_id === "string") setSetting("wa_phone_number_id", b.wa_phone_number_id.trim().slice(0, 60));
+  if (typeof b.wa_verify_token === "string") setSetting("wa_verify_token", b.wa_verify_token.trim().slice(0, 80));
+  if (typeof b.wa_template === "string" && b.wa_template.trim()) setSetting("wa_template", b.wa_template.trim().slice(0, 60));
+  if (typeof b.wa_access_token === "string" && b.wa_access_token.trim()) setSetting("wa_access_token", b.wa_access_token.trim());
+  if (b.wa_access_token === "__limpar__") setSetting("wa_access_token", "");
+  if (typeof b.ifood_client_id === "string") setSetting("ifood_client_id", b.ifood_client_id.trim().slice(0, 80));
+  if (typeof b.ifood_merchant_id === "string") setSetting("ifood_merchant_id", b.ifood_merchant_id.trim().slice(0, 80));
+  if (typeof b.ifood_client_secret === "string" && b.ifood_client_secret.trim()) setSetting("ifood_client_secret", b.ifood_client_secret.trim());
+  if (b.ifood_client_secret === "__limpar__") setSetting("ifood_client_secret", "");
+  if (typeof b.whatsapp_enabled === "boolean") setSetting("whatsapp_enabled", b.whatsapp_enabled ? "1" : "0");
+  if (typeof b.ifood_enabled === "boolean") setSetting("ifood_enabled", b.ifood_enabled ? "1" : "0");
   audit(req.user.username, "config", JSON.stringify(b).slice(0, 200));
   broadcast();
   res.json({ ok: true });

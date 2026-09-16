@@ -291,4 +291,13 @@ export const SETTINGS = {
   seq: 1047,
   pay_handle: "",
   app_base_url: "",
+  whatsapp_enabled: 0,
+  wa_phone_number_id: "",
+  wa_access_token: "",
+  wa_verify_token: "",
+  wa_template: "tonosarro_status",
+  ifood_enabled: 0,
+  ifood_client_id: "",
+  ifood_client_secret: "",
+  ifood_merchant_id: "",
 };

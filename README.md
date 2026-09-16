@@ -91,6 +91,38 @@ com essas duas funções.
 > Obs.: o ambiente de preview deste repositório bloqueia chamadas externas, então a
 > geração do link só funciona rodando num servidor com acesso à internet.
 
+## WhatsApp Cloud API 💬
+
+Mensagens automáticas para o cliente em cada status: pedido recebido, pagamento
+confirmado, na chapa, pronto, saiu para entrega (com o nome do entregador) e entregue.
+
+**Configuração:**
+1. Crie um app no [developers.facebook.com](https://developers.facebook.com) e adicione o
+   produto WhatsApp; pegue o **Phone Number ID** e gere um **Access Token** permanente
+2. Crie um **template** aprovado (ex.: `tonosarro_status`) com **1 parâmetro de corpo**
+   (o texto da mensagem)
+3. Admin → Integrações → WhatsApp: preencha Phone Number ID, token, verify token e o nome
+   do template → Ativar
+4. Cadastre o webhook na Meta:
+   `https://SEU-DOMINIO/api/integrations/whatsapp/webhook` com o verify token escolhido
+
+Sem credenciais, as mensagens ficam na **fila de saída** visível no admin — dá pra ver
+exatamente o que o cliente receberá antes de plugar.
+
+## iFood oficial 🔴
+
+Módulo completo contra a API de merchant do iFood:
+- Autenticação client-credentials com cache de token e refresh automático
+- **Polling** de eventos a cada 30s (PLC/CON/CAN) com acknowledgment
+- Pedido novo (PLC) é importado com cliente, itens, endereço e pagamento — entra como
+  canal **IFOOD** no Kanban, KDS e expedição, marcado como pago
+- Status no admin espelham para o iFood: confirmar → `/confirm`, pronto →
+  `/readyToPickup`, saiu para entrega → `/dispatch`
+- Cancelamento pelo iFood cancela aqui dentro
+
+**Configuração:** Admin → Integrações → iFood → Client ID, Client Secret e Merchant ID do
+portal novopedido.ifood.com.br → Ativar polling → Testar conexão.
+
 ## Simulando os canais externos
 
 Em **Admin → Integrações** (ou no topo do admin) há botões que injetam pedidos do iFood e
@@ -130,6 +162,10 @@ docs/schema.sql        esquema PostgreSQL de referência (SaaS)
 O banco SQLite vive em `server/data/sarro.db` (fora do git). `npm run seed` recria do zero.
 
 ## Próximos passos
+
+1. Impressão direta em impressora térmica (QZ Tray / escpos) sem diálogo do navegador
+2. Geolocalização do entregador em rota
+3. Gestão de categorias e grupos de opcionais no admin
 
 1. **Pix real** — plugar Mercado Pago/PagBank na camada desacoplada (`PAYMENT_PROVIDER`)
 2. **WhatsApp Cloud API** — mensagens de status com templates aprovados

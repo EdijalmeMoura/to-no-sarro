@@ -136,6 +136,27 @@ db.exec(`
 
   CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT);
 
+  CREATE TABLE IF NOT EXISTS integration_logs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    at INTEGER,
+    channel TEXT,
+    level TEXT,
+    msg TEXT
+  );
+
+  CREATE TABLE IF NOT EXISTS outbox (
+    id TEXT PRIMARY KEY,
+    at INTEGER,
+    to_phone TEXT,
+    event TEXT,
+    body TEXT,
+    order_code INTEGER,
+    status TEXT DEFAULT 'fila',
+    error TEXT,
+    attempts INTEGER DEFAULT 0,
+    sent_at INTEGER
+  );
+
   CREATE TABLE IF NOT EXISTS payments (
     id TEXT PRIMARY KEY,
     order_id TEXT NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
@@ -170,6 +191,7 @@ function addColumnIfMissing(table, col, ddl) {
 addColumnIfMissing("products", "img", "img TEXT");
 addColumnIfMissing("products", "updated_at", "updated_at INTEGER DEFAULT 0");
 addColumnIfMissing("orders", "payment_status", "payment_status TEXT DEFAULT ('indefinido')");
+addColumnIfMissing("orders", "ext_ref", "ext_ref TEXT");
 
 function getSettingRaw(key) {
   try { return db.prepare("SELECT value FROM settings WHERE key = ?").get(key)?.value; } catch { return undefined; }
@@ -290,6 +312,37 @@ export function seedIfEmpty() {
 // Leitura do catálogo/estado no formato que o frontend consome
 // ------------------------------------------------------------
 const jparse = (s, fb = []) => { try { return JSON.parse(s ?? "") ?? fb; } catch { return fb; } };
+
+export function logIntegration(channel, level, msg) {
+  db.prepare("INSERT INTO integration_logs (at, channel, level, msg) VALUES (?, ?, ?, ?)")
+    .run(Date.now(), channel, level, String(msg).slice(0, 400));
+  // mantém o diário enxuto
+  db.prepare("DELETE FROM integration_logs WHERE id < (SELECT COALESCE(MAX(id),0) - 500 FROM integration_logs)").run();
+}
+
+export function getIntegrationLogs(limit = 60) {
+  return db.prepare("SELECT * FROM integration_logs ORDER BY id DESC LIMIT ?").all(limit)
+    .map((l) => ({ id: l.id, at: l.at, channel: l.channel, level: l.level, msg: l.msg }));
+}
+
+export function enqueueWhatsApp({ to, event, body, code }) {
+  const id = crypto.randomUUID();
+  db.prepare("INSERT INTO outbox (id, at, to_phone, event, body, order_code) VALUES (?, ?, ?, ?, ?, ?)")
+    .run(id, Date.now(), to, event, body, code || null);
+  // mantém a fila enxuta
+  db.prepare("DELETE FROM outbox WHERE id NOT IN (SELECT id FROM outbox ORDER BY at DESC LIMIT 100)").run();
+  return id;
+}
+
+export function markOutbox(id, status, error) {
+  db.prepare("UPDATE outbox SET status = ?, error = ?, attempts = attempts + 1, sent_at = ? WHERE id = ?")
+    .run(status, error ? String(error).slice(0, 200) : null, status === "enviada" ? Date.now() : null, id);
+}
+
+export function getOutbox(limit = 30) {
+  return db.prepare("SELECT * FROM outbox ORDER BY at DESC LIMIT ?").all(limit)
+    .map((m) => ({ id: m.id, at: m.at, to: m.to_phone, event: m.event, body: m.body, code: m.order_code, status: m.status, error: m.error }));
+}
 
 export function getProducts() {
   return db.prepare("SELECT * FROM products ORDER BY rowid").all().map((p) => ({
