@@ -178,6 +178,31 @@ Admin → Categorias: criar/renomear/excluir categorias (exclusão bloqueada com
 criar grupos de opcionais com mínimo/máximo/obrigatório e gerenciar os itens de cada
 grupo (nome e preço editáveis na linha). Tudo reflete no cardápio do cliente em tempo real.
 
+## Deploy no Render 🚀
+
+O sistema sobe em qualquer host Node — testado para o [Render](https://render.com)
+(ao criar o Web Service, aponte para a branch correta deste repositório):
+
+| Configuração | Valor |
+|---|---|
+| Runtime | Node (o `engines` exige **Node ≥ 22** por causa do `node:sqlite`) |
+| Build command | `npm install && npm run build` |
+| Start command | `npm start` |
+| Health check path | `/api/bootstrap` |
+| Env vars | nenhuma obrigatória — `PORT` é detectada automaticamente |
+
+O servidor detecta HTTPS atrás do proxy do Render (`trust proxy`): cookie de
+sessão `Secure` e HSTS ligam sozinhos. A URL base para webhooks de pagamento
+já vem configurada para `https://to-no-sarro.onrender.com` (troque em
+**Admin → Configurações → ♾️ Pagamentos** se usar outro domínio).
+
+**Banco de dados:** por padrão o SQLite vive em `server/data/` — que é **efêmero
+no Render free** (some a cada deploy/restart). Para persistir, adicione um
+**Disk** (ex.: montado em `/var/data`) e a variável `DATA_DIR=/var/data/sarro`.
+O banco nasce populado com o cardápio demo; logins padrão em `server/data.js`
+(**troque as senhas em produção** — Admin não tem troca de senha ainda, use
+`npm run seed` só em dev).
+
 ## Segurança 🔒
 
 **Já embutido no código** (não depende de configuração):

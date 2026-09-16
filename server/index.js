@@ -38,11 +38,13 @@ seedIfEmpty();
 
 const app = express();
 app.disable("x-powered-by");
+// Atrás de proxy com TLS (Render, Nginx etc.): req.secure reflete o https real
+app.set("trust proxy", 1);
 app.use(express.json({ limit: "200kb" }));
 app.use(cookieParser());
 
 // Headers de segurança básicos
-app.use((_req, res, next) => {
+app.use((req, res, next) => {
   res.setHeader("X-Content-Type-Options", "nosniff");
   res.setHeader("X-Frame-Options", "DENY");
   res.setHeader("Referrer-Policy", "no-referrer");
@@ -59,7 +61,7 @@ app.use((_req, res, next) => {
       "base-uri 'self'",
     ].join("; ")
   );
-  if ((process.env.APP_BASE_URL || "").startsWith("https://") || process.env.SECURE_COOKIE === "1") {
+  if (req.secure || (process.env.APP_BASE_URL || "").startsWith("https://") || process.env.SECURE_COOKIE === "1") {
     res.setHeader("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
   }
   next();
@@ -1163,7 +1165,7 @@ app.delete("/api/products/:id", requireRole("ADMIN", "GERENTE"), (req, res) => {
 });
 
 // Upload de foto do produto (binário cru; sem dependências de multipart)
-const UPLOAD_DIR = path.join(__dirname, "data", "uploads");
+const UPLOAD_DIR = process.env.DATA_DIR ? path.resolve(process.env.DATA_DIR, "uploads") : path.join(__dirname, "data", "uploads");
 fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 app.use("/img-up", express.static(UPLOAD_DIR, { maxAge: "1h" }));
 

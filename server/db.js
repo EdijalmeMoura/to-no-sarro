@@ -15,7 +15,8 @@ import {
 } from "./data.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const DATA_DIR = path.join(__dirname, "data");
+// Em produção (ex.: Render Disk), aponte DATA_DIR para o volume persistente
+const DATA_DIR = process.env.DATA_DIR ? path.resolve(process.env.DATA_DIR) : path.join(__dirname, "data");
 const DB_FILE = path.join(DATA_DIR, "sarro.db");
 
 fs.mkdirSync(DATA_DIR, { recursive: true });

@@ -290,7 +290,7 @@ export const SETTINGS = {
   hours: "Ter a Dom · 18:00 – 23:30",
   seq: 1047,
   pay_handle: "",
-  app_base_url: "",
+  app_base_url: "https://to-no-sarro.onrender.com",
   whatsapp_enabled: 0,
   wa_phone_number_id: "",
   wa_access_token: "",

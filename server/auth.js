@@ -62,8 +62,8 @@ export function login(req, res) {
     sameSite: "lax",
     path: "/",
     maxAge: SESSION_TTL,
-    // Com APP_BASE_URL em https:// (ou SECURE_COOKIE=1) o cookie só viaja por TLS
-    secure: (process.env.APP_BASE_URL || "").startsWith("https://") || process.env.SECURE_COOKIE === "1",
+    // https real (proxy/TLS) ou APP_BASE_URL https:// ou SECURE_COOKIE=1 → só viaja por TLS
+    secure: req.secure || (process.env.APP_BASE_URL || "").startsWith("https://") || process.env.SECURE_COOKIE === "1",
   });
   audit(user.username, "login", `ip ${ip}`);
   res.json({ user: publicUser(user) });
