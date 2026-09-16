@@ -2535,6 +2535,179 @@ function AdminPromos({ store }) {
   );
 }
 
+function AdminCategories({ store }) {
+  const [cat, setCat] = useState({ label: "", icon: "" });
+  const [grp, setGrp] = useState({ name: "", min: "0", max: "1", required: false });
+  const [opt, setOpt] = useState({}); // { groupId: {name, price} }
+  const [confirm, setConfirm] = useState(null); // {type, id}
+
+  const say = (m) => store.toast(m);
+
+  const addCategory = async () => {
+    try {
+      await api("/api/categories", { method: "POST", body: { label: cat.label, icon: cat.icon || "🍽" } });
+      setCat({ label: "", icon: "" });
+      say("Categoria criada ✓");
+    } catch (e) { say(e.message); }
+  };
+
+  const addGroup = async () => {
+    try {
+      await api("/api/option-groups", { method: "POST", body: { name: grp.name, min: grp.min, max: grp.max, required: grp.required } });
+      setGrp({ name: "", min: "0", max: "1", required: false });
+      say("Grupo criado ✓ — agora adicione os itens");
+    } catch (e) { say(e.message); }
+  };
+
+  const addOption = async (groupId) => {
+    const o = opt[groupId] || {};
+    try {
+      await api(`/api/option-groups/${groupId}/options`, { method: "POST", body: { name: o.name, price: o.price || 0 } });
+      setOpt({ ...opt, [groupId]: { name: "", price: "" } });
+      say("Item adicionado ✓");
+    } catch (e) { say(e.message); }
+  };
+
+  const patchGroup = async (g, patch) => {
+    try { await api(`/api/option-groups/${g.id}`, { method: "PATCH", body: patch }); say("Grupo atualizado ✓"); }
+    catch (e) { say(e.message); }
+  };
+
+  const doDelete = async () => {
+    const c = confirm;
+    setConfirm(null);
+    try {
+      if (c.type === "cat") await api(`/api/categories/${c.id}`, { method: "DELETE" });
+      if (c.type === "grp") await api(`/api/option-groups/${c.id}`, { method: "DELETE" });
+      if (c.type === "opt") await api(`/api/options/${c.id}`, { method: "DELETE" });
+      say("Excluído ✓");
+    } catch (e) { say(e.message); }
+  };
+
+  const inField = { background: C.black, border: `1px solid ${C.gray800}`, color: C.white, fontSize: 12 };
+  const delBtn = (type, id, extra = null) => (
+    confirm?.type === type && confirm?.id === id ? (
+      <button onClick={doDelete} className="rounded-lg px-2 py-1 font-bold shrink-0"
+        style={{ background: C.red, color: C.white, fontSize: 10.5 }}>confirmar?</button>
+    ) : (
+      <button onClick={() => setConfirm({ type, id })} className="rounded-lg px-2 py-1 font-bold shrink-0"
+        style={{ border: `1px solid ${C.red}55`, color: C.red, fontSize: 10.5 }}>
+        {extra || "🗑"}
+      </button>
+    )
+  );
+
+  return (
+    <div className="grid lg:grid-cols-2 gap-3">
+      {/* CATEGORIAS */}
+      <Card className="p-4 self-start">
+        <div style={{ color: C.white, fontWeight: 900, fontSize: 14 }}>🗂 Categorias do cardápio</div>
+        <div style={{ color: "#8a8a8a", fontSize: 11.5, marginTop: 4 }}>
+          A ordem aqui é a ordem do menu do cliente.
+        </div>
+        <div className="mt-3 space-y-1.5">
+          {store.categories.map((c) => (
+            <div key={c.id} className="flex items-center gap-2 rounded-xl px-2.5 py-2" style={{ background: C.black, border: `1px solid ${C.gray800}` }}>
+              <input defaultValue={c.icon} key={c.id + c.icon} style={{ ...inField, width: 44, textAlign: "center" }}
+                className="rounded-lg px-2 py-1.5 outline-none"
+                onBlur={(e) => e.target.value !== c.icon && api(`/api/categories/${c.id}`, { method: "PATCH", body: { icon: e.target.value } }).catch((x) => say(x.message))} />
+              <input defaultValue={c.label} key={c.id + c.label} className="flex-1 rounded-lg px-2 py-1.5 outline-none" style={inField}
+                onBlur={(e) => e.target.value !== c.label && api(`/api/categories/${c.id}`, { method: "PATCH", body: { label: e.target.value } }).catch((x) => say(x.message))} />
+              <span style={{ color: "#5a5a5a", fontSize: 10.5, whiteSpace: "nowrap" }}>
+                {store.products.filter((p) => p.cat === c.id).length} 🍔
+              </span>
+              {delBtn("cat", c.id)}
+            </div>
+          ))}
+        </div>
+        <div className="flex gap-2 mt-3">
+          <input value={cat.icon} onChange={(e) => setCat({ ...cat, icon: e.target.value })} placeholder="🍔"
+            style={{ ...inField, width: 44, textAlign: "center" }} className="rounded-lg px-2 py-1.5 outline-none" />
+          <input value={cat.label} onChange={(e) => setCat({ ...cat, label: e.target.value })} placeholder="Nova categoria (ex.: Hot dogs)"
+            className="flex-1 rounded-lg px-2 py-1.5 outline-none" style={inField}
+            onKeyDown={(e) => e.key === "Enter" && cat.label.trim() && addCategory()} />
+          <Btn small disabled={!cat.label.trim()} onClick={addCategory}>+ Criar</Btn>
+        </div>
+      </Card>
+
+      {/* GRUPOS DE OPCIONAIS */}
+      <Card className="p-4 self-start">
+        <div style={{ color: C.white, fontWeight: 900, fontSize: 14 }}>➕ Grupos de opcionais</div>
+        <div style={{ color: "#8a8a8a", fontSize: 11.5, marginTop: 4 }}>
+          Vincule os grupos aos produtos no cardápio (editar produto → grupos).
+        </div>
+        <div className="mt-3 space-y-3">
+          {store.optionGroups.map((g) => (
+            <div key={g.id} className="rounded-xl p-3" style={{ background: C.black, border: `1px solid ${C.gray800}` }}>
+              <div className="flex items-center gap-2">
+                <span style={{ color: C.white, fontWeight: 800, fontSize: 13, flex: 1 }}>{g.name}</span>
+                {delBtn("grp", g.id)}
+              </div>
+              <div className="flex items-center gap-1.5 mt-2 flex-wrap">
+                <button onClick={() => patchGroup(g, { required: !g.required })} className="rounded-lg px-2 py-1 font-bold"
+                  style={{ background: g.required ? `${C.orange}22` : C.gray850, border: `1px solid ${g.required ? C.orange : C.gray800}`, color: g.required ? C.orange : "#9a9a9a", fontSize: 10.5 }}>
+                  {g.required ? "obrigatório" : "opcional"}
+                </button>
+                {["min", "max"].map((k) => (
+                  <label key={k} className="flex items-center gap-1" style={{ fontSize: 10.5, color: "#8a8a8a" }}>
+                    {k}
+                    <input type="number" defaultValue={g[k]} min={0} max={10}
+                      onBlur={(e) => Number(e.target.value) !== g[k] && patchGroup(g, { [k]: e.target.value })}
+                      className="rounded-lg px-1.5 py-1 outline-none" style={{ ...inField, width: 46 }} />
+                  </label>
+                ))}
+              </div>
+              <div className="mt-2 space-y-1">
+                {g.options.map((o) => (
+                  <div key={o.id} className="flex items-center gap-2">
+                    <input defaultValue={o.name} key={o.id + o.name} className="flex-1 rounded-lg px-2 py-1 outline-none" style={inField}
+                      onBlur={(e) => e.target.value !== o.name && api(`/api/options/${o.id}`, { method: "PATCH", body: { name: e.target.value } }).catch((x) => say(x.message))} />
+                    <input defaultValue={String(o.price).replace(".", ",")} key={o.id + o.price} inputMode="decimal"
+                      className="rounded-lg px-2 py-1 outline-none text-right" style={{ ...inField, width: 78 }}
+                      onBlur={(e) => {
+                        const v = parseFloat(String(e.target.value).replace(",", "."));
+                        if (Number.isFinite(v) && v !== o.price) api(`/api/options/${o.id}`, { method: "PATCH", body: { price: v } }).catch((x) => say(x.message));
+                      }} />
+                    {delBtn("opt", o.id)}
+                  </div>
+                ))}
+                <div className="flex items-center gap-2 pt-1">
+                  <input value={opt[g.id]?.name || ""} onChange={(e) => setOpt({ ...opt, [g.id]: { ...opt[g.id], name: e.target.value } })}
+                    placeholder="Novo item (ex.: Cheddar)" className="flex-1 rounded-lg px-2 py-1 outline-none"
+                    style={{ background: C.gray850, border: `1px solid ${C.gray800}`, color: C.white, fontSize: 12 }}
+                    onKeyDown={(e) => e.key === "Enter" && opt[g.id]?.name?.trim() && addOption(g.id)} />
+                  <input value={opt[g.id]?.price || ""} onChange={(e) => setOpt({ ...opt, [g.id]: { ...opt[g.id], price: e.target.value } })}
+                    placeholder="R$" inputMode="decimal" className="rounded-lg px-2 py-1 outline-none text-right"
+                    style={{ background: C.gray850, border: `1px solid ${C.gray800}`, color: C.white, fontSize: 12, width: 78 }} />
+                  <Btn small variant="dark" disabled={!opt[g.id]?.name?.trim()} onClick={() => addOption(g.id)}>+</Btn>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+        <div className="mt-3 pt-3" style={{ borderTop: `1px solid ${C.gray800}` }}>
+          <div style={{ color: "#9a9a9a", fontSize: 11, fontWeight: 700, marginBottom: 6 }}>Novo grupo</div>
+          <input value={grp.name} onChange={(e) => setGrp({ ...grp, name: e.target.value })} placeholder="Ex.: Escolha o molho"
+            className="w-full rounded-lg px-2 py-1.5 outline-none" style={inField} />
+          <div className="flex items-center gap-2 mt-2 flex-wrap">
+            {["min", "max"].map((k) => (
+              <label key={k} className="flex items-center gap-1" style={{ fontSize: 10.5, color: "#8a8a8a" }}>
+                {k}
+                <input value={grp[k]} onChange={(e) => setGrp({ ...grp, [k]: e.target.value })} inputMode="numeric"
+                  className="rounded-lg px-1.5 py-1 outline-none" style={{ ...inField, width: 46 }} />
+              </label>
+            ))}
+            <button onClick={() => setGrp({ ...grp, required: !grp.required })} className="rounded-lg px-2 py-1 font-bold"
+              style={{ background: grp.required ? `${C.orange}22` : C.gray850, border: `1px solid ${grp.required ? C.orange : C.gray800}`, color: grp.required ? C.orange : "#9a9a9a", fontSize: 10.5 }}>
+              {grp.required ? "obrigatório" : "opcional"}
+            </button>
+            <Btn small disabled={!grp.name.trim()} onClick={addGroup}>+ Criar grupo</Btn>
+          </div>
+        </div>
+      </Card>
+    </div>
+  );
+}
 function AdminIntegrations({ store }) {
   const [ov, setOv] = useState(null);
   const [wa, setWa] = useState({ phone_number_id: "", token: "", verify: "", template: "tonosarro_status" });
@@ -2894,10 +3067,93 @@ function AdminPaymentsCard({ store }) {
   );
 }
 
+function AdminPrinterCard({ store }) {
+  const [host, setHost] = useState("");
+  const [port, setPort] = useState("9100");
+  const [info, setInfo] = useState(null);
+  const [busy, setBusy] = useState(false);
+
+  const load = () => api("/api/settings/printer").then((d) => { setInfo(d); setHost(d.host || ""); setPort(d.port || "9100"); }).catch(() => {});
+  useEffect(() => { load(); }, []);
+
+  const save = async (extra = {}) => {
+    setBusy(true);
+    try {
+      await api("/api/settings", { method: "PATCH", body: { printer_host: host, printer_port: port, ...extra } });
+      await load();
+      store.toast("Impressora salva ✓");
+    } catch (e) { store.toast(e.message); }
+    setBusy(false);
+  };
+
+  const test = async () => {
+    setBusy(true);
+    try {
+      await api("/api/print/test", { method: "POST" });
+      store.toast("Página de teste enviada ✓");
+    } catch (e) { store.toast(e.message); }
+    setBusy(false);
+  };
+
+  const enabled = info?.enabled;
+  return (
+    <Card className="p-4" style={{ borderColor: `${C.orange}44` }}>
+      <div className="flex items-center justify-between">
+        <div style={{ color: C.white, fontWeight: 900, fontSize: 14 }}>🖨 Impressora térmica</div>
+        <span
+          className="rounded-full px-2.5 py-1 font-bold"
+          style={{
+            fontSize: 10,
+            background: info?.configured ? `${C.green}1f` : `${C.yellow}1f`,
+            color: info?.configured ? C.green : C.yellow,
+            border: `1px solid ${info?.configured ? C.green : C.yellow}44`,
+          }}
+        >
+          {info?.configured ? "CONECTADA" : "NÃO CONFIGURADA"}
+        </span>
+      </div>
+      <div style={{ color: "#8a8a8a", fontSize: 11.5, marginTop: 6, lineHeight: 1.5 }}>
+        Imprime comandas direto na térmica ESC/POS de rede (80mm, porta 9100) —
+        sem diálogo do navegador. Sem impressora, os botões usam a impressão do navegador.
+      </div>
+      <div className="mt-3 space-y-2">
+        <div className="grid grid-cols-3 gap-2">
+          <label className="col-span-2 block">
+            <span style={{ color: "#9a9a9a", fontSize: 11, fontWeight: 700 }}>IP da impressora</span>
+            <input value={host} onChange={(e) => setHost(e.target.value)} placeholder="ex.: 192.168.0.110"
+              className="w-full rounded-lg px-2.5 py-2 mt-1 outline-none"
+              style={{ background: C.black, border: `1px solid ${C.gray800}`, color: C.white, fontSize: 12.5 }} />
+          </label>
+          <label className="block">
+            <span style={{ color: "#9a9a9a", fontSize: 11, fontWeight: 700 }}>Porta</span>
+            <input value={port} onChange={(e) => setPort(e.target.value)}
+              className="w-full rounded-lg px-2.5 py-2 mt-1 outline-none"
+              style={{ background: C.black, border: `1px solid ${C.gray800}`, color: C.white, fontSize: 12.5 }} />
+          </label>
+        </div>
+        {host.trim() && (
+          <div className="flex gap-2 flex-wrap">
+            <Btn small variant={enabled ? "dark" : "green"} disabled={busy} onClick={() => save({ printer_enabled: !enabled })}>
+              {enabled ? "⏸ Desativar" : "▶ Ativar"}
+            </Btn>
+            <Btn small variant={info?.auto ? "dark" : "primary"} disabled={busy} onClick={() => save({ printer_auto: !info?.auto })}>
+              {info?.auto ? "Auto-print ON (clique p/ desligar)" : "Auto-print OFF (clique p/ ligar)"}
+            </Btn>
+          </div>
+        )}
+        <div className="flex gap-2">
+          <Btn small disabled={busy} onClick={() => save()}>Salvar</Btn>
+          <Btn small variant="dark" disabled={busy || !host.trim()} onClick={test}>Testar impressão</Btn>
+        </div>
+      </div>
+    </Card>
+  );
+}
 function AdminSettings({ store }) {
   return (
     <div className="grid lg:grid-cols-2 gap-3">
       <AdminPaymentsCard store={store} />
+      <AdminPrinterCard store={store} />
 
       <Card className="p-4">
         <div style={{ color: C.white, fontWeight: 900, fontSize: 14, marginBottom: 4 }}>Loja</div>
@@ -2978,6 +3234,7 @@ const ADMIN_NAV = [
   { id: "dashboard", icon: "📊", label: "Dashboard" },
   { id: "pedidos", icon: "🧾", label: "Pedidos" },
   { id: "produtos", icon: "🍔", label: "Cardápio" },
+  { id: "categorias", icon: "🗂", label: "Categorias" },
   { id: "clientes", icon: "👥", label: "Clientes" },
   { id: "promos", icon: "🎟", label: "Promoções" },
   { id: "estoque", icon: "📦", label: "Estoque" },
@@ -3067,6 +3324,7 @@ function AdminApp({ store, now }) {
         {sec === "dashboard" && <AdminDashboard store={store} now={now} />}
         {sec === "pedidos" && <AdminOrders store={store} now={now} />}
         {sec === "produtos" && <AdminProducts store={store} />}
+        {sec === "categorias" && <AdminCategories store={store} />}
         {sec === "clientes" && <AdminCustomers store={store} />}
         {sec === "promos" && <AdminPromos store={store} />}
         {sec === "estoque" && <AdminInventory store={store} />}
@@ -3187,7 +3445,14 @@ function KitchenApp({ store, now }) {
                 </div>
 
                 <div className="mt-3 space-y-2">
-                  <Btn small full variant="dark" onClick={() => printKitchen(o)}>🖨 IMPRIMIR COMANDA</Btn>
+                  <Btn small full variant="dark" onClick={async () => {
+                    try {
+                      await api(`/api/print/kitchen/${o.id}`, { method: "POST" });
+                      store.toast("Comanda enviada à impressora ✓");
+                    } catch {
+                      printKitchen(o); // sem impressora: diálogo do navegador
+                    }
+                  }}>🖨 IMPRIMIR COMANDA</Btn>
                   {o.status !== "PREPARO" ? (
                     <Btn full onClick={() => store.setStatus(o.id, "PREPARO")}>INICIAR PREPARO</Btn>
                   ) : (
@@ -3245,7 +3510,14 @@ function ExpeditionApp({ store, now }) {
               </div>
 
               <div className="mt-3">
-                <Btn small full variant="dark" onClick={() => printExpedition(o)}>🖨 IMPRIMIR EXPEDIÇÃO</Btn>
+                <Btn small full variant="dark" onClick={async () => {
+                  try {
+                    await api(`/api/print/expedition/${o.id}`, { method: "POST" });
+                    store.toast("Comanda enviada à impressora ✓");
+                  } catch {
+                    printExpedition(o);
+                  }
+                }}>🖨 IMPRIMIR EXPEDIÇÃO</Btn>
               </div>
               {o.type === "pickup" ? (
                 <div className="mt-2">

@@ -161,11 +161,28 @@ docs/schema.sql        esquema PostgreSQL de referência (SaaS)
 
 O banco SQLite vive em `server/data/sarro.db` (fora do git). `npm run seed` recria do zero.
 
+## Impressora térmica 🖨
+
+Imprime comandas **direto na térmica ESC/POS de rede** (80mm, porta 9100), sem diálogo do
+navegador: comanda da cozinha (itens grandes + observações em destaque), expedição e
+etiqueta de sacola. **Auto-print** imprime a comanda sozinha quando o pedido entra
+(criação ou pagamento confirmado).
+
+**Configuração:** Admin → Configurações → 🖨 Impressora térmica → IP da impressora →
+Ativar → Testar impressão. Sem impressora configurada, os botões caem no diálogo do
+navegador (fallback automático).
+
+## Categorias e adicionais no admin
+
+Admin → Categorias: criar/renomear/excluir categorias (exclusão bloqueada com produtos),
+criar grupos de opcionais com mínimo/máximo/obrigatório e gerenciar os itens de cada
+grupo (nome e preço editáveis na linha). Tudo reflete no cardápio do cliente em tempo real.
+
 ## Próximos passos
 
-1. Impressão direta em impressora térmica (QZ Tray / escpos) sem diálogo do navegador
-2. Geolocalização do entregador em rota
-3. Gestão de categorias e grupos de opcionais no admin
+1. Geolocalização do entregador em rota
+2. App do entregador com push (Web Push)
+3. Multiloja (SaaS) com o Postgres de docs/schema.sql
 
 1. **Pix real** — plugar Mercado Pago/PagBank na camada desacoplada (`PAYMENT_PROVIDER`)
 2. **WhatsApp Cloud API** — mensagens de status com templates aprovados

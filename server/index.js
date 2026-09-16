@@ -29,6 +29,7 @@ import { attachUser, requireRole, login, logout, publicUser } from "./auth.js";
 import { createCheckoutLink, paymentCheck, cents } from "./payments/infinitepay.js";
 import { waCredentials, normalizePhone, buildOrderMessage, sendWhatsApp } from "./messaging/whatsapp.js";
 import * as ifood from "./integrations/ifood.js";
+import * as escpos from "./printing/escpos.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = process.env.PORT || 3001;
@@ -346,7 +347,10 @@ app.post("/api/orders", (req, res) => {
   broadcast();
 
   const created = getOrders().find((o) => o.id === id);
-  if (created) fireWhatsApp(created, "recebido");
+  if (created) {
+    fireWhatsApp(created, "recebido");
+    if (!onlinePay) autoPrintKitchen(created);
+  }
   res.status(201).json({ order: shapeOrder(created) });
 });
 
@@ -473,7 +477,10 @@ function confirmPayment(orderId, { slug, transactionNsu, captureMethod, paidAmou
   `).run(orderId);
   broadcast();
   const paid = getOrders().find((x) => x.id === orderId);
-  if (paid) fireWhatsApp(paid, "pagamento_ok");
+  if (paid) {
+    fireWhatsApp(paid, "pagamento_ok");
+    autoPrintKitchen(paid);
+  }
 }
 
 // Gera (ou reaproveita) o link de pagamento do pedido
@@ -783,6 +790,182 @@ setInterval(ifoodPollTick, 30000);
 setTimeout(ifoodPollTick, 4000);
 
 // ------------------------------------------------------------
+// IMPRESSORA TÉRMICA (ESC/POS via rede)
+// ------------------------------------------------------------
+async function printToThermal(kind, orderId) {
+  const st = staffSettings();
+  if (st.printer_enabled !== "1" || !st.printer_host) {
+    throw new Error("Impressora não configurada (Configurações → Impressora térmica).");
+  }
+  const order = getOrders().find((o) => o.id === orderId);
+  if (!order) throw new Error("Pedido não encontrado.");
+  const buffer =
+    kind === "kitchen" ? escpos.buildKitchenComanda(order) :
+    kind === "expedition" ? escpos.buildExpeditionComanda(order) :
+    kind === "label" ? escpos.buildLabel(order) : null;
+  if (!buffer) throw new Error("Tipo de impressão inválido.");
+  await escpos.sendRaw(st.printer_host, st.printer_port || "9100", buffer);
+  logIntegration("impressora", "ok", kind + " do #" + order.code + " impresso em " + st.printer_host);
+  return order.code;
+}
+
+function autoPrintKitchen(order) {
+  const st = staffSettings();
+  if (st.printer_enabled !== "1" || st.printer_auto !== "1" || !st.printer_host) return;
+  escpos.sendRaw(st.printer_host, st.printer_port || "9100", escpos.buildKitchenComanda(order))
+    .then(() => logIntegration("impressora", "ok", "Auto: comanda do #" + order.code))
+    .catch((e) => logIntegration("impressora", "erro", "Auto #" + order.code + ": " + e.message));
+}
+
+app.post("/api/print/test", requireRole("ADMIN", "GERENTE"), async (_req, res) => {
+  const st = staffSettings();
+  if (st.printer_enabled !== "1" || !st.printer_host) {
+    return res.status(400).json({ error: "Preencha o IP e ative a impressora primeiro." });
+  }
+  try {
+    await escpos.sendRaw(st.printer_host, st.printer_port || "9100", escpos.buildTestPage(getSettings().storeName));
+    logIntegration("impressora", "ok", "Página de teste impressa");
+    res.json({ ok: true });
+  } catch (e) {
+    logIntegration("impressora", "erro", "Teste: " + e.message);
+    res.status(502).json({ error: e.message });
+  }
+});
+
+app.post("/api/print/:kind/:id", requireRole("ADMIN", "GERENTE", "ATENDIMENTO", "COZINHA", "EXPEDICAO"), async (req, res) => {
+  try {
+    const code = await printToThermal(req.params.kind, req.params.id);
+    res.json({ ok: true, code });
+  } catch (e) {
+    logIntegration("impressora", "erro", req.params.kind + ": " + e.message);
+    res.status(502).json({ error: e.message });
+  }
+});
+
+// ------------------------------------------------------------
+// CATEGORIAS E GRUPOS DE OPCIONAIS (admin)
+// ------------------------------------------------------------
+const slugify = (t) => t.toLowerCase().normalize("NFD").replace(/\p{Diacritic}/gu, "").replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+
+app.post("/api/categories", requireRole("ADMIN", "GERENTE"), (req, res) => {
+  const label = String(req.body?.label || "").trim();
+  const icon = String(req.body?.icon || "🍽").slice(0, 8) || "🍽";
+  if (label.length < 2 || label.length > 30) return res.status(400).json({ error: "Nome da categoria deve ter 2 a 30 caracteres." });
+  const id = "cat_" + slugify(label) + "-" + crypto.randomBytes(2).toString("hex");
+  const pos = (db.prepare("SELECT COALESCE(MAX(pos), 0) AS m FROM categories").get().m || 0) + 1;
+  db.prepare("INSERT INTO categories (id, label, icon, pos) VALUES (?, ?, ?, ?)").run(id, label, icon, pos);
+  audit(req.user.username, "categoria_criada", label);
+  broadcast();
+  res.status(201).json({ category: { id, label, icon } });
+});
+
+app.patch("/api/categories/:id", requireRole("ADMIN", "GERENTE"), (req, res) => {
+  const c = db.prepare("SELECT * FROM categories WHERE id = ?").get(req.params.id);
+  if (!c) return res.status(404).json({ error: "Categoria não encontrada." });
+  const label = req.body?.label !== undefined ? String(req.body.label).trim() : c.label;
+  const icon = req.body?.icon !== undefined ? String(req.body.icon).slice(0, 8) : c.icon;
+  if (label.length < 2 || label.length > 30) return res.status(400).json({ error: "Nome inválido (2 a 30 caracteres)." });
+  db.prepare("UPDATE categories SET label = ?, icon = ? WHERE id = ?").run(label, icon, c.id);
+  audit(req.user.username, "categoria_atualizada", label);
+  broadcast();
+  res.json({ ok: true });
+});
+
+app.delete("/api/categories/:id", requireRole("ADMIN", "GERENTE"), (req, res) => {
+  const c = db.prepare("SELECT * FROM categories WHERE id = ?").get(req.params.id);
+  if (!c) return res.status(404).json({ error: "Categoria não encontrada." });
+  const used = db.prepare("SELECT COUNT(*) AS n FROM products WHERE cat = ?").get(c.id).n;
+  if (used > 0) return res.status(409).json({ error: `Existem ${used} produto(s) em “${c.label}”. Mova-os antes de excluir.` });
+  db.prepare("DELETE FROM categories WHERE id = ?").run(c.id);
+  audit(req.user.username, "categoria_excluida", c.label);
+  broadcast();
+  res.json({ ok: true });
+});
+
+function validGroupBody(b) {
+  const name = String(b.name || "").trim();
+  if (name.length < 3 || name.length > 60) return { error: "Nome do grupo deve ter 3 a 60 caracteres." };
+  const min = Math.max(0, Math.min(10, Math.floor(Number(b.min ?? 0)) || 0));
+  const max = Math.max(1, Math.min(10, Math.floor(Number(b.max ?? 1)) || 1));
+  if (max < min) return { error: "Máximo não pode ser menor que o mínimo." };
+  return { name, min, max, required: b.required ? 1 : 0 };
+}
+
+app.post("/api/option-groups", requireRole("ADMIN", "GERENTE"), (req, res) => {
+  const v = validGroupBody(req.body || {});
+  if (v.error) return res.status(400).json({ error: v.error });
+  const id = "gr_" + slugify(v.name) + "-" + crypto.randomBytes(2).toString("hex");
+  db.prepare("INSERT INTO option_groups (id, name, min, max, required) VALUES (?, ?, ?, ?, ?)").run(id, v.name, v.min, v.max, v.required);
+  audit(req.user.username, "grupo_criado", v.name);
+  broadcast();
+  res.status(201).json({ group: getOptionGroups().find((g) => g.id === id) });
+});
+
+app.patch("/api/option-groups/:id", requireRole("ADMIN", "GERENTE"), (req, res) => {
+  const g = db.prepare("SELECT * FROM option_groups WHERE id = ?").get(req.params.id);
+  if (!g) return res.status(404).json({ error: "Grupo não encontrado." });
+  const v = validGroupBody({
+    name: req.body?.name !== undefined ? req.body.name : g.name,
+    min: req.body?.min !== undefined ? req.body.min : g.min,
+    max: req.body?.max !== undefined ? req.body.max : g.max,
+    required: req.body?.required !== undefined ? req.body.required : !!g.required,
+  });
+  if (v.error) return res.status(400).json({ error: v.error });
+  db.prepare("UPDATE option_groups SET name = ?, min = ?, max = ?, required = ? WHERE id = ?").run(v.name, v.min, v.max, v.required, g.id);
+  audit(req.user.username, "grupo_atualizado", v.name);
+  broadcast();
+  res.json({ ok: true });
+});
+
+app.delete("/api/option-groups/:id", requireRole("ADMIN", "GERENTE"), (req, res) => {
+  const g = db.prepare("SELECT * FROM option_groups WHERE id = ?").get(req.params.id);
+  if (!g) return res.status(404).json({ error: "Grupo não encontrado." });
+  const used = getProducts().some((p) => (p.groups || []).includes(g.id));
+  if (used) return res.status(409).json({ error: `O grupo “${g.name}” está em uso por produtos. Remova-o do cardápio antes.` });
+  db.prepare("DELETE FROM options WHERE group_id = ?").run(g.id);
+  db.prepare("DELETE FROM option_groups WHERE id = ?").run(g.id);
+  audit(req.user.username, "grupo_excluido", g.name);
+  broadcast();
+  res.json({ ok: true });
+});
+
+app.post("/api/option-groups/:id/options", requireRole("ADMIN", "GERENTE"), (req, res) => {
+  const g = db.prepare("SELECT * FROM option_groups WHERE id = ?").get(req.params.id);
+  if (!g) return res.status(404).json({ error: "Grupo não encontrado." });
+  const name = String(req.body?.name || "").trim();
+  const price = Math.round(Number(req.body?.price ?? 0) * 100) / 100;
+  if (name.length < 2 || name.length > 60) return res.status(400).json({ error: "Nome do item deve ter 2 a 60 caracteres." });
+  if (!Number.isFinite(price) || price < 0 || price > 999) return res.status(400).json({ error: "Preço inválido." });
+  const id = "op_" + slugify(name) + "-" + crypto.randomBytes(2).toString("hex");
+  db.prepare("INSERT INTO options (id, group_id, name, price) VALUES (?, ?, ?, ?)").run(id, g.id, name, price);
+  audit(req.user.username, "opcao_criada", g.name + " / " + name);
+  broadcast();
+  res.status(201).json({ option: { id, name, price } });
+});
+
+app.patch("/api/options/:oid", requireRole("ADMIN", "GERENTE"), (req, res) => {
+  const o = db.prepare("SELECT * FROM options WHERE id = ?").get(req.params.oid);
+  if (!o) return res.status(404).json({ error: "Item não encontrado." });
+  const name = req.body?.name !== undefined ? String(req.body.name).trim() : o.name;
+  const price = req.body?.price !== undefined ? Math.round(Number(req.body.price) * 100) / 100 : o.price;
+  if (name.length < 2 || name.length > 60) return res.status(400).json({ error: "Nome inválido (2 a 60 caracteres)." });
+  if (!Number.isFinite(price) || price < 0 || price > 999) return res.status(400).json({ error: "Preço inválido." });
+  db.prepare("UPDATE options SET name = ?, price = ? WHERE id = ?").run(name, price, o.id);
+  audit(req.user.username, "opcao_atualizada", name);
+  broadcast();
+  res.json({ ok: true });
+});
+
+app.delete("/api/options/:oid", requireRole("ADMIN", "GERENTE"), (req, res) => {
+  const o = db.prepare("SELECT * FROM options WHERE id = ?").get(req.params.oid);
+  if (!o) return res.status(404).json({ error: "Item não encontrado." });
+  db.prepare("DELETE FROM options WHERE id = ?").run(o.id);
+  audit(req.user.username, "opcao_excluida", o.name);
+  broadcast();
+  res.json({ ok: true });
+});
+
+// ------------------------------------------------------------
 // PRODUTOS / ESTOQUE / CONFIG (admin)
 // ------------------------------------------------------------
 
@@ -1000,12 +1183,31 @@ app.patch("/api/settings", requireRole("ADMIN", "GERENTE"), (req, res) => {
   if (b.ifood_client_secret === "__limpar__") setSetting("ifood_client_secret", "");
   if (typeof b.whatsapp_enabled === "boolean") setSetting("whatsapp_enabled", b.whatsapp_enabled ? "1" : "0");
   if (typeof b.ifood_enabled === "boolean") setSetting("ifood_enabled", b.ifood_enabled ? "1" : "0");
+  if (typeof b.printer_host === "string") setSetting("printer_host", b.printer_host.trim().slice(0, 80));
+  if (typeof b.printer_port === "string") {
+    const p = parseInt(b.printer_port, 10);
+    if (!Number.isFinite(p) || p < 1 || p > 65535) return res.status(400).json({ error: "Porta inválida (1–65535)." });
+    setSetting("printer_port", String(p));
+  }
+  if (typeof b.printer_enabled === "boolean") setSetting("printer_enabled", b.printer_enabled ? "1" : "0");
+  if (typeof b.printer_auto === "boolean") setSetting("printer_auto", b.printer_auto ? "1" : "0");
   audit(req.user.username, "config", JSON.stringify(b).slice(0, 200));
   broadcast();
   res.json({ ok: true });
 });
 
 // Dados exibidos no admin para configurar a InfinitePay
+app.get("/api/settings/printer", requireRole("ADMIN", "GERENTE"), (_req, res) => {
+  const st = staffSettings();
+  res.json({
+    enabled: st.printer_enabled === "1",
+    auto: st.printer_auto !== "0",
+    host: st.printer_host || "",
+    port: st.printer_port || "9100",
+    configured: !!(st.printer_enabled === "1" && st.printer_host),
+  });
+});
+
 app.get("/api/settings/payments", requireRole("ADMIN", "GERENTE"), (req, res) => {
   const ps = getPaymentSettings();
   const base = ps.appBaseUrl || publicBaseUrl(req);

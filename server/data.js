@@ -300,4 +300,8 @@ export const SETTINGS = {
   ifood_client_id: "",
   ifood_client_secret: "",
   ifood_merchant_id: "",
+  printer_enabled: 0,
+  printer_host: "",
+  printer_port: "9100",
+  printer_auto: 1,
 };
