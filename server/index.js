@@ -1310,6 +1310,24 @@ app.use("/api", (_req, res) => res.status(404).json({ error: "Rota não encontra
 // Estático — em produção servimos o build do Vite
 // Bind em 0.0.0.0 é obrigatório no Render (listen() sem host cai em ::)
 // ------------------------------------------------------------
+
+// Cada painel tem URL própria (/admin, /cozinha, /expedicao, /entregador).
+// Com barra no fim (/admin/) os assets relativos do Vite resolveriam em
+// /admin/assets/... e a tela ficaria em branco — canonicaliza tirando a barra,
+// preservando prefixo (subdiretório/preview).
+const PANEL_PATHS = ["/admin", "/cozinha", "/expedicao", "/entregador"];
+
+app.use((req, res, next) => {
+  if (req.method !== "GET") return next();
+  const [pathname, query] = req.originalUrl.split("?");
+  const clean = pathname.replace(/\/+$/, "");
+  const lower = clean.toLowerCase();
+  if (pathname !== clean && PANEL_PATHS.some((p) => lower.endsWith(p))) {
+    return res.redirect(301, clean + (query ? `?${query}` : ""));
+  }
+  next();
+});
+
 const DIST = path.join(__dirname, "..", "dist");
 const INDEX = path.join(DIST, "index.html");
 const hasFrontend = fs.existsSync(INDEX);

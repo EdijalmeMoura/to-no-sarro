@@ -3714,12 +3714,15 @@ function DriverApp({ store, now }) {
 // O carrinho e o pedido do cliente ficam no localStorage.
 // ============================================================
 
+// Cada painel tem a PRÓPRIA URL. O cliente fica na raiz (cardápio) e não
+// esbarra no login da equipe; a equipe salva o endereço do seu painel como
+// atalho na tela inicial e abre já no lugar certo.
 const ROLES = [
-  { id: "cliente", label: "Cliente", icon: "🍔" },
-  { id: "admin", label: "Admin", icon: "📊" },
-  { id: "cozinha", label: "Cozinha", icon: "🔥" },
-  { id: "expedicao", label: "Expedição", icon: "📦" },
-  { id: "entregador", label: "Entregador", icon: "🛵" },
+  { id: "cliente", label: "Cardápio", icon: "🍔", path: "/" },
+  { id: "admin", label: "Admin", icon: "📊", path: "/admin" },
+  { id: "cozinha", label: "Cozinha", icon: "🔥", path: "/cozinha" },
+  { id: "expedicao", label: "Expedição", icon: "📦", path: "/expedicao" },
+  { id: "entregador", label: "Entregador", icon: "🛵", path: "/entregador" },
 ];
 
 // Papéis autorizados em cada painel (o servidor valida de novo em cada rota)
@@ -3729,6 +3732,16 @@ const STAFF_GATE = {
   expedicao: ["EXPEDICAO", "GERENTE", "ADMIN"],
   entregador: ["ENTREGADOR"],
 };
+
+const rolePath = (role) => ROLES.find((r) => r.id === role)?.path || "/";
+
+// Lê o painel da URL — funciona também em subdiretório (base "./" do Vite),
+// então http://host/preview/cozinha cai na cozinha. Sem caminho conhecido,
+// cai no cardápio do cliente.
+function pathRole() {
+  const p = (window.location.pathname || "").replace(/\/+$/, "").toLowerCase();
+  return ROLES.find((r) => r.path !== "/" && p.endsWith(r.path))?.id || "cliente";
+}
 
 async function api(path, opts = {}) {
   const r = await fetch(path, {
@@ -3873,8 +3886,9 @@ export default function App() {
   const [ready, setReady] = useState(false);
   const [bootError, setBootError] = useState(false);
   const [me, setMe] = useState(null);
-  const [role, setRole] = useState("cliente");
-  const [loginFor, setLoginFor] = useState(null);
+  // O painel inicial vem da URL (/admin, /cozinha, /expedicao, /entregador)
+  const [role, setRole] = useState(pathRole);
+  const [loginFor, setLoginFor] = useState(pathRole);
   const [tab, setTab] = useState("inicio");
 
   const [orders, setOrders] = useState([]);
@@ -3965,6 +3979,13 @@ export default function App() {
   };
 
   useEffect(() => { load(); }, []);
+
+  // Voltar/avançar do navegador troca de painel sem recarregar a página
+  useEffect(() => {
+    const onPop = () => { setRole(pathRole()); setLoginFor(null); };
+    window.addEventListener("popstate", onPop);
+    return () => window.removeEventListener("popstate", onPop);
+  }, []);
 
   // Tempo real: um canal só, snapshot a cada mudança
   useEffect(() => {
@@ -4133,19 +4154,20 @@ export default function App() {
 
     logout: () => {
       api("/api/auth/logout", { method: "POST" })
-        .then(() => { setMe(null); setRole("cliente"); toast("Você saiu da conta"); })
+        .then(() => { setMe(null); goRole("cliente"); toast("Você saiu da conta"); })
         .catch(() => {});
     },
   };
 
-  const pickRole = (r) => {
+  // Troca de painel: muda a URL e o estado juntos; painel da equipe sem
+  // sessão pede login antes de mostrar qualquer coisa.
+  const goRole = (r) => {
     const gate = STAFF_GATE[r];
-    if (gate && (!me || !gate.includes(me.role))) {
-      setLoginFor(r);
-      return;
-    }
+    const needsLogin = !!gate && (!me || !gate.includes(me.role));
+    setLoginFor(needsLogin ? r : null);
     setRole(r);
-    setLoginFor(null);
+    const p = rolePath(r);
+    if (window.location.pathname !== p) window.history.pushState({ role: r }, "", p);
   };
 
   if (!ready) return <Splash error={bootError} onRetry={load} />;
@@ -4167,19 +4189,20 @@ export default function App() {
         {ROLES.map((r) => {
           const locked = STAFF_GATE[r] && (!me || !STAFF_GATE[r].includes(me.role));
           return (
-            <button
+            <a
               key={r.id}
-              onClick={() => pickRole(r.id)}
+              href={rolePath(r.id)}
+              onClick={(e) => { e.preventDefault(); goRole(r.id); }}
               className="shrink-0 rounded-lg px-2.5 py-1.5 font-bold"
               style={{
                 background: role === r.id ? `linear-gradient(100deg, ${C.orange}, ${C.yellow})` : "transparent",
                 color: role === r.id ? C.black : "#8a8a8a",
                 border: `1px solid ${role === r.id ? "transparent" : C.gray800}`,
-                fontSize: 11.5, whiteSpace: "nowrap",
+                fontSize: 11.5, whiteSpace: "nowrap", textDecoration: "none",
               }}
             >
               {r.icon} {r.label}{locked ? " 🔒" : ""}
-            </button>
+            </a>
           );
         })}
         <div className="flex-1" />
@@ -4197,9 +4220,14 @@ export default function App() {
             </button>
           </span>
         ) : (
-          <span style={{ color: "#5a5a5a", fontSize: 10.5, whiteSpace: "nowrap" }}>
-            painéis da equipe exigem login
-          </span>
+          <a
+            href={rolePath("admin")}
+            onClick={(e) => { e.preventDefault(); goRole("admin"); }}
+            className="shrink-0 rounded-lg px-2 py-1 font-bold"
+            style={{ border: `1px solid ${C.gray800}`, color: "#9a9a9a", fontSize: 10.5, textDecoration: "none", whiteSpace: "nowrap" }}
+          >
+            Área da equipe →
+          </a>
         )}
       </div>
 
@@ -4208,7 +4236,7 @@ export default function App() {
           target={loginFor || role}
           me={me}
           onDone={(user) => { setMe(user); setRole(loginFor || role); setLoginFor(null); toast(`Bem-vindo, ${user.name.split(" ")[0]}!`); }}
-          onCancel={() => { setLoginFor(null); setRole("cliente"); }}
+          onCancel={() => goRole("cliente")}
         />
       ) : (
         <>

@@ -22,6 +22,31 @@ npm run build
 npm start           # Express serve o dist/ + API + WebSocket na 3001
 ```
 
+## URLs de cada painel 🔗
+
+Cada perfil tem **endereço próprio** — a equipe salva o seu como atalho na tela inicial
+do celular e abre direto no painel certo, sem passar pelo cardápio:
+
+| URL | Quem usa |
+|---|---|
+| `/` | **Cliente** — cardápio, carrinho, checkout e acompanhamento (sem login) |
+| `/admin` | **Admin / Gerente** — operação, cardápio, financeiro, relatórios, integrações |
+| `/cozinha` | **Cozinha (KDS)** — fila de produção e comandas |
+| `/expedicao` | **Expedição** — despacho, rotas e conferência |
+| `/entregador` | **Entregador** — corridas, rota e confirmação de entrega |
+
+A rota é resolvida no navegador (Express entrega o mesmo `index.html` para qualquer
+caminho), funciona em subdiretório (`https://host/preview/cozinha`) e `/admin/` com barra
+no fim redireciona para `/admin`. Painel da equipe aberto sem sessão pede login antes de
+mostrar qualquer coisa; quem já está logado com o papel certo entra direto. Nada disso
+substitui a checagem do servidor — cada rota da API revalida o papel.
+
+Para conferir os painéis de ponta a ponta (roda o app real no jsdom contra a API):
+
+```bash
+npm run check:paineis
+```
+
 ## Contas de demonstração
 
 | Painel | Usuário | Senha |
@@ -199,6 +224,10 @@ o deploy caía com `vite: not found`. O servidor escuta em `0.0.0.0`
 enxerga). Se o serviço **já existe**, copie as settings acima no dashboard
 (editar o `render.yaml` sozinho não sincroniza um serviço antigo) e
 **Manual Deploy**.
+
+Depois do deploy, o sistema responde em **`https://to-no-sarro.onrender.com`** (cardápio)
+e nos painéis `…/admin`, `…/cozinha`, `…/expedicao`, `…/entregador` — não precisa de
+rota nova no Render: o Express entrega o app para qualquer caminho e o papel vem da URL.
 
 O servidor detecta HTTPS atrás do proxy do Render (`trust proxy`): cookie de
 sessão `Secure` e HSTS ligam sozinhos. A URL base para webhooks de pagamento
