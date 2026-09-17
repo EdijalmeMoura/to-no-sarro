@@ -48,10 +48,14 @@ app.get("/healthz", (_req, res) => res.status(200).type("text").send("ok"));
 app.use(express.json({ limit: "200kb" }));
 app.use(cookieParser());
 
-// Headers de segurança básicos
+// Headers de segurança básicos.
+// No Render (RENDER=true) bloqueia iframe (anti-clickjacking).
+// Fora dele (preview/dev) o iframe da plataforma precisa embutir o app —
+// senão a tela fica preta no preview.
+const embeddable = process.env.RENDER !== "true";
 app.use((req, res, next) => {
   res.setHeader("X-Content-Type-Options", "nosniff");
-  res.setHeader("X-Frame-Options", "DENY");
+  if (!embeddable) res.setHeader("X-Frame-Options", "DENY");
   res.setHeader("Referrer-Policy", "no-referrer");
   res.setHeader(
     "Content-Security-Policy",
@@ -62,7 +66,7 @@ app.use((req, res, next) => {
       "font-src 'self' https://fonts.gstatic.com data:",
       "img-src 'self' data: blob: https:",
       "connect-src 'self' ws: wss:",
-      "frame-ancestors 'none'",
+      embeddable ? "frame-ancestors *" : "frame-ancestors 'none'",
       "base-uri 'self'",
     ].join("; ")
   );

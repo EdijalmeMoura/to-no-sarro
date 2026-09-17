@@ -101,6 +101,27 @@ const font = {
   body: "'Inter', system-ui, -apple-system, Segoe UI, sans-serif",
 };
 
+// Folha global: sem isto o App explode (ReferenceError) e a tela fica preta.
+const css = `
+  @keyframes sarropulse {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: .45; transform: scale(1.18); }
+  }
+  @keyframes sarrofloat {
+    0%, 100% { transform: translateY(0); }
+    50% { transform: translateY(-10px); }
+  }
+  @keyframes sarrofall {
+    0% { transform: translateY(0) rotate(0deg); opacity: 1; }
+    100% { transform: translateY(110vh) rotate(280deg); opacity: 0; }
+  }
+  .sarro-img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .sarro-imgzoom { overflow: hidden; }
+  .sarro-imgzoom img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  * { box-sizing: border-box; }
+  body { margin: 0; }
+`;
+
 function beep(freq = 880, dur = 0.14) {
   try {
     const Ctx = window.AudioContext || window.webkitAudioContext;
