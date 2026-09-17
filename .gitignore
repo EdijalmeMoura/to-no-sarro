@@ -9,8 +9,8 @@ server/data/
 
 # Código de terceiros comprado (licença Envato: pode modificar, não redistribuir).
 # Mantido apenas localmente — não entra no git nem em repositório público.
-whatscrm/
-vendor/
+/whatscrm/
+/vendor/
 whatscrm-*.zip
 codecanyon-*.zip
 
