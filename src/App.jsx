@@ -3623,7 +3623,7 @@ function DriverApp({ store, now }) {
         🛵 MINHAS ENTREGAS
       </h2>
       <div style={{ color: "#7a7a7a", fontSize: 12, marginBottom: 16 }}>
-        {driver.name} · {mine.filter((o) => o.status === "ROTA").length} em rota hoje
+        {meDriver?.name || "Entregador"} · {mine.filter((o) => o.status === "ROTA").length} em rota hoje
       </div>
 
       {open.length > 0 && (
