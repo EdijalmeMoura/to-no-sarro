@@ -1,0 +1,16 @@
+# Blueprint do Render — cria/atualiza o Web Service com o que o app precisa.
+# Se o serviço já existir, sincronize o Blueprint no dashboard (ou copie
+# build/start/health/NODE_VERSION abaixo nas settings manuais).
+services:
+  - type: web
+    name: to-no-sarro
+    runtime: node
+    plan: free
+    buildCommand: npm install --include=dev && npm run build
+    startCommand: npm start
+    healthCheckPath: /healthz
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      - key: NODE_ENV
+        value: production

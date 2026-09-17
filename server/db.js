@@ -24,7 +24,15 @@ fs.mkdirSync(DATA_DIR, { recursive: true });
 const fresh = process.argv.includes("--reset");
 if (fresh && fs.existsSync(DB_FILE)) fs.rmSync(DB_FILE);
 
-export const db = new DatabaseSync(DB_FILE);
+let db;
+try {
+  db = new DatabaseSync(DB_FILE);
+} catch (e) {
+  console.error(`[db] Falha ao abrir ${DB_FILE}: ${e.message}`);
+  console.error("[db] node:sqlite exige Node ≥ 22.13. No Render, pinhe NODE_VERSION=22 (veja .node-version).");
+  throw e;
+}
+export { db };
 
 db.exec(`
   PRAGMA journal_mode = WAL;

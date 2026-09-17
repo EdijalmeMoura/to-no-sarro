@@ -180,16 +180,25 @@ grupo (nome e preço editáveis na linha). Tudo reflete no cardápio do cliente 
 
 ## Deploy no Render 🚀
 
-O sistema sobe em qualquer host Node — testado para o [Render](https://render.com)
-(ao criar o Web Service, aponte para a branch correta deste repositório):
+O sistema sobe em qualquer host Node — testado para o [Render](https://render.com).
+Há um `render.yaml` na raiz: ao criar o Web Service, aponte para a branch
+deste repositório (ou use **New → Blueprint**). Settings corretas:
 
 | Configuração | Valor |
 |---|---|
-| Runtime | Node (o `engines` exige **Node ≥ 22** por causa do `node:sqlite`) |
-| Build command | `npm install && npm run build` |
+| Runtime | Node **22** (arquivo `.node-version`; `node:sqlite` exige ≥ 22.13) |
+| Build command | `npm install --include=dev && npm run build` |
 | Start command | `npm start` |
-| Health check path | `/api/bootstrap` |
-| Env vars | nenhuma obrigatória — `PORT` é detectada automaticamente |
+| Health check path | `/healthz` |
+| Env vars | `NODE_VERSION=22` — `PORT` é detectada automaticamente |
+
+O `vite` está em `dependencies` (não em `devDependencies`) porque o Render
+define `NODE_ENV=production` **no build** e o `npm install` pulava o Vite —
+o deploy caía com `vite: not found`. O servidor escuta em `0.0.0.0`
+(`listen()` sem host no Node 22 cai em IPv6 `::` e o proxy do Render não
+enxerga). Se o serviço **já existe**, copie as settings acima no dashboard
+(editar o `render.yaml` sozinho não sincroniza um serviço antigo) e
+**Manual Deploy**.
 
 O servidor detecta HTTPS atrás do proxy do Render (`trust proxy`): cookie de
 sessão `Secure` e HSTS ligam sozinhos. A URL base para webhooks de pagamento
