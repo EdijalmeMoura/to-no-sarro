@@ -6,3 +6,16 @@ server/data/
 !.env.example
 .DS_Store
 *.log
+
+# Código de terceiros comprado (licença Envato: pode modificar, não redistribuir).
+# Mantido apenas localmente — não entra no git nem em repositório público.
+whatscrm/
+vendor/
+whatscrm-*.zip
+codecanyon-*.zip
+
+# Saídas geradas pela mineração de strings (regenere com tools/i18n/extrair-strings.mjs)
+traducao/strings/
+
+# Artefatos de busca de imagens (não versionar)
+image-search/
