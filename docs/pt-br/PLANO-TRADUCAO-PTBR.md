@@ -176,13 +176,33 @@ um **checklist de conferência tela por tela** para isso.
 
 ## 9. O que eu preciso de você
 
-1. **Os arquivos do sistema** (o ZIP comprado), anexados **aqui no chat** —
-   este ambiente não baixa de links externos, só do registro npm. Precisa ter
-   backend Node, build do front e os arquivos JSON/SQL de idioma.
+1. **Os arquivos do sistema** (o ZIP comprado) — por upload no repositório
+   `EdijalmeMoura/WhatsCRM` (me avise quando estiver lá) **ou** anexados aqui no
+   chat. Requisitos: vir o **backend Node**, o **build do front** e os arquivos
+   **JSON/SQL de idioma**.
+   > ⚠️ **O repositório está público.** Código com licença Envato não pode ser
+   > redistribuído — deixe-o **privado** antes de subir o ZIP.
 2. Saber **qual versão** (6.1.0? 5.x?) e **se você tem add-ons**.
 3. Decidir: **só pt-BR** ou **pt-BR + inglês** com seletor de idioma.
 4. Decidir se entra **só a interface** ou **também** conteúdo dinâmico
    (landing, planos, FAQ), e-mails e mensagens automáticas.
+
+### Situação em 2026-09-17
+
+| Item | Estado |
+|---|---|
+| Levantamento do sistema (stack, painéis, versões, recursos) | ✅ feito |
+| Glossário de terminologia EN→pt-BR | ✅ travado |
+| Extrator de strings (fixture + app real) | ✅ testado |
+| Pipeline de recebimento do pacote | ✅ testado com pacote sintético (versão, dicionário, build, SQL) |
+| Repositório `EdijalmeMoura/WhatsCRM` | ⚠️ existe, **vazio** e **público** — falta o ZIP |
+| Tradução pt-BR | ⏳ aguardando o pacote |
+
+Onde as coisas ficam (importante para não misturar licença com trabalho nosso):
+
+- **Código comprado** (`whatscrm/`, ZIPs) → fora do git, só no ambiente local;
+- **Nossa tradução e ferramentas** (`docs/pt-br/`, `tools/`, `traducao/`) →
+  versionadas no branch desta sessão, prontas para o repositório do WhatsCRM.
 
 ---
 
