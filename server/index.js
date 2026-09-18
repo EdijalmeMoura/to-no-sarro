@@ -1640,7 +1640,12 @@ const INDEX = path.join(DIST, "index.html");
 const hasFrontend = fs.existsSync(INDEX);
 if (hasFrontend) {
   app.use(express.static(DIST, { index: false }));
-  app.get(/^(?!\/api|\/ws|\/healthz).*/, (_req, res) => res.sendFile(INDEX));
+  app.get(/^(?!\/api|\/ws|\/healthz).*/, (_req, res) => {
+    // Shell do SPA nunca cacheado: garante que o navegador sempre
+    // carregue o bundle mais novo (os assets têm hash no nome).
+    res.setHeader("Cache-Control", "no-store");
+    res.sendFile(INDEX);
+  });
 } else {
   app.get(/^(?!\/api|\/ws|\/healthz).*/, (_req, res) => {
     res.status(503).type("html").send(
