@@ -89,6 +89,10 @@ As senhas são semente de demonstração — o banco guarda apenas hash bcrypt. 
   observações em destaque; cozinha só avança preparo/pronto
 - **Expedição:** fila de prontos, embalar, atribuir entregador, retirada no balcão
 - **Entregador:** mobile-first, cada um vê só as próprias entregas (validado no servidor)
+- **Promoções:** cupons com criar, editar, ativar/pausar e excluir + promoções
+  programadas com o mesmo controle
+- **Equipe:** gestão de usuários (perfis, vínculo de entregador, ativar/desativar na
+  hora, troca de senha); só admin exclui — e nunca a si mesmo nem o último admin
 
 **Integridade**
 - Preços, cupons, taxa e total são **recalculados no servidor** — o cliente não manda valor
@@ -96,6 +100,7 @@ As senhas são semente de demonstração — o banco guarda apenas hash bcrypt. 
 - Produto com histórico de pedidos não é excluído (só despublicado)
 - Sessão em cookie httpOnly, senhas bcrypt, rate limit no login, log de auditoria
 - Toda mutação dispara um broadcast WebSocket; os cinco painéis atualizam sozinhos
+  (e se o socket cair, os painéis de pedido se atualizam sozinhos a cada 60s)
 
 ## Pagamento online — InfinitePay ♾️
 

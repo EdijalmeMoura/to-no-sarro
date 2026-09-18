@@ -32,7 +32,7 @@ function registerAttempt(ip, ok) {
 }
 
 export function publicUser(u) {
-  return u ? { id: u.id, name: u.name, username: u.username, role: u.role, driverId: u.driver_id || null } : null;
+  return u ? { id: u.id, name: u.name, username: u.username, role: u.role, driverId: u.driver_id || null, active: u.active !== 0 } : null;
 }
 
 export function login(req, res) {
@@ -49,6 +49,11 @@ export function login(req, res) {
     registerAttempt(ip, false);
     audit(username, "login_falhou", `ip ${ip}`);
     return res.status(401).json({ error: "Usuário ou senha incorretos." });
+  }
+  if (user.active === 0) {
+    registerAttempt(ip, false);
+    audit(username, "login_bloqueado", "conta desativada");
+    return res.status(403).json({ error: "Conta desativada. Fale com o administrador." });
   }
   registerAttempt(ip, true);
 
@@ -76,7 +81,8 @@ export function logout(req, res) {
   res.json({ ok: true });
 }
 
-// Preenche req.user (ou null) a partir do cookie de sessão
+// Preenche req.user (ou null) a partir do cookie de sessão.
+// Conta desativada perde o acesso na hora, mesmo com cookie válido.
 export function attachUser(req, _res, next) {
   req.user = null;
   const token = req.cookies?.[COOKIE];
@@ -84,7 +90,7 @@ export function attachUser(req, _res, next) {
     const row = db.prepare(`
       SELECT u.* FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.token = ?
     `).get(token);
-    if (row) req.user = row;
+    if (row && row.active !== 0) req.user = row;
   }
   next();
 }

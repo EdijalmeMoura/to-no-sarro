@@ -44,7 +44,8 @@ db.exec(`
     username TEXT UNIQUE NOT NULL,
     pass_hash TEXT NOT NULL,
     role TEXT NOT NULL,
-    driver_id TEXT
+    driver_id TEXT,
+    active INTEGER DEFAULT 1
   );
 
   CREATE TABLE IF NOT EXISTS sessions (
@@ -202,6 +203,7 @@ addColumnIfMissing("products", "updated_at", "updated_at INTEGER DEFAULT 0");
 addColumnIfMissing("orders", "payment_status", "payment_status TEXT DEFAULT ('indefinido')");
 addColumnIfMissing("orders", "ext_ref", "ext_ref TEXT");
 addColumnIfMissing("orders", "track_token", "track_token TEXT");
+addColumnIfMissing("users", "active", "active INTEGER DEFAULT 1");
 
 function getSettingRaw(key) {
   try { return db.prepare("SELECT value FROM settings WHERE key = ?").get(key)?.value; } catch { return undefined; }
@@ -390,6 +392,12 @@ export function getCategories() {
 export function getCoupons() {
   return db.prepare("SELECT * FROM coupons ORDER BY code").all()
     .map((c) => ({ code: c.code, type: c.type, value: c.value, min: c.min, uses: c.uses, limit: c.max_uses, active: !!c.active, note: c.note }));
+}
+
+// Gestão de usuários — nunca devolve o hash da senha
+export function getUsers() {
+  return db.prepare("SELECT id, name, username, role, driver_id, active FROM users ORDER BY name").all()
+    .map((u) => ({ id: u.id, name: u.name, username: u.username, role: u.role, driverId: u.driver_id || null, active: u.active !== 0 }));
 }
 
 export function getDrivers() {

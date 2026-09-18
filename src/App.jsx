@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useRef } from "react";
+import React, { useState, useEffect, useMemo, useRef, useCallback } from "react";
 
 // ============================================================
 // TÔ NO SARRO! — SMART FOOD SYSTEM
@@ -301,6 +301,31 @@ function WaIcon({ size = 22, color = "#fff", style }) {
     <svg width={size} height={size} viewBox="0 0 24 24" fill={color} style={style} aria-hidden="true">
       <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413Z" />
     </svg>
+  );
+}
+
+// Selo de sincronização dos painéis de pedido: mostra se o tempo real está
+// ligado e há quanto tempo os dados foram atualizados. Toque = atualizar agora.
+function SyncBadge({ store, now }) {
+  const age = Math.max(0, Math.floor((now - (store.lastSyncAt || now)) / 1000));
+  const label = age < 5 ? "agora mesmo" : age < 60 ? `há ${age}s` : `há ${Math.floor(age / 60)}min`;
+  const live = store.wsOnline;
+  return (
+    <button
+      onClick={() => store.refreshAll(true)}
+      title="Toque para atualizar os pedidos agora"
+      className="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 font-bold"
+      style={{ background: C.gray850, border: `1px solid ${C.gray800}`, color: "#9a9a9a", fontSize: 10.5 }}
+    >
+      <span
+        style={{
+          width: 7, height: 7, borderRadius: 99,
+          background: live ? C.green : C.yellow,
+          animation: "sarropulse 2s ease-in-out infinite",
+        }}
+      />
+      {live ? "ao vivo" : "a cada 60s"} · {label} ⟳
+    </button>
   );
 }
 
@@ -1850,6 +1875,7 @@ function AdminOrders({ store, now }) {
       <div className="flex flex-wrap items-center gap-2 mb-4">
         <Btn small variant={view === "kanban" ? "primary" : "dark"} onClick={() => setView("kanban")}>Kanban</Btn>
         <Btn small variant={view === "lista" ? "primary" : "dark"} onClick={() => setView("lista")}>Lista</Btn>
+        <SyncBadge store={store} now={now} />
         <div className="flex-1" />
         {["TODOS", ...Object.keys(CHANNELS)].map((k) => (
           <button
@@ -2546,38 +2572,479 @@ function AdminReports({ store, now }) {
   );
 }
 
+// Interruptor pequeno de ativar/pausar (cupons, promos, usuários)
+function MiniToggle({ on, onClick, title }) {
+  return (
+    <button
+      onClick={onClick} title={title || (on ? "Pausar" : "Ativar")}
+      className="rounded-full shrink-0"
+      style={{ width: 38, height: 21, background: on ? C.green : C.gray700, position: "relative", transition: "background .2s" }}
+    >
+      <span
+        style={{
+          position: "absolute", top: 2.5, left: on ? 20 : 2.5, width: 16, height: 16,
+          borderRadius: 99, background: C.white, transition: "left .2s",
+        }}
+      />
+    </button>
+  );
+}
+
+// Molde dos modais de gestão (cupom, promoção, usuário)
+function FormShell({ title, sub, onClose, children }) {
+  return (
+    <div className="fixed inset-0 z-40 flex items-end sm:items-center justify-center" style={{ background: "rgba(0,0,0,.78)" }}>
+      <div
+        className="w-full sm:max-w-md max-h-[92vh] overflow-y-auto p-5"
+        style={{ background: C.gray900, borderTop: `3px solid ${C.orange}`, borderRadius: "22px 22px 0 0" }}
+      >
+        <div className="flex items-start justify-between mb-1">
+          <div>
+            <h3 style={{ fontFamily: font.display, fontStyle: "italic", fontSize: 20, color: C.white }}>{title}</h3>
+            {sub && <div style={{ color: "#8a8a8a", fontSize: 12, marginTop: 2 }}>{sub}</div>}
+          </div>
+          <button
+            onClick={onClose}
+            className="rounded-full flex items-center justify-center shrink-0"
+            style={{ width: 32, height: 32, background: C.gray800, color: C.white, fontSize: 15 }}
+          >
+            ✕
+          </button>
+        </div>
+        <div className="space-y-3 mt-4">{children}</div>
+      </div>
+    </div>
+  );
+}
+
+function FSelect({ label, value, onChange, options }) {
+  return (
+    <label className="block">
+      <span style={{ color: "#9a9a9a", fontSize: 11.5, fontWeight: 700 }}>{label}</span>
+      <select
+        value={value} onChange={(e) => onChange(e.target.value)}
+        className="w-full rounded-xl px-3 py-3 mt-1.5 outline-none"
+        style={{ background: C.gray850, border: `1px solid ${C.gray800}`, color: C.white, fontSize: 13.5 }}
+      >
+        {options.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+      </select>
+    </label>
+  );
+}
+
+const couponLabel = (c) =>
+  c.type === "percent" ? `${c.value}% off` : c.type === "fixed" ? `${brl(c.value)} off` : "Entrega grátis";
+
+function CouponForm({ initial, onClose, onSaved }) {
+  const [f, setF] = useState({
+    code: initial?.code || "",
+    type: initial?.type || "percent",
+    value: initial ? String(initial.value) : "10",
+    min: initial ? String(initial.min) : "0",
+    max_uses: initial?.limit ? String(initial.limit) : "",
+    note: initial?.note || "",
+    active: initial ? !!initial.active : true,
+  });
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+  const set = (k, v) => setF((p) => ({ ...p, [k]: v }));
+  const num = (s) => parseFloat(String(s).replace(",", "."));
+
+  const save = async () => {
+    setBusy(true); setErr("");
+    try {
+      const body = {
+        type: f.type,
+        value: f.type === "freeship" ? 0 : num(f.value),
+        min: num(f.min) || 0,
+        max_uses: f.max_uses.trim() === "" ? null : Math.floor(num(f.max_uses)),
+        note: f.note.trim(),
+        active: f.active,
+      };
+      if (initial) {
+        await api(`/api/coupons/${initial.code}`, { method: "PATCH", body });
+      } else {
+        await api("/api/coupons", { method: "POST", body: { ...body, code: f.code } });
+      }
+      onSaved(initial ? `Cupom ${initial.code} atualizado ✓` : `Cupom ${f.code.toUpperCase()} criado ✓`);
+    } catch (e) {
+      setErr(e.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <FormShell title={initial ? "EDITAR CUPOM" : "NOVO CUPOM"} sub={initial?.code} onClose={onClose}>
+      {!initial && <Field label="Código (sem espaços)" value={f.code} onChange={(v) => set("code", v.toUpperCase())} ph="EX: SARRO15" />}
+      <FSelect label="Tipo de desconto" value={f.type} onChange={(v) => set("type", v)}
+        options={[["percent", "% sobre o subtotal"], ["fixed", "R$ fixo de desconto"], ["freeship", "Entrega grátis"]]} />
+      {f.type !== "freeship" && (
+        <Field label={f.type === "percent" ? "Porcentagem (1 a 90)" : "Valor em R$"} value={f.value} onChange={(v) => set("value", v)} ph="10" type="number" />
+      )}
+      <div className="grid grid-cols-2 gap-3">
+        <Field label="Pedido mínimo (R$)" value={f.min} onChange={(v) => set("min", v)} ph="0" type="number" />
+        <Field label="Limite de usos (vazio = ∞)" value={f.max_uses} onChange={(v) => set("max_uses", v)} ph="500" type="number" />
+      </div>
+      <Field label="Descrição curta" value={f.note} onChange={(v) => set("note", v)} ph="Ex: 10% acima de R$ 40" />
+      <button onClick={() => set("active", !f.active)} className="flex items-center gap-2.5">
+        <MiniToggle on={f.active} onClick={() => set("active", !f.active)} />
+        <span style={{ color: f.active ? C.green : "#7a7a7a", fontSize: 12.5, fontWeight: 800 }}>
+          {f.active ? "Cupom ativo" : "Cupom pausado"}
+        </span>
+      </button>
+      {err && <div className="rounded-lg px-3 py-2" style={{ background: `${C.red}18`, color: C.red, fontSize: 12, fontWeight: 700 }}>{err}</div>}
+      <Btn full disabled={busy} onClick={save}>{busy ? "SALVANDO…" : initial ? "SALVAR ALTERAÇÕES" : "CRIAR CUPOM"}</Btn>
+    </FormShell>
+  );
+}
+
+function PromoForm({ initial, onClose, onSaved }) {
+  const [f, setF] = useState({
+    name: initial?.name || "",
+    rule: initial?.rule || "",
+    window: initial?.window || "",
+    active: initial ? !!initial.active : true,
+  });
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+  const set = (k, v) => setF((p) => ({ ...p, [k]: v }));
+
+  const save = async () => {
+    setBusy(true); setErr("");
+    try {
+      if (initial) {
+        await api(`/api/promos/${initial.id}`, { method: "PATCH", body: f });
+      } else {
+        await api("/api/promos", { method: "POST", body: f });
+      }
+      onSaved(initial ? "Promoção atualizada ✓" : "Promoção criada ✓");
+    } catch (e) {
+      setErr(e.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <FormShell title={initial ? "EDITAR PROMOÇÃO" : "NOVA PROMOÇÃO"} onClose={onClose}>
+      <Field label="Nome" value={f.name} onChange={(v) => set("name", v)} ph="Ex: Happy Hour do Sarro" />
+      <Field label="Regra" value={f.rule} onChange={(v) => set("rule", v)} ph="Ex: 18h às 20h — 15% off em combos" />
+      <Field label="Quando vale" value={f.window} onChange={(v) => set("window", v)} ph="Ex: 18:00–20:00" />
+      <button onClick={() => set("active", !f.active)} className="flex items-center gap-2.5">
+        <MiniToggle on={f.active} onClick={() => set("active", !f.active)} />
+        <span style={{ color: f.active ? C.green : "#7a7a7a", fontSize: 12.5, fontWeight: 800 }}>
+          {f.active ? "Promoção ativa" : "Promoção pausada"}
+        </span>
+      </button>
+      {err && <div className="rounded-lg px-3 py-2" style={{ background: `${C.red}18`, color: C.red, fontSize: 12, fontWeight: 700 }}>{err}</div>}
+      <Btn full disabled={busy} onClick={save}>{busy ? "SALVANDO…" : initial ? "SALVAR ALTERAÇÕES" : "CRIAR PROMOÇÃO"}</Btn>
+    </FormShell>
+  );
+}
+
 function AdminPromos({ store }) {
+  const [couponForm, setCouponForm] = useState(null); // null | "new" | cupom
+  const [promoForm, setPromoForm] = useState(null); // null | "new" | promo
+  const [confirmDel, setConfirmDel] = useState(null); // { kind: "coupon"|"promo", ref }
+  const say = (m) => store.toast(m);
+
+  const toggleCoupon = (c) =>
+    api(`/api/coupons/${c.code}`, { method: "PATCH", body: { active: !c.active } })
+      .then(() => say(c.active ? `Cupom ${c.code} pausado` : `Cupom ${c.code} ativado ✓`))
+      .catch((e) => say(e.message));
+
+  const togglePromo = (p) =>
+    api(`/api/promos/${p.id}`, { method: "PATCH", body: { active: !p.active } })
+      .then(() => say(p.active ? `“${p.name}” pausada` : `“${p.name}” ativada ✓`))
+      .catch((e) => say(e.message));
+
+  const doDelete = async () => {
+    try {
+      if (confirmDel.kind === "coupon") await api(`/api/coupons/${confirmDel.ref.code}`, { method: "DELETE" });
+      else await api(`/api/promos/${confirmDel.ref.id}`, { method: "DELETE" });
+      say("Excluído");
+    } catch (e) {
+      say(e.message);
+    }
+    setConfirmDel(null);
+  };
+
   return (
     <div className="space-y-5">
+      {confirmDel && (
+        <Card className="p-4" style={{ borderColor: `${C.red}66`, background: `${C.red}12` }}>
+          <div style={{ color: C.white, fontWeight: 800, fontSize: 13 }}>
+            Excluir {confirmDel.kind === "coupon" ? `o cupom ${confirmDel.ref.code}` : `a promoção “${confirmDel.ref.name}”`}?
+          </div>
+          <div className="flex gap-2 mt-3">
+            <Btn small variant="danger" onClick={doDelete}>Excluir de vez</Btn>
+            <Btn small variant="dark" onClick={() => setConfirmDel(null)}>Cancelar</Btn>
+          </div>
+        </Card>
+      )}
+
       <div>
-        <div style={{ color: C.white, fontWeight: 900, fontSize: 14, marginBottom: 10 }}>Cupons ativos</div>
+        <div className="flex items-center justify-between mb-2.5">
+          <div style={{ color: C.white, fontWeight: 900, fontSize: 14 }}>Cupons de desconto</div>
+          <Btn small onClick={() => setCouponForm("new")}>+ Novo cupom</Btn>
+        </div>
         <Card className="p-1">
           <Table
-            cols={["Código", "Regra", "Mínimo", "Usos", "Limite", "Status"]}
+            cols={["Cupom", "Desconto", "Mínimo", "Usos", "Status", ""]}
             rows={store.coupons.map((c) => [
-              c.code, c.note, brl(c.min), c.uses, c.limit,
-              <span key="s" style={{ color: c.active ? C.green : "#7a7a7a", fontSize: 11.5, fontWeight: 800 }}>{c.active ? "ATIVO" : "PAUSADO"}</span>,
+              <span key="c">
+                <span style={{ fontWeight: 800 }}>{c.code}</span>
+                {c.note && <span className="block" style={{ color: "#7a7a7a", fontSize: 10.5, fontWeight: 400 }}>{c.note}</span>}
+              </span>,
+              couponLabel(c),
+              brl(c.min),
+              `${c.uses}/${c.limit || "∞"}`,
+              <span key="s" className="flex items-center gap-2">
+                <MiniToggle on={c.active} onClick={() => toggleCoupon(c)} />
+                <span style={{ color: c.active ? C.green : "#7a7a7a", fontSize: 10.5, fontWeight: 800 }}>
+                  {c.active ? "ATIVO" : "PAUSADO"}
+                </span>
+              </span>,
+              <span key="a" className="flex items-center gap-1.5">
+                <button onClick={() => setCouponForm(c)} className="rounded-lg px-2 py-1 font-bold"
+                  style={{ background: C.gray800, color: C.white, fontSize: 11 }}>✎</button>
+                <button onClick={() => setConfirmDel({ kind: "coupon", ref: c })} className="rounded-lg px-2 py-1 font-bold"
+                  style={{ background: "transparent", border: `1px solid ${C.red}55`, color: C.red, fontSize: 11 }}>🗑</button>
+              </span>,
             ])}
           />
         </Card>
       </div>
+
       <div>
-        <div style={{ color: C.white, fontWeight: 900, fontSize: 14, marginBottom: 10 }}>Promoções programadas</div>
+        <div className="flex items-center justify-between mb-2.5">
+          <div style={{ color: C.white, fontWeight: 900, fontSize: 14 }}>Promoções programadas</div>
+          <Btn small onClick={() => setPromoForm("new")}>+ Nova promoção</Btn>
+        </div>
         <div className="grid md:grid-cols-3 gap-3">
           {store.promos.map((p) => (
-            <Card key={p.id} className="p-4">
-              <div className="flex justify-between items-start">
+            <Card key={p.id} className="p-4" style={{ opacity: p.active ? 1 : 0.6 }}>
+              <div className="flex justify-between items-start gap-2">
                 <span style={{ color: C.white, fontWeight: 800, fontSize: 13.5 }}>{p.name}</span>
+                <MiniToggle on={p.active} onClick={() => togglePromo(p)} />
+              </div>
+              <div style={{ color: "#9a9a9a", fontSize: 12, marginTop: 6, minHeight: 18 }}>{p.rule}</div>
+              <div style={{ color: C.yellowLight, fontSize: 11, marginTop: 8, fontWeight: 700 }}>⏰ {p.window || "sempre"}</div>
+              <div className="flex items-center justify-between mt-3 pt-3" style={{ borderTop: `1px solid ${C.gray800}` }}>
                 <span style={{ color: p.active ? C.green : "#6a6a6a", fontSize: 10.5, fontWeight: 800 }}>
                   {p.active ? "ATIVA" : "PAUSADA"}
                 </span>
+                <span className="flex items-center gap-1.5">
+                  <button onClick={() => setPromoForm(p)} className="rounded-lg px-2 py-1 font-bold"
+                    style={{ background: C.gray800, color: C.white, fontSize: 11 }}>✎ Editar</button>
+                  <button onClick={() => setConfirmDel({ kind: "promo", ref: p })} className="rounded-lg px-2 py-1 font-bold"
+                    style={{ background: "transparent", border: `1px solid ${C.red}55`, color: C.red, fontSize: 11 }}>🗑</button>
+                </span>
               </div>
-              <div style={{ color: "#9a9a9a", fontSize: 12, marginTop: 6 }}>{p.rule}</div>
-              <div style={{ color: C.yellowLight, fontSize: 11, marginTop: 8, fontWeight: 700 }}>⏰ {p.window}</div>
             </Card>
           ))}
+          {store.promos.length === 0 && (
+            <Card className="p-6 text-center"><span style={{ color: "#8a8a8a", fontSize: 13 }}>Nenhuma promoção. Crie a primeira acima ↑</span></Card>
+          )}
         </div>
       </div>
+
+      {couponForm && (
+        <CouponForm
+          key={couponForm === "new" ? "new" : couponForm.code}
+          initial={couponForm === "new" ? null : couponForm}
+          onClose={() => setCouponForm(null)}
+          onSaved={(m) => { setCouponForm(null); say(m); }}
+        />
+      )}
+      {promoForm && (
+        <PromoForm
+          key={promoForm === "new" ? "new" : promoForm.id}
+          initial={promoForm === "new" ? null : promoForm}
+          onClose={() => setPromoForm(null)}
+          onSaved={(m) => { setPromoForm(null); say(m); }}
+        />
+      )}
+    </div>
+  );
+}
+
+const ROLE_LABELS = {
+  ADMIN: "Administrador", GERENTE: "Gerente", ATENDIMENTO: "Atendimento",
+  COZINHA: "Cozinha", EXPEDICAO: "Expedição", ENTREGADOR: "Entregador",
+};
+
+function UserForm({ initial, roles, drivers, onClose, onSaved }) {
+  const [f, setF] = useState({
+    name: initial?.name || "",
+    username: initial?.username || "",
+    password: "",
+    role: initial?.role || "ATENDIMENTO",
+    driverId: initial?.driverId || "",
+    active: initial ? !!initial.active : true,
+  });
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+  const set = (k, v) => setF((p) => ({ ...p, [k]: v }));
+
+  const save = async () => {
+    setBusy(true); setErr("");
+    try {
+      const body = {
+        name: f.name.trim(),
+        role: f.role,
+        driver_id: f.role === "ENTREGADOR" ? (f.driverId || null) : null,
+        active: f.active,
+      };
+      if (!initial || f.password) body.password = f.password;
+      if (initial) {
+        await api(`/api/users/${initial.id}`, { method: "PATCH", body });
+      } else {
+        await api("/api/users", { method: "POST", body: { ...body, username: f.username } });
+      }
+      onSaved(initial ? `“${f.name}” atualizado ✓` : `Usuário ${f.username.toLowerCase()} criado ✓`);
+    } catch (e) {
+      setErr(e.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <FormShell title={initial ? "EDITAR USUÁRIO" : "NOVO USUÁRIO"} sub={initial?.username} onClose={onClose}>
+      <Field label="Nome" value={f.name} onChange={(v) => set("name", v)} ph="Ex: Maria da Chapa" />
+      {!initial && <Field label="Usuário (login)" value={f.username} onChange={(v) => set("username", v.toLowerCase())} ph="Ex: maria" />}
+      <Field
+        label={initial ? "Nova senha (vazio = manter)" : "Senha (mín. 6 caracteres)"}
+        value={f.password} onChange={(v) => set("password", v)} ph={initial ? "••••••" : "mínimo 6 caracteres"} type="password"
+      />
+      <FSelect label="Perfil" value={f.role} onChange={(v) => set("role", v)}
+        options={roles.map((r) => [r, ROLE_LABELS[r] || r])} />
+      {f.role === "ENTREGADOR" && (
+        <FSelect label="Entregador vinculado" value={f.driverId} onChange={(v) => set("driverId", v)}
+          options={[["", "— escolher —"], ...drivers.map((d) => [d.id, `${d.name} · ${d.vehicle}`])]} />
+      )}
+      <button onClick={() => set("active", !f.active)} className="flex items-center gap-2.5">
+        <MiniToggle on={f.active} onClick={() => set("active", !f.active)} />
+        <span style={{ color: f.active ? C.green : "#7a7a7a", fontSize: 12.5, fontWeight: 800 }}>
+          {f.active ? "Conta ativa" : "Conta desativada"}
+        </span>
+      </button>
+      {err && <div className="rounded-lg px-3 py-2" style={{ background: `${C.red}18`, color: C.red, fontSize: 12, fontWeight: 700 }}>{err}</div>}
+      <Btn full disabled={busy} onClick={save}>{busy ? "SALVANDO…" : initial ? "SALVAR ALTERAÇÕES" : "CRIAR USUÁRIO"}</Btn>
+    </FormShell>
+  );
+}
+
+function AdminUsers({ store }) {
+  const [users, setUsers] = useState([]);
+  const [roles, setRoles] = useState(Object.keys(ROLE_LABELS));
+  const [loading, setLoading] = useState(true);
+  const [form, setForm] = useState(null); // null | "new" | usuário
+  const [confirmDel, setConfirmDel] = useState(null);
+  const say = (m) => store.toast(m);
+  const isAdmin = store.me?.role === "ADMIN";
+
+  const load = () => {
+    setLoading(true);
+    api("/api/users")
+      .then((d) => { setUsers(d.users); setRoles(d.roles?.length ? d.roles : Object.keys(ROLE_LABELS)); })
+      .catch((e) => say(e.message))
+      .finally(() => setLoading(false));
+  };
+  useEffect(() => { load(); }, []);
+
+  const toggle = (u) =>
+    api(`/api/users/${u.id}`, { method: "PATCH", body: { active: !u.active } })
+      .then(() => { say(u.active ? `“${u.name}” desativado` : `“${u.name}” ativado ✓`); load(); })
+      .catch((e) => say(e.message));
+
+  const doDelete = async () => {
+    try {
+      await api(`/api/users/${confirmDel.id}`, { method: "DELETE" });
+      say(`“${confirmDel.name}” excluído`);
+      load();
+    } catch (e) {
+      say(e.message);
+    }
+    setConfirmDel(null);
+  };
+
+  const driverName = (id) => store.drivers.find((d) => d.id === id)?.name || "—";
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-4">
+        <div style={{ color: "#8a8a8a", fontSize: 12 }}>
+          {loading ? "Carregando equipe…" : `${users.length} contas · ${users.filter((u) => u.active).length} ativas`}
+        </div>
+        <Btn small onClick={() => setForm("new")}>+ Novo usuário</Btn>
+      </div>
+
+      {confirmDel && (
+        <Card className="p-4 mb-4" style={{ borderColor: `${C.red}66`, background: `${C.red}12` }}>
+          <div style={{ color: C.white, fontWeight: 800, fontSize: 13 }}>Excluir “{confirmDel.name}” ({confirmDel.username})?</div>
+          <div style={{ color: "#9a9a9a", fontSize: 12, marginTop: 2 }}>O login para de funcionar na hora. Prefira desativar.</div>
+          <div className="flex gap-2 mt-3">
+            <Btn small variant="danger" onClick={doDelete}>Excluir de vez</Btn>
+            <Btn small variant="dark" onClick={() => setConfirmDel(null)}>Cancelar</Btn>
+          </div>
+        </Card>
+      )}
+
+      <Card className="p-1">
+        <Table
+          cols={["Nome", "Usuário", "Perfil", "Vínculo", "Status", ""]}
+          rows={users.map((u) => {
+            const self = u.id === store.me?.id;
+            return [
+              <span key="n" style={{ fontWeight: 700 }}>
+                {u.name} {self && <span style={{ color: C.orange, fontSize: 10, fontWeight: 800 }}> · VOCÊ</span>}
+              </span>,
+              <span key="u" style={{ fontSize: 12 }}>{u.username}</span>,
+              <span key="r" className="rounded-md px-2 py-0.5 font-bold"
+                style={{
+                  background: u.role === "ADMIN" ? `${C.orange}1f` : C.gray800,
+                  color: u.role === "ADMIN" ? C.orange : "#c9c9c9", fontSize: 10.5,
+                }}>
+                {ROLE_LABELS[u.role] || u.role}
+              </span>,
+              <span key="d" style={{ fontSize: 12 }}>{u.role === "ENTREGADOR" ? `🛵 ${driverName(u.driverId)}` : "—"}</span>,
+              <span key="s" className="flex items-center gap-2">
+                <span style={{ opacity: self ? 0.35 : 1, display: "inline-flex" }} title={self ? "Você não pode desativar a própria conta" : ""}>
+                  <MiniToggle on={u.active} onClick={() => !self && toggle(u)} />
+                </span>
+                <span style={{ color: u.active ? C.green : "#7a7a7a", fontSize: 10.5, fontWeight: 800 }}>
+                  {u.active ? "ATIVO" : "INATIVO"}
+                </span>
+              </span>,
+              <span key="a" className="flex items-center gap-1.5">
+                <button onClick={() => setForm(u)} className="rounded-lg px-2 py-1 font-bold"
+                  style={{ background: C.gray800, color: C.white, fontSize: 11 }}>✎</button>
+                {isAdmin && !self && (
+                  <button onClick={() => setConfirmDel(u)} className="rounded-lg px-2 py-1 font-bold"
+                    style={{ background: "transparent", border: `1px solid ${C.red}55`, color: C.red, fontSize: 11 }}>🗑</button>
+                )}
+              </span>,
+            ];
+          })}
+        />
+      </Card>
+      <div style={{ color: "#6a6a6a", fontSize: 11, marginTop: 10, lineHeight: 1.5 }}>
+        Desativar derruba o acesso na hora, sem apagar o histórico. Só o administrador exclui contas — e nunca a própria nem a do último administrador.
+      </div>
+
+      {form && (
+        <UserForm
+          key={form === "new" ? "new" : form.id}
+          initial={form === "new" ? null : form}
+          roles={roles}
+          drivers={store.drivers}
+          onClose={() => setForm(null)}
+          onSaved={(m) => { setForm(null); say(m); load(); }}
+        />
+      )}
     </div>
   );
 }
@@ -3286,6 +3753,7 @@ const ADMIN_NAV = [
   { id: "categorias", icon: "🗂", label: "Categorias" },
   { id: "clientes", icon: "👥", label: "Clientes" },
   { id: "promos", icon: "🎟", label: "Promoções" },
+  { id: "equipe", icon: "🧑‍💼", label: "Equipe" },
   { id: "estoque", icon: "📦", label: "Estoque" },
   { id: "financeiro", icon: "💰", label: "Financeiro" },
   { id: "relatorios", icon: "📈", label: "Relatórios" },
@@ -3376,6 +3844,7 @@ function AdminApp({ store, now }) {
         {sec === "categorias" && <AdminCategories store={store} />}
         {sec === "clientes" && <AdminCustomers store={store} />}
         {sec === "promos" && <AdminPromos store={store} />}
+        {sec === "equipe" && <AdminUsers store={store} />}
         {sec === "estoque" && <AdminInventory store={store} />}
         {sec === "financeiro" && <AdminFinance store={store} now={now} />}
         {sec === "relatorios" && <AdminReports store={store} now={now} />}
@@ -3427,6 +3896,7 @@ function KitchenApp({ store, now }) {
           >
             🖨 Auto-print {autoPrint ? "ON" : "OFF"}
           </button>
+          <SyncBadge store={store} now={now} />
           <span style={{ color: "#7a7a7a", fontSize: 11.5 }}>Prontos hoje</span>
           <span style={{ color: C.green, fontWeight: 900, fontSize: 20 }}>
             {store.orders.filter((o) => ["PRONTO", "EMBALADO", "AGUARDANDO", "ROTA", "ENTREGUE"].includes(o.status)).length}
@@ -3527,14 +3997,17 @@ function ExpeditionApp({ store, now }) {
 
   return (
     <div style={{ background: C.black, minHeight: "100%" }} className="p-4 md:p-6">
-      <div className="flex items-center gap-3 mb-5">
-        <Logo size={40} withText={false} />
-        <div>
-          <h2 style={{ fontFamily: font.display, fontStyle: "italic", fontSize: 24, color: C.white, letterSpacing: "-0.02em" }}>
-            EXPEDIÇÃO
-          </h2>
-          <div style={{ color: "#7a7a7a", fontSize: 11.5 }}>{ready.length} aguardando saída · {rota.length} em rota</div>
+      <div className="flex items-center justify-between gap-3 mb-5">
+        <div className="flex items-center gap-3">
+          <Logo size={40} withText={false} />
+          <div>
+            <h2 style={{ fontFamily: font.display, fontStyle: "italic", fontSize: 24, color: C.white, letterSpacing: "-0.02em" }}>
+              EXPEDIÇÃO
+            </h2>
+            <div style={{ color: "#7a7a7a", fontSize: 11.5 }}>{ready.length} aguardando saída · {rota.length} em rota</div>
+          </div>
         </div>
+        <SyncBadge store={store} now={now} />
       </div>
 
       <div className="grid lg:grid-cols-3 gap-4">
@@ -3640,9 +4113,12 @@ function DriverApp({ store, now }) {
         </span>
       </div>
 
-      <h2 style={{ fontFamily: font.display, fontStyle: "italic", fontSize: 26, color: C.white, letterSpacing: "-0.02em" }}>
-        🛵 MINHAS ENTREGAS
-      </h2>
+      <div className="flex items-end justify-between gap-3">
+        <h2 style={{ fontFamily: font.display, fontStyle: "italic", fontSize: 26, color: C.white, letterSpacing: "-0.02em" }}>
+          🛵 MINHAS ENTREGAS
+        </h2>
+        <div className="pb-1"><SyncBadge store={store} now={now} /></div>
+      </div>
       <div style={{ color: "#7a7a7a", fontSize: 12, marginBottom: 16 }}>
         {meDriver?.name || "Entregador"} · {mine.filter((o) => o.status === "ROTA").length} em rota hoje
       </div>
@@ -3911,6 +4387,8 @@ export default function App() {
   const [confetti, setConfetti] = useState(false);
   const [notifications, setNotifications] = useState([]);
   const [now, setNow] = useState(Date.now());
+  const [wsOnline, setWsOnline] = useState(false);
+  const [lastSyncAt, setLastSyncAt] = useState(Date.now());
 
   const known = useRef(null);
   const roleRef = useRef(role);
@@ -3930,11 +4408,11 @@ export default function App() {
     setTimeout(() => setToastMsg(""), 2400);
   };
 
-  const notify = (msg) => {
+  const notify = useCallback((msg) => {
     setNotifications((n) => [{ id: uid(), msg, at: Date.now() }, ...n].slice(0, 20));
-  };
+  }, []);
 
-  const applySync = (d) => {
+  const applySync = useCallback((d) => {
     // Alerta de pedido novo para a equipe (o cliente tem o próprio fluxo)
     if (known.current && roleRef.current !== "cliente") {
       const fresh = d.orders.filter((o) => !known.current.has(o.id));
@@ -3958,7 +4436,8 @@ export default function App() {
     setCoupons(d.coupons);
     setPromos(d.promos);
     setSettings(d.settings);
-  };
+    setLastSyncAt(Date.now());
+  }, [notify]);
 
   const load = () => {
     setBootError(false);
@@ -3995,24 +4474,51 @@ export default function App() {
     const connect = () => {
       const proto = location.protocol === "https:" ? "wss" : "ws";
       ws = new WebSocket(`${proto}://${location.host}/ws`);
+      ws.onopen = () => setWsOnline(true);
       ws.onmessage = (ev) => {
         try {
           const m = JSON.parse(ev.data);
           if (m.type === "sync") applySync(m.data);
         } catch { /* ignora */ }
       };
-      ws.onclose = () => { if (!closed) retry = setTimeout(connect, 2000); };
-      ws.onerror = () => ws.close();
+      ws.onclose = () => { setWsOnline(false); if (!closed) retry = setTimeout(connect, 2000); };
+      ws.onerror = () => { setWsOnline(false); ws.close(); };
     };
     connect();
     return () => { closed = true; clearTimeout(retry); ws?.close(); };
-  }, []);
+  }, [applySync]);
+
+  // Rede de segurança: se o WebSocket cair, os painéis se atualizam
+  // sozinhos a cada 60s (a cozinha não pode ficar cega).
+  useEffect(() => {
+    const tick = () => {
+      api("/api/bootstrap")
+        .then((d) => {
+          setCatalog({ categories: d.categories, optionGroups: d.optionGroups, builder: d.builder });
+          applySync(d);
+        })
+        .catch(() => {});
+    };
+    const t = setInterval(tick, 60000);
+    return () => clearInterval(t);
+  }, [applySync]);
 
   const store = {
     role, tab, setTab, me,
     orders, products, inventory, drivers, customers, coupons, promos, settings,
     optionGroups: catalog.optionGroups, builder: catalog.builder, categories: catalog.categories,
     cart, coupon, setCoupon, myOrderId, myOrder, notifications, toast,
+    wsOnline, lastSyncAt,
+    refreshAll: async (announce) => {
+      try {
+        const d = await api("/api/bootstrap");
+        setCatalog({ categories: d.categories, optionGroups: d.optionGroups, builder: d.builder });
+        applySync(d);
+        if (announce) toast("Pedidos atualizados ✓");
+      } catch {
+        if (announce) toast("Sem conexão com o servidor");
+      }
+    },
     refreshMyOrder: async () => {
       const id = localStorage.getItem("sarro_my_order");
       if (!id) return null;
