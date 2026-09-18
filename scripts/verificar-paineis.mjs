@@ -225,7 +225,7 @@ console.log("\n4) APIs — cupons, promoções, usuários e refresh de pedidos")
   // Refresh de pedidos (3)
   const o1 = await req("POST", "/api/orders", {
     customer: { name: "Teste Refresh", phone: "(81) 99999-1111", addr: "Rua Teste, 100 — Janga" },
-    items: [{ productId: "p1", qty: 1, optionIds: [], note: "" }],
+    items: [{ productId: "p1", qty: 2, optionIds: [], note: "" }],
     type: "delivery", payment: "Dinheiro",
   });
   ok("cria pedido via API", o1.status === 201 && !!o1.data.order?.id, JSON.stringify(o1.data).slice(0, 100));

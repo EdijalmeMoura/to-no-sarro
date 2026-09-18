@@ -210,6 +210,43 @@ addColumnIfMissing("users", "last_login_at", "last_login_at INTEGER");
 addColumnIfMissing("promos", "starts_at", "starts_at INTEGER");
 addColumnIfMissing("promos", "ends_at", "ends_at INTEGER");
 
+// Migração de dados: cardápio real da loja (nomes, preços e pão brioche).
+// Só atualiza as linhas ainda iguais à semente fictícia — qualquer edição
+// feita pelo admin no Cardápio é preservada. Também carimba updated_at
+// para o app buscar as fotos novas (cache-busting do ?v=).
+const MENU_REAL = [
+  { id: "p1", oldName: "Sarro Burger", name: "Tô no Sarro Salada Burger", cat: "burgers", emoji: "🍔",
+    desc: "100g de carne no pão brioche com salada fresca e o molho especial da casa.",
+    ingredients: ["Pão brioche", "Carne 100g", "Alface", "Tomate", "Cebola roxa", "Molho especial"],
+    price: 16, promo: null, badges: ["maisvendido"] },
+  { id: "p2", oldName: "Bacon Sarro", name: "Sarro Massa Bacon Burger", cat: "burgers", emoji: "🥓",
+    desc: "100g de carne, bacon crocante e creme cheddar no pão brioche.",
+    ingredients: ["Pão brioche", "Carne 100g", "Bacon crocante", "Creme cheddar", "Molho especial"],
+    price: 20, promo: null, badges: ["maisvendido"] },
+  { id: "p3", oldName: "Duplo Sarro", name: "Sarro Peso Calabresa Burger", cat: "burgers", emoji: "🍔",
+    desc: "100g de carne com calabresa e creme cheddar no pão brioche.",
+    ingredients: ["Pão brioche", "Carne 100g", "Calabresa", "Creme cheddar", "Molho especial"],
+    price: 25, promo: null, badges: [] },
+  { id: "p4", oldName: "Smash do Sarro", name: "Sarro Desmantelo Cheddar Burger", cat: "burgers", emoji: "🍔",
+    desc: "100g de carne com desmantelo de creme cheddar no pão brioche.",
+    ingredients: ["Pão brioche", "Carne 100g", "Desmantelo de creme cheddar", "Molho especial"],
+    price: 20, promo: null, badges: [] },
+  { id: "p5", oldName: "Frango Empanado Sarro", name: "Sarro Arretado Burger", cat: "burgers", emoji: "🍔",
+    desc: "100g de carne com queijo coalho grelhado no pão brioche. Arretado de bom!",
+    ingredients: ["Pão brioche", "Carne 100g", "Queijo coalho grelhado", "Molho especial"],
+    price: 23.9, promo: null, badges: ["novidade"] },
+  { id: "p6", oldName: "Combo Sarro Completo", name: "Combo Dois Sarro Massa + 2 Refri", cat: "combos", emoji: "🍟",
+    desc: "2x Sarro Massa Bacon + 2 refrigerantes lata. Pra dividir (ou não).",
+    ingredients: ["2x Sarro Massa Bacon", "2 refrigerantes lata"],
+    price: 49.99, promo: null, badges: ["maisvendido"] },
+];
+for (const m of MENU_REAL) {
+  db.prepare(`UPDATE products SET name = ?, cat = ?, emoji = ?, description = ?,
+    ingredients = ?, price = ?, promo = ?, badges = ?, updated_at = ? WHERE id = ? AND name = ?`)
+    .run(m.name, m.cat, m.emoji, m.desc, JSON.stringify(m.ingredients), m.price, m.promo,
+      JSON.stringify(m.badges), Date.now(), m.id, m.oldName);
+}
+
 function getSettingRaw(key) {
   try { return db.prepare("SELECT value FROM settings WHERE key = ?").get(key)?.value; } catch { return undefined; }
 }
