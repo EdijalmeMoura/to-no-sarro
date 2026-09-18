@@ -109,12 +109,13 @@ console.log("\n1) Cliente na raiz — sem login da equipe");
   ok("/ abre o cardápio", /TÔ NO SARRO|Sarro Burger|Cardápio/i.test(text()));
   ok("/ NÃO pede login da equipe", !text().includes("ÁREA DA EQUIPE"));
   ok("/ sem erro de JS", errs.length === 0, errs[0]);
-  ok("barra tem os atalhos dos painéis", ["/admin", "/cozinha", "/expedicao", "/entregador"].every((p) => window.document.querySelector(`a[href="${p}"]`)));
-  // clicar em "Admin" leva para /admin pedindo login
-  window.document.querySelector('a[href="/admin"]').dispatchEvent(new window.MouseEvent("click", { bubbles: true, cancelable: true }));
+  ok("barra de atalhos oculta no cardápio", !window.document.querySelector('a[href="/cozinha"]') && !text().includes("SMART FOOD SYSTEM ·"));
+  // clicar em "Área da equipe" no rodapé leva para /admin pedindo login
+  const linkAdmin = window.document.querySelector('a[href="/admin"]');
+  if (linkAdmin) linkAdmin.dispatchEvent(new window.MouseEvent("click", { bubbles: true, cancelable: true }));
   await sleep(400);
-  ok("clique em Admin muda a URL para /admin", pathname() === "/admin", pathname());
-  ok("clique em Admin mostra o login", text().includes("ÁREA DA EQUIPE"));
+  ok("clique em Área da equipe muda a URL para /admin", pathname() === "/admin", pathname());
+  ok("clique em Área da equipe mostra o login", text().includes("ÁREA DA EQUIPE"));
   window.close();
 }
 

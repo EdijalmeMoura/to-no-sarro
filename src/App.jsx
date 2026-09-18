@@ -1603,7 +1603,7 @@ function BottomNav({ tab, setTab, cartCount }) {
   );
 }
 
-function ClientApp({ store, now }) {
+function ClientApp({ store, now, goRole }) {
   const [modal, setModal] = useState(null);
   const [checkout, setCheckout] = useState(null);
   const cartCount = store.cart.reduce((s, i) => s + i.qty, 0);
@@ -1662,6 +1662,21 @@ function ClientApp({ store, now }) {
         >
           <WaIcon size={24} color="#fff" />
         </a>
+      )}
+
+      {!checkout && (
+        <footer className="text-center py-6 pb-24 text-xs" style={{ color: "#555" }}>
+          <div>Tô no Sarro Burgers & Açaí · Smart Food System</div>
+          <div className="mt-1">
+            <a
+              href={rolePath("admin")}
+              onClick={(e) => { e.preventDefault(); goRole?.("admin"); }}
+              style={{ color: "#666", textDecoration: "none", fontSize: 10.5 }}
+            >
+              🔒 Área da equipe
+            </a>
+          </div>
+        </footer>
       )}
 
       {!checkout && <BottomNav tab={store.tab} setTab={store.setTab} cartCount={cartCount} />}
@@ -3869,9 +3884,20 @@ function AdminApp({ store, now }) {
             </button>
           ))}
         </nav>
-        <div className="rounded-xl p-3" style={{ background: C.gray850 }}>
-          <div style={{ color: "#8a8a8a", fontSize: 10.5 }}>Conectado como</div>
-          <div style={{ color: C.white, fontWeight: 800, fontSize: 12.5 }}>Administrador</div>
+        <div className="rounded-xl p-3 flex items-center justify-between" style={{ background: C.gray850 }}>
+          <div>
+            <div style={{ color: "#8a8a8a", fontSize: 10.5 }}>Conectado como</div>
+            <div style={{ color: C.white, fontWeight: 800, fontSize: 12.5 }}>{store.me?.name?.split(" ")[0] || "Administrador"}</div>
+          </div>
+          {store.me && (
+            <button
+              onClick={store.logout}
+              className="rounded-lg px-2 py-1 font-bold text-xs"
+              style={{ border: `1px solid ${C.gray800}`, color: "#9a9a9a" }}
+            >
+              Sair
+            </button>
+          )}
         </div>
       </aside>
 
@@ -3976,6 +4002,15 @@ function KitchenApp({ store, now }) {
           <span style={{ color: C.green, fontWeight: 900, fontSize: 20 }}>
             {store.orders.filter((o) => ["PRONTO", "EMBALADO", "AGUARDANDO", "ROTA", "ENTREGUE"].includes(o.status)).length}
           </span>
+          {store.me && (
+            <button
+              onClick={store.logout}
+              className="rounded-lg px-2.5 py-1.5 font-bold"
+              style={{ border: `1px solid ${C.gray800}`, color: "#8a8a8a", fontSize: 11 }}
+            >
+              Sair
+            </button>
+          )}
         </div>
       </div>
 
@@ -4082,7 +4117,18 @@ function ExpeditionApp({ store, now }) {
             <div style={{ color: "#7a7a7a", fontSize: 11.5 }}>{ready.length} aguardando saída · {rota.length} em rota</div>
           </div>
         </div>
-        <SyncBadge store={store} now={now} />
+        <div className="flex items-center gap-2">
+          <SyncBadge store={store} now={now} />
+          {store.me && (
+            <button
+              onClick={store.logout}
+              className="rounded-lg px-2.5 py-1.5 font-bold"
+              style={{ border: `1px solid ${C.gray800}`, color: "#8a8a8a", fontSize: 11 }}
+            >
+              Sair
+            </button>
+          )}
+        </div>
       </div>
 
       <div className="grid lg:grid-cols-3 gap-4">
@@ -4180,12 +4226,23 @@ function DriverApp({ store, now }) {
     <div style={{ background: C.black, minHeight: "100%" }} className="p-4 pb-10">
       <div className="flex items-center justify-between mb-4">
         <Logo size={38} />
-        <span
-          className="rounded-lg px-2.5 py-1.5 font-bold"
-          style={{ background: C.gray850, color: C.white, border: `1px solid ${C.gray800}`, fontSize: 12 }}
-        >
-          🛵 {meDriver ? meDriver.name.split(" ")[0] : "…"} · {meDriver?.vehicle}
-        </span>
+        <div className="flex items-center gap-2">
+          <span
+            className="rounded-lg px-2.5 py-1.5 font-bold"
+            style={{ background: C.gray850, color: C.white, border: `1px solid ${C.gray800}`, fontSize: 12 }}
+          >
+            🛵 {meDriver ? meDriver.name.split(" ")[0] : "…"} · {meDriver?.vehicle}
+          </span>
+          {store.me && (
+            <button
+              onClick={store.logout}
+              className="rounded-lg px-2 py-1 font-bold"
+              style={{ border: `1px solid ${C.gray800}`, color: "#8a8a8a", fontSize: 11 }}
+            >
+              Sair
+            </button>
+          )}
+        </div>
       </div>
 
       <div className="flex items-end justify-between gap-3">
@@ -4782,34 +4839,38 @@ export default function App() {
     <div style={{ background: C.black, minHeight: "100vh", fontFamily: font.body, color: C.white }}>
       <style>{css}</style>
 
-      <div
-        className="flex items-center gap-1.5 px-3 py-2 overflow-x-auto"
-        style={{ background: C.gray900, borderBottom: `1px solid ${C.gray800}`, position: "sticky", top: 0, zIndex: 40 }}
-      >
-        <span style={{ color: "#5a5a5a", fontSize: 10, fontWeight: 800, marginRight: 4, whiteSpace: "nowrap" }}>
-          SMART FOOD SYSTEM{appVersion ? ` · ${appVersion}` : ""}
-        </span>
-        {ROLES.map((r) => {
-          const locked = STAFF_GATE[r] && (!me || !STAFF_GATE[r].includes(me.role));
-          return (
-            <a
-              key={r.id}
-              href={rolePath(r.id)}
-              onClick={(e) => { e.preventDefault(); goRole(r.id); }}
-              className="shrink-0 rounded-lg px-2.5 py-1.5 font-bold"
-              style={{
-                background: role === r.id ? `linear-gradient(100deg, ${C.orange}, ${C.yellow})` : "transparent",
-                color: role === r.id ? C.black : "#8a8a8a",
-                border: `1px solid ${role === r.id ? "transparent" : C.gray800}`,
-                fontSize: 11.5, whiteSpace: "nowrap", textDecoration: "none",
-              }}
-            >
-              {r.icon} {r.label}{locked ? " 🔒" : ""}
-            </a>
-          );
-        })}
-        <div className="flex-1" />
-        {me ? (
+      {/* Barra superior de atalhos da equipe:
+          - Oculta no cardápio do cliente (tela 100% limpa para pedidos)
+          - Oculta para outros usuários (cozinha, expedição, entregador, etc.)
+          - Exibida APENAS para usuário administrador (ADMIN) nas áreas administrativas */}
+      {me && me.role === "ADMIN" && role !== "cliente" && (
+        <div
+          className="flex items-center gap-1.5 px-3 py-2 overflow-x-auto"
+          style={{ background: C.gray900, borderBottom: `1px solid ${C.gray800}`, position: "sticky", top: 0, zIndex: 40 }}
+        >
+          <span style={{ color: "#5a5a5a", fontSize: 10, fontWeight: 800, marginRight: 4, whiteSpace: "nowrap" }}>
+            SMART FOOD SYSTEM{appVersion ? ` · ${appVersion}` : ""}
+          </span>
+          {ROLES.map((r) => {
+            const locked = STAFF_GATE[r] && (!me || !STAFF_GATE[r].includes(me.role));
+            return (
+              <a
+                key={r.id}
+                href={rolePath(r.id)}
+                onClick={(e) => { e.preventDefault(); goRole(r.id); }}
+                className="shrink-0 rounded-lg px-2.5 py-1.5 font-bold"
+                style={{
+                  background: role === r.id ? `linear-gradient(100deg, ${C.orange}, ${C.yellow})` : "transparent",
+                  color: role === r.id ? C.black : "#8a8a8a",
+                  border: `1px solid ${role === r.id ? "transparent" : C.gray800}`,
+                  fontSize: 11.5, whiteSpace: "nowrap", textDecoration: "none",
+                }}
+              >
+                {r.icon} {r.label}{locked ? " 🔒" : ""}
+              </a>
+            );
+          })}
+          <div className="flex-1" />
           <span className="shrink-0 flex items-center gap-2">
             <span style={{ color: "#8a8a8a", fontSize: 11 }}>
               {me.name.split(" ")[0]} · {me.role}
@@ -4822,17 +4883,29 @@ export default function App() {
               Sair
             </button>
           </span>
-        ) : (
-          <a
-            href={rolePath("admin")}
-            onClick={(e) => { e.preventDefault(); goRole("admin"); }}
-            className="shrink-0 rounded-lg px-2 py-1 font-bold"
-            style={{ border: `1px solid ${C.gray800}`, color: "#9a9a9a", fontSize: 10.5, textDecoration: "none", whiteSpace: "nowrap" }}
-          >
-            Área da equipe →
-          </a>
-        )}
-      </div>
+        </div>
+      )}
+
+      {/* Quando o administrador visualiza o cardápio, botão flutuante para retornar */}
+      {me && me.role === "ADMIN" && role === "cliente" && (
+        <a
+          href={rolePath("admin")}
+          onClick={(e) => { e.preventDefault(); goRole("admin"); }}
+          className="fixed z-40 flex items-center gap-1.5 rounded-full px-3.5 py-2 font-bold shadow-2xl active:scale-95 transition"
+          style={{
+            bottom: 84, left: 16,
+            background: C.gray900,
+            border: `1px solid ${C.orange}`,
+            color: C.orange,
+            fontSize: 11.5,
+            boxShadow: "0 8px 24px rgba(0,0,0,.7)",
+            textDecoration: "none",
+          }}
+        >
+          <span>📊</span>
+          <span>Voltar ao Admin</span>
+        </a>
+      )}
 
       {!allowed ? (
         <LoginScreen
@@ -4843,7 +4916,7 @@ export default function App() {
         />
       ) : (
         <>
-          {role === "cliente" && <ClientApp store={store} now={now} />}
+          {role === "cliente" && <ClientApp store={store} now={now} goRole={goRole} />}
           {role === "admin" && <AdminApp store={store} now={now} />}
           {role === "cozinha" && <KitchenApp store={store} now={now} />}
           {role === "expedicao" && <ExpeditionApp store={store} now={now} />}
