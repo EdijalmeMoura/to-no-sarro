@@ -4462,6 +4462,7 @@ export default function App() {
   const [confetti, setConfetti] = useState(false);
   const [notifications, setNotifications] = useState([]);
   const [now, setNow] = useState(Date.now());
+  const [appVersion, setAppVersion] = useState("");
   const [wsOnline, setWsOnline] = useState(false);
   const [lastSyncAt, setLastSyncAt] = useState(Date.now());
 
@@ -4520,6 +4521,7 @@ export default function App() {
       .then((d) => {
         setCatalog({ categories: d.categories, optionGroups: d.optionGroups, builder: d.builder });
         setMe(d.me);
+        if (d.version) setAppVersion(d.version);
         const myId = localStorage.getItem("sarro_my_order");
         if (myId) {
           const t = encodeURIComponent(localStorage.getItem("sarro_my_token") || "");
@@ -4785,7 +4787,7 @@ export default function App() {
         style={{ background: C.gray900, borderBottom: `1px solid ${C.gray800}`, position: "sticky", top: 0, zIndex: 40 }}
       >
         <span style={{ color: "#5a5a5a", fontSize: 10, fontWeight: 800, marginRight: 4, whiteSpace: "nowrap" }}>
-          SMART FOOD SYSTEM
+          SMART FOOD SYSTEM{appVersion ? ` · ${appVersion}` : ""}
         </span>
         {ROLES.map((r) => {
           const locked = STAFF_GATE[r] && (!me || !STAFF_GATE[r].includes(me.role));

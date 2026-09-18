@@ -13,6 +13,7 @@ import express from "express";
 import cookieParser from "cookie-parser";
 import bcrypt from "bcryptjs";
 import http from "node:http";
+import { execSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import crypto from "node:crypto";
@@ -35,6 +36,11 @@ import * as escpos from "./printing/escpos.js";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.PORT) || 3001;
 const HOST = process.env.HOST || "0.0.0.0";
+// Versão exibida no app (diagnóstico: confirma qual build está rodando)
+const APP_VERSION = process.env.APP_VERSION || (() => {
+  try { return execSync("git rev-parse --short HEAD", { cwd: path.join(__dirname, "..") }).toString().trim(); }
+  catch { return "dev"; }
+})();
 
 seedIfEmpty();
 
@@ -213,6 +219,7 @@ app.get("/api/bootstrap", (req, res) => {
     optionGroups: getOptionGroups(),
     builder: getBuilder(),
     me: publicUser(req.user),
+    version: APP_VERSION,
   });
 });
 
