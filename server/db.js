@@ -216,8 +216,18 @@ addColumnIfMissing("promos", "ends_at", "ends_at INTEGER");
 // para o app buscar as fotos novas (cache-busting do ?v=).
 // Migração do pão e fotos novas (atualiza ingredientes e força novo timestamp updated_at)
 try {
-  db.prepare(`UPDATE options SET name = 'Pão Brioche Artesanal Amarelo (c/ gergelim preto)' WHERE id = 'brioche' AND group_id = 'pao'`).run();
-  db.prepare(`UPDATE products SET updated_at = ? WHERE id IN ('p1','p2','p3','p4','p5','p6','p7')`).run(Date.now());
+  db.prepare(`UPDATE builder_options SET name = 'Pão Brioche Artesanal Amarelo (c/ gergelim preto)' WHERE id = 'brioche'`).run();
+  const prods = [
+    { id: "p1", desc: "100g de carne no pão brioche artesanal amarelo com gergelim preto, salada fresca e molho especial.", ing: ["Pão brioche amarelo c/ gergelim preto", "Carne 100g", "Alface", "Tomate", "Cebola roxa", "Molho especial"] },
+    { id: "p2", desc: "100g de carne, bacon crocante e creme cheddar no pão brioche artesanal amarelo.", ing: ["Pão brioche amarelo c/ gergelim preto", "Carne 100g", "Bacon crocante", "Creme cheddar", "Molho especial"] },
+    { id: "p3", desc: "100g de carne com calabresa fatiada e creme cheddar no pão brioche artesanal amarelo.", ing: ["Pão brioche amarelo c/ gergelim preto", "Carne 100g", "Calabresa fatiada", "Creme cheddar", "Molho especial"] },
+    { id: "p4", desc: "100g de carne com desmantelo de creme cheddar cascata no pão brioche amarelo.", ing: ["Pão brioche amarelo c/ gergelim preto", "Carne 100g", "Desmantelo de creme cheddar", "Molho especial"] },
+    { id: "p5", desc: "100g de carne com fatia grossa de queijo coalho grelhado no pão brioche amarelo.", ing: ["Pão brioche amarelo c/ gergelim preto", "Carne 100g", "Queijo coalho grelhado", "Molho especial"] },
+  ];
+  const updP = db.prepare(`UPDATE products SET description = ?, ingredients = ?, updated_at = ? WHERE id = ?`);
+  for (const pr of prods) {
+    updP.run(pr.desc, JSON.stringify(pr.ing), Date.now(), pr.id);
+  }
 } catch {}
 
 const MENU_REAL = [
