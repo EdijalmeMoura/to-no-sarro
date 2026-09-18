@@ -214,10 +214,16 @@ addColumnIfMissing("promos", "ends_at", "ends_at INTEGER");
 // Só atualiza as linhas ainda iguais à semente fictícia — qualquer edição
 // feita pelo admin no Cardápio é preservada. Também carimba updated_at
 // para o app buscar as fotos novas (cache-busting do ?v=).
+// Migração do pão e fotos novas (atualiza ingredientes e força novo timestamp updated_at)
+try {
+  db.prepare(`UPDATE options SET name = 'Pão Brioche Artesanal Amarelo (c/ gergelim preto)' WHERE id = 'brioche' AND group_id = 'pao'`).run();
+  db.prepare(`UPDATE products SET updated_at = ? WHERE id IN ('p1','p2','p3','p4','p5','p6','p7')`).run(Date.now());
+} catch {}
+
 const MENU_REAL = [
   { id: "p1", oldName: "Sarro Burger", name: "Tô no Sarro Salada Burger", cat: "burgers", emoji: "🍔",
-    desc: "100g de carne no pão brioche com salada fresca e o molho especial da casa.",
-    ingredients: ["Pão brioche", "Carne 100g", "Alface", "Tomate", "Cebola roxa", "Molho especial"],
+    desc: "100g de carne no pão brioche artesanal amarelo com gergelim preto, salada fresca e molho especial.",
+    ingredients: ["Pão brioche amarelo c/ gergelim preto", "Carne 100g", "Alface", "Tomate", "Cebola roxa", "Molho especial"],
     price: 16, promo: null, badges: ["maisvendido"] },
   { id: "p2", oldName: "Bacon Sarro", name: "Sarro Massa Bacon Burger", cat: "burgers", emoji: "🥓",
     desc: "100g de carne, bacon crocante e creme cheddar no pão brioche.",

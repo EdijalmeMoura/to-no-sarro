@@ -86,7 +86,7 @@ export const BUILDER = [
   {
     id: "pao", label: "Escolha o pão",
     options: [
-      { id: "brioche", name: "Brioche", price: 0 },
+      { id: "brioche", name: "Pão Brioche Artesanal Amarelo (c/ gergelim preto)", price: 0 },
       { id: "australiano", name: "Australiano", price: 3 },
       { id: "batata", name: "Pão de batata", price: 2 },
       { id: "integral", name: "Integral", price: 2 },
@@ -124,36 +124,36 @@ export const BUILDER = [
 export const PRODUCTS = [
   {
     id: "p1", name: "Tô no Sarro Salada Burger", cat: "burgers", emoji: "🍔",
-    desc: "100g de carne no pão brioche com salada fresca e o molho especial da casa.",
-    ingredients: ["Pão brioche", "Carne 100g", "Alface", "Tomate", "Cebola roxa", "Molho especial"],
+    desc: "100g de carne no pão brioche artesanal amarelo com gergelim preto, salada fresca e molho especial.",
+    ingredients: ["Pão brioche amarelo c/ gergelim preto", "Carne 100g", "Alface", "Tomate", "Cebola roxa", "Molho especial"],
     price: 16, promo: null, time: 18, badges: ["maisvendido"], available: 1,
     groups: ["ponto", "queijo", "molho", "adicionais", "remover"], stock: 40, builder: 0,
   },
   {
     id: "p2", name: "Sarro Massa Bacon Burger", cat: "burgers", emoji: "🥓",
-    desc: "100g de carne, bacon crocante e creme cheddar no pão brioche.",
-    ingredients: ["Pão brioche", "Carne 100g", "Bacon crocante", "Creme cheddar", "Molho especial"],
+    desc: "100g de carne, bacon crocante e creme cheddar no pão brioche artesanal amarelo.",
+    ingredients: ["Pão brioche amarelo c/ gergelim preto", "Carne 100g", "Bacon crocante", "Creme cheddar", "Molho especial"],
     price: 20, promo: null, time: 20, badges: ["maisvendido"], available: 1,
     groups: ["ponto", "molho", "adicionais", "remover"], stock: 28, builder: 0,
   },
   {
     id: "p3", name: "Sarro Peso Calabresa Burger", cat: "burgers", emoji: "🍔",
-    desc: "100g de carne com calabresa e creme cheddar no pão brioche.",
-    ingredients: ["Pão brioche", "Carne 100g", "Calabresa", "Creme cheddar", "Molho especial"],
+    desc: "100g de carne com calabresa fatiada e creme cheddar no pão brioche artesanal amarelo.",
+    ingredients: ["Pão brioche amarelo c/ gergelim preto", "Carne 100g", "Calabresa fatiada", "Creme cheddar", "Molho especial"],
     price: 25, promo: null, time: 24, badges: [], available: 1,
     groups: ["ponto", "queijo", "molho", "adicionais", "remover"], stock: 15, builder: 0,
   },
   {
     id: "p4", name: "Sarro Desmantelo Cheddar Burger", cat: "burgers", emoji: "🍔",
-    desc: "100g de carne com desmantelo de creme cheddar no pão brioche.",
-    ingredients: ["Pão brioche", "Carne 100g", "Desmantelo de creme cheddar", "Molho especial"],
+    desc: "100g de carne com desmantelo de creme cheddar cascata no pão brioche amarelo.",
+    ingredients: ["Pão brioche amarelo c/ gergelim preto", "Carne 100g", "Desmantelo de creme cheddar", "Molho especial"],
     price: 20, promo: null, time: 15, badges: [], available: 1,
     groups: ["queijo", "molho", "adicionais", "remover"], stock: 33, builder: 0,
   },
   {
     id: "p5", name: "Sarro Arretado Burger", cat: "burgers", emoji: "🍔",
-    desc: "100g de carne com queijo coalho grelhado no pão brioche. Arretado de bom!",
-    ingredients: ["Pão brioche", "Carne 100g", "Queijo coalho grelhado", "Molho especial"],
+    desc: "100g de carne com fatia grossa de queijo coalho grelhado no pão brioche amarelo.",
+    ingredients: ["Pão brioche amarelo c/ gergelim preto", "Carne 100g", "Queijo coalho grelhado", "Molho especial"],
     price: 23.9, promo: null, time: 20, badges: ["novidade"], available: 1,
     groups: ["queijo", "molho", "adicionais", "remover"], stock: 22, builder: 0,
   },
@@ -250,7 +250,7 @@ export const CUSTOMERS = [
 
 export const INVENTORY = [
   { id: "i1", name: "Blend bovino 180g", unit: "un", qty: 86, min: 40 },
-  { id: "i2", name: "Pão brioche", unit: "un", qty: 62, min: 50 },
+  { id: "i2", name: "Pão brioche amarelo c/ gergelim preto", unit: "un", qty: 62, min: 50 },
   { id: "i3", name: "Queijo cheddar", unit: "fatia", qty: 210, min: 80 },
   { id: "i4", name: "Bacon", unit: "kg", qty: 3.4, min: 4 },
   { id: "i5", name: "Alface", unit: "un", qty: 12, min: 6 },
