@@ -1147,16 +1147,36 @@ function promoPatch(body) {
   if (b.rule !== undefined) patch.rule = String(b.rule ?? "").trim().slice(0, 140);
   if (b.window !== undefined) patch.window = String(b.window ?? "").trim().slice(0, 40);
   if (b.active !== undefined) patch.active = b.active ? 1 : 0;
+  for (const k of ["starts_at", "ends_at"]) {
+    if (b[k] !== undefined) {
+      if (b[k] === null || b[k] === "") patch[k] = null;
+      else {
+        const v = Math.floor(Number(b[k]));
+        if (!Number.isFinite(v) || v < 0 || v > 4102444800000) {
+          return { error: k === "starts_at" ? "Início da vigência inválido." : "Fim da vigência inválido." };
+        }
+        patch[k] = v;
+      }
+    }
+  }
   return { patch };
+}
+
+// A vigência precisa fazer sentido: fim depois do início
+function promoWindowOk(startsAt, endsAt) {
+  return startsAt == null || endsAt == null || endsAt > startsAt;
 }
 
 app.post("/api/promos", requireRole("ADMIN", "GERENTE"), (req, res) => {
   const { patch, error } = promoPatch({ name: req.body?.name ?? "", ...req.body });
   if (error) return res.status(400).json({ error });
   if (!patch.name) return res.status(400).json({ error: "Dê um nome para a promoção." });
+  if (!promoWindowOk(patch.starts_at ?? null, patch.ends_at ?? null)) {
+    return res.status(400).json({ error: "O fim da vigência precisa ser depois do início." });
+  }
   const id = "pr_" + crypto.randomBytes(4).toString("hex");
-  db.prepare("INSERT INTO promos (id, name, rule, active, window) VALUES (?, ?, ?, ?, ?)")
-    .run(id, patch.name, patch.rule ?? "", patch.active ?? 1, patch.window ?? "");
+  db.prepare("INSERT INTO promos (id, name, rule, active, window, starts_at, ends_at) VALUES (?, ?, ?, ?, ?, ?, ?)")
+    .run(id, patch.name, patch.rule ?? "", patch.active ?? 1, patch.window ?? "", patch.starts_at ?? null, patch.ends_at ?? null);
   audit(req.user.username, "promo_criada", patch.name);
   broadcast();
   res.status(201).json({ promo: getPromos().find((p) => p.id === id) });
@@ -1169,6 +1189,11 @@ app.patch("/api/promos/:id", requireRole("ADMIN", "GERENTE"), (req, res) => {
   if (error) return res.status(400).json({ error });
   const keys = Object.keys(patch);
   if (!keys.length) return res.status(400).json({ error: "Nada para atualizar." });
+  const starts = patch.starts_at !== undefined ? patch.starts_at : p.starts_at;
+  const ends = patch.ends_at !== undefined ? patch.ends_at : p.ends_at;
+  if (!promoWindowOk(starts, ends)) {
+    return res.status(400).json({ error: "O fim da vigência precisa ser depois do início." });
+  }
   const set = keys.map((k) => `${k} = ?`).join(", ");
   db.prepare(`UPDATE promos SET ${set} WHERE id = ?`).run(...keys.map((k) => patch[k]), p.id);
   audit(req.user.username, "promo_atualizada", `${p.name}: ${JSON.stringify(patch).slice(0, 200)}`);
@@ -1185,11 +1210,11 @@ app.delete("/api/promos/:id", requireRole("ADMIN", "GERENTE"), (req, res) => {
   res.json({ ok: true });
 });
 
-// --- Usuários da equipe ---
-// A lista NÃO vai no broadcast (só ADMIN/GERENTE buscam via GET) para não
+// --- Usuários da equipe (só ADMIN) ---
+// A lista NÃO vai no broadcast (só o admin busca via GET) para não
 // vazar logins para os outros painéis da equipe.
 
-app.get("/api/users", requireRole("ADMIN", "GERENTE"), (_req, res) => {
+app.get("/api/users", requireRole("ADMIN"), (_req, res) => {
   res.json({ users: getUsers(), roles: ROLES });
 });
 
@@ -1234,7 +1259,7 @@ function normalizeDriver(role, driverId) {
   return driverId;
 }
 
-app.post("/api/users", requireRole("ADMIN", "GERENTE"), (req, res) => {
+app.post("/api/users", requireRole("ADMIN"), (req, res) => {
   const username = String(req.body?.username || "").trim().toLowerCase();
   if (!validUsername(username)) {
     return res.status(400).json({ error: "Usuário inválido (3 a 20 minúsculas, números, ponto, _ ou -)." });
@@ -1248,9 +1273,6 @@ app.post("/api/users", requireRole("ADMIN", "GERENTE"), (req, res) => {
   }
   const { patch, error } = userPatch({ ...req.body, password }, { partial: false });
   if (error) return res.status(400).json({ error });
-  if (req.user.role !== "ADMIN" && patch.role === "ADMIN") {
-    return res.status(403).json({ error: "Só o administrador pode criar outro administrador." });
-  }
   const driverId = normalizeDriver(patch.role, patch.driver_id ?? null);
   if (patch.role === "ENTREGADOR" && !driverId) {
     return res.status(400).json({ error: "Escolha o entregador vinculado a este login." });
@@ -1262,15 +1284,11 @@ app.post("/api/users", requireRole("ADMIN", "GERENTE"), (req, res) => {
   res.status(201).json({ user: getUsers().find((u) => u.id === id) });
 });
 
-app.patch("/api/users/:id", requireRole("ADMIN", "GERENTE"), (req, res) => {
+app.patch("/api/users/:id", requireRole("ADMIN"), (req, res) => {
   const u = db.prepare("SELECT * FROM users WHERE id = ?").get(req.params.id);
   if (!u) return res.status(404).json({ error: "Usuário não encontrado." });
 
   const self = u.id === req.user.id;
-  // Gerente não mexe em administrador (nem promove ninguém a admin)
-  if (req.user.role !== "ADMIN" && (u.role === "ADMIN" || req.body?.role === "ADMIN")) {
-    return res.status(403).json({ error: "Só o administrador pode gerenciar administradores." });
-  }
 
   const { patch, error } = userPatch(req.body, { partial: true });
   if (error) return res.status(400).json({ error });

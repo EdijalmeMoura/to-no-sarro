@@ -45,7 +45,8 @@ db.exec(`
     pass_hash TEXT NOT NULL,
     role TEXT NOT NULL,
     driver_id TEXT,
-    active INTEGER DEFAULT 1
+    active INTEGER DEFAULT 1,
+    last_login_at INTEGER
   );
 
   CREATE TABLE IF NOT EXISTS sessions (
@@ -114,7 +115,8 @@ db.exec(`
   );
 
   CREATE TABLE IF NOT EXISTS promos (
-    id TEXT PRIMARY KEY, name TEXT, rule TEXT, active INTEGER DEFAULT 1, window TEXT
+    id TEXT PRIMARY KEY, name TEXT, rule TEXT, active INTEGER DEFAULT 1, window TEXT,
+    starts_at INTEGER, ends_at INTEGER
   );
 
   CREATE TABLE IF NOT EXISTS orders (
@@ -204,6 +206,9 @@ addColumnIfMissing("orders", "payment_status", "payment_status TEXT DEFAULT ('in
 addColumnIfMissing("orders", "ext_ref", "ext_ref TEXT");
 addColumnIfMissing("orders", "track_token", "track_token TEXT");
 addColumnIfMissing("users", "active", "active INTEGER DEFAULT 1");
+addColumnIfMissing("users", "last_login_at", "last_login_at INTEGER");
+addColumnIfMissing("promos", "starts_at", "starts_at INTEGER");
+addColumnIfMissing("promos", "ends_at", "ends_at INTEGER");
 
 function getSettingRaw(key) {
   try { return db.prepare("SELECT value FROM settings WHERE key = ?").get(key)?.value; } catch { return undefined; }
@@ -396,8 +401,8 @@ export function getCoupons() {
 
 // Gestão de usuários — nunca devolve o hash da senha
 export function getUsers() {
-  return db.prepare("SELECT id, name, username, role, driver_id, active FROM users ORDER BY name").all()
-    .map((u) => ({ id: u.id, name: u.name, username: u.username, role: u.role, driverId: u.driver_id || null, active: u.active !== 0 }));
+  return db.prepare("SELECT id, name, username, role, driver_id, active, last_login_at FROM users ORDER BY name").all()
+    .map((u) => ({ id: u.id, name: u.name, username: u.username, role: u.role, driverId: u.driver_id || null, active: u.active !== 0, lastLoginAt: u.last_login_at || null }));
 }
 
 export function getDrivers() {
@@ -417,7 +422,7 @@ export function getInventory() {
 
 export function getPromos() {
   return db.prepare("SELECT * FROM promos ORDER BY id").all()
-    .map((p) => ({ id: p.id, name: p.name, rule: p.rule, active: !!p.active, window: p.window }));
+    .map((p) => ({ id: p.id, name: p.name, rule: p.rule, active: !!p.active, window: p.window, startsAt: p.starts_at || null, endsAt: p.ends_at || null }));
 }
 
 export function getSettings() {

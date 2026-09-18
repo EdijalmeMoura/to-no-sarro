@@ -90,9 +90,11 @@ As senhas são semente de demonstração — o banco guarda apenas hash bcrypt. 
 - **Expedição:** fila de prontos, embalar, atribuir entregador, retirada no balcão
 - **Entregador:** mobile-first, cada um vê só as próprias entregas (validado no servidor)
 - **Promoções:** cupons com criar, editar, ativar/pausar e excluir + promoções
-  programadas com o mesmo controle
-- **Equipe:** gestão de usuários (perfis, vínculo de entregador, ativar/desativar na
-  hora, troca de senha); só admin exclui — e nunca a si mesmo nem o último admin
+  programadas com janela de início/fim e selo automático (ativa agora, programada,
+  pausada, expirada)
+- **Configurações → Usuários e permissões (só admin):** gestão de acessos com
+  perfil, entregador vinculado, último acesso e status; desativar bloqueia o login
+  na hora — nunca a si mesmo nem o último administrador
 
 **Integridade**
 - Preços, cupons, taxa e total são **recalculados no servidor** — o cliente não manda valor
@@ -100,7 +102,8 @@ As senhas são semente de demonstração — o banco guarda apenas hash bcrypt. 
 - Produto com histórico de pedidos não é excluído (só despublicado)
 - Sessão em cookie httpOnly, senhas bcrypt, rate limit no login, log de auditoria
 - Toda mutação dispara um broadcast WebSocket; os cinco painéis atualizam sozinhos
-  (e se o socket cair, os painéis de pedido se atualizam sozinhos a cada 60s)
+  (e se o socket cair, os painéis de pedido se atualizam a cada 60s, na volta à
+  aba e no botão “Atualizar agora”)
 
 ## Pagamento online — InfinitePay ♾️
 

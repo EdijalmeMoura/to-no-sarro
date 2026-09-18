@@ -56,6 +56,7 @@ export function login(req, res) {
     return res.status(403).json({ error: "Conta desativada. Fale com o administrador." });
   }
   registerAttempt(ip, true);
+  db.prepare("UPDATE users SET last_login_at = ? WHERE id = ?").run(Date.now(), user.id);
 
   const token = crypto.randomBytes(32).toString("hex");
   db.prepare("INSERT INTO sessions (token, user_id, created_at) VALUES (?, ?, ?)").run(token, user.id, Date.now());

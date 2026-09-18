@@ -306,26 +306,37 @@ function WaIcon({ size = 22, color = "#fff", style }) {
 
 // Selo de sincronização dos painéis de pedido: mostra se o tempo real está
 // ligado e há quanto tempo os dados foram atualizados. Toque = atualizar agora.
+// Relógio de sincronização dos painéis de pedido: mostra há quanto tempo
+// os dados foram carregados + botão para forçar a atualização na hora.
 function SyncBadge({ store, now }) {
   const age = Math.max(0, Math.floor((now - (store.lastSyncAt || now)) / 1000));
   const label = age < 5 ? "agora mesmo" : age < 60 ? `há ${age}s` : `há ${Math.floor(age / 60)}min`;
   const live = store.wsOnline;
   return (
-    <button
-      onClick={() => store.refreshAll(true)}
-      title="Toque para atualizar os pedidos agora"
-      className="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 font-bold"
-      style={{ background: C.gray850, border: `1px solid ${C.gray800}`, color: "#9a9a9a", fontSize: 10.5 }}
-    >
+    <span className="flex items-center gap-1.5">
       <span
-        style={{
-          width: 7, height: 7, borderRadius: 99,
-          background: live ? C.green : C.yellow,
-          animation: "sarropulse 2s ease-in-out infinite",
-        }}
-      />
-      {live ? "ao vivo" : "a cada 60s"} · {label} ⟳
-    </button>
+        title={live ? "Tempo real ligado (com rede de segurança a cada 60s)" : "Tempo real caído — atualizando a cada 60s"}
+        className="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 font-bold"
+        style={{ background: C.gray850, border: `1px solid ${C.gray800}`, color: "#9a9a9a", fontSize: 10.5, whiteSpace: "nowrap" }}
+      >
+        <span
+          style={{
+            width: 7, height: 7, borderRadius: 99,
+            background: live ? C.green : C.yellow,
+            animation: "sarropulse 2s ease-in-out infinite",
+          }}
+        />
+        🔄 {label}
+      </span>
+      <button
+        onClick={() => store.refreshAll(true)}
+        title="Atualizar os pedidos agora"
+        className="rounded-lg px-2.5 py-1.5 font-bold"
+        style={{ background: C.gray800, border: `1px solid ${C.gray700}`, color: C.white, fontSize: 10.5, whiteSpace: "nowrap" }}
+      >
+        Atualizar agora
+      </button>
+    </span>
   );
 }
 
@@ -2635,6 +2646,44 @@ function FSelect({ label, value, onChange, options }) {
 const couponLabel = (c) =>
   c.type === "percent" ? `${c.value}% off` : c.type === "fixed" ? `${brl(c.value)} off` : "Entrega grátis";
 
+// Selo automático da promoção: deriva do relógio — entra e sai do ar
+// sozinha, sem ninguém precisar lembrar de ligar/desligar.
+function promoStatus(p, now) {
+  if (!p.active) return { label: "PAUSADA", color: "#7a7a7a" };
+  if (p.startsAt && now < p.startsAt) return { label: "PROGRAMADA", color: C.blue };
+  if (p.endsAt && now > p.endsAt) return { label: "EXPIRADA", color: C.red };
+  return { label: "ATIVA AGORA", color: C.green };
+}
+
+const fmtShort = (ts) =>
+  new Date(ts).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
+
+// datetime-local ⟷ timestamp (hora local)
+const toLocalInput = (ts) => {
+  if (!ts) return "";
+  const d = new Date(ts);
+  const p2 = (n) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${p2(d.getMonth() + 1)}-${p2(d.getDate())}T${p2(d.getHours())}:${p2(d.getMinutes())}`;
+};
+const fromLocalInput = (v) => {
+  if (!v) return null;
+  const t = new Date(v).getTime();
+  return Number.isFinite(t) ? t : null;
+};
+
+// "Último acesso" da equipe
+function lastSeen(ts, now) {
+  if (!ts) return "nunca";
+  const m = Math.floor((now - ts) / 60000);
+  if (m < 1) return "agora";
+  if (m < 60) return `há ${m}min`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `há ${h}h`;
+  const d = Math.floor(h / 24);
+  if (d < 7) return `há ${d}d`;
+  return fmtShort(ts);
+}
+
 function CouponForm({ initial, onClose, onSaved }) {
   const [f, setF] = useState({
     code: initial?.code || "",
@@ -2704,6 +2753,8 @@ function PromoForm({ initial, onClose, onSaved }) {
     name: initial?.name || "",
     rule: initial?.rule || "",
     window: initial?.window || "",
+    starts: toLocalInput(initial?.startsAt),
+    ends: toLocalInput(initial?.endsAt),
     active: initial ? !!initial.active : true,
   });
   const [busy, setBusy] = useState(false);
@@ -2713,10 +2764,15 @@ function PromoForm({ initial, onClose, onSaved }) {
   const save = async () => {
     setBusy(true); setErr("");
     try {
+      const body = {
+        name: f.name.trim(), rule: f.rule.trim(), window: f.window.trim(),
+        starts_at: fromLocalInput(f.starts), ends_at: fromLocalInput(f.ends),
+        active: f.active,
+      };
       if (initial) {
-        await api(`/api/promos/${initial.id}`, { method: "PATCH", body: f });
+        await api(`/api/promos/${initial.id}`, { method: "PATCH", body });
       } else {
-        await api("/api/promos", { method: "POST", body: f });
+        await api("/api/promos", { method: "POST", body });
       }
       onSaved(initial ? "Promoção atualizada ✓" : "Promoção criada ✓");
     } catch (e) {
@@ -2730,7 +2786,11 @@ function PromoForm({ initial, onClose, onSaved }) {
     <FormShell title={initial ? "EDITAR PROMOÇÃO" : "NOVA PROMOÇÃO"} onClose={onClose}>
       <Field label="Nome" value={f.name} onChange={(v) => set("name", v)} ph="Ex: Happy Hour do Sarro" />
       <Field label="Regra" value={f.rule} onChange={(v) => set("rule", v)} ph="Ex: 18h às 20h — 15% off em combos" />
-      <Field label="Quando vale" value={f.window} onChange={(v) => set("window", v)} ph="Ex: 18:00–20:00" />
+      <Field label="Quando vale (texto)" value={f.window} onChange={(v) => set("window", v)} ph="Ex: Terças · 18h às 20h" />
+      <div className="grid grid-cols-2 gap-3">
+        <Field label="Início (vazio = já)" value={f.starts} onChange={(v) => set("starts", v)} type="datetime-local" />
+        <Field label="Fim (vazio = sem fim)" value={f.ends} onChange={(v) => set("ends", v)} type="datetime-local" />
+      </div>
       <button onClick={() => set("active", !f.active)} className="flex items-center gap-2.5">
         <MiniToggle on={f.active} onClick={() => set("active", !f.active)} />
         <span style={{ color: f.active ? C.green : "#7a7a7a", fontSize: 12.5, fontWeight: 800 }}>
@@ -2743,7 +2803,7 @@ function PromoForm({ initial, onClose, onSaved }) {
   );
 }
 
-function AdminPromos({ store }) {
+function AdminPromos({ store, now }) {
   const [couponForm, setCouponForm] = useState(null); // null | "new" | cupom
   const [promoForm, setPromoForm] = useState(null); // null | "new" | promo
   const [confirmDel, setConfirmDel] = useState(null); // { kind: "coupon"|"promo", ref }
@@ -2823,17 +2883,24 @@ function AdminPromos({ store }) {
           <Btn small onClick={() => setPromoForm("new")}>+ Nova promoção</Btn>
         </div>
         <div className="grid md:grid-cols-3 gap-3">
-          {store.promos.map((p) => (
+          {store.promos.map((p) => { const st = promoStatus(p, now); return (
             <Card key={p.id} className="p-4" style={{ opacity: p.active ? 1 : 0.6 }}>
               <div className="flex justify-between items-start gap-2">
                 <span style={{ color: C.white, fontWeight: 800, fontSize: 13.5 }}>{p.name}</span>
                 <MiniToggle on={p.active} onClick={() => togglePromo(p)} />
               </div>
               <div style={{ color: "#9a9a9a", fontSize: 12, marginTop: 6, minHeight: 18 }}>{p.rule}</div>
-              <div style={{ color: C.yellowLight, fontSize: 11, marginTop: 8, fontWeight: 700 }}>⏰ {p.window || "sempre"}</div>
+              <div style={{ color: C.yellowLight, fontSize: 11, marginTop: 8, fontWeight: 700 }}>
+                ⏰ {p.startsAt || p.endsAt
+                  ? `${p.startsAt ? fmtShort(p.startsAt) : "…"} → ${p.endsAt ? fmtShort(p.endsAt) : "…"}`
+                  : (p.window || "sempre")}
+              </div>
+              {p.window && (p.startsAt || p.endsAt) && (
+                <div style={{ color: "#7a7a7a", fontSize: 10.5, marginTop: 2 }}>{p.window}</div>
+              )}
               <div className="flex items-center justify-between mt-3 pt-3" style={{ borderTop: `1px solid ${C.gray800}` }}>
-                <span style={{ color: p.active ? C.green : "#6a6a6a", fontSize: 10.5, fontWeight: 800 }}>
-                  {p.active ? "ATIVA" : "PAUSADA"}
+                <span className="rounded-md px-2 py-0.5 font-bold" style={{ background: `${st.color}1f`, color: st.color, fontSize: 10.5 }}>
+                  {st.label}
                 </span>
                 <span className="flex items-center gap-1.5">
                   <button onClick={() => setPromoForm(p)} className="rounded-lg px-2 py-1 font-bold"
@@ -2843,7 +2910,7 @@ function AdminPromos({ store }) {
                 </span>
               </div>
             </Card>
-          ))}
+          ); })}
           {store.promos.length === 0 && (
             <Card className="p-6 text-center"><span style={{ color: "#8a8a8a", fontSize: 13 }}>Nenhuma promoção. Crie a primeira acima ↑</span></Card>
           )}
@@ -2937,7 +3004,7 @@ function UserForm({ initial, roles, drivers, onClose, onSaved }) {
   );
 }
 
-function AdminUsers({ store }) {
+function AdminUsers({ store, now }) {
   const [users, setUsers] = useState([]);
   const [roles, setRoles] = useState(Object.keys(ROLE_LABELS));
   const [loading, setLoading] = useState(true);
@@ -2995,7 +3062,7 @@ function AdminUsers({ store }) {
 
       <Card className="p-1">
         <Table
-          cols={["Nome", "Usuário", "Perfil", "Vínculo", "Status", ""]}
+          cols={["Nome", "Usuário", "Perfil", "Vínculo", "Último acesso", "Status", ""]}
           rows={users.map((u) => {
             const self = u.id === store.me?.id;
             return [
@@ -3011,6 +3078,7 @@ function AdminUsers({ store }) {
                 {ROLE_LABELS[u.role] || u.role}
               </span>,
               <span key="d" style={{ fontSize: 12 }}>{u.role === "ENTREGADOR" ? `🛵 ${driverName(u.driverId)}` : "—"}</span>,
+              <span key="l" style={{ fontSize: 11.5 }}>{lastSeen(u.lastLoginAt, now)}</span>,
               <span key="s" className="flex items-center gap-2">
                 <span style={{ opacity: self ? 0.35 : 1, display: "inline-flex" }} title={self ? "Você não pode desativar a própria conta" : ""}>
                   <MiniToggle on={u.active} onClick={() => !self && toggle(u)} />
@@ -3665,7 +3733,7 @@ function AdminPrinterCard({ store }) {
     </Card>
   );
 }
-function AdminSettings({ store }) {
+function AdminSettings({ store, now }) {
   return (
     <div className="grid lg:grid-cols-2 gap-3">
       <AdminPaymentsCard store={store} />
@@ -3691,21 +3759,30 @@ function AdminSettings({ store }) {
         </Row>
       </Card>
 
-      <Card className="p-4">
-        <div style={{ color: C.white, fontWeight: 900, fontSize: 14, marginBottom: 4 }}>Usuários e permissões</div>
-        {[
-          ["Administrador", "Acesso total, incluindo financeiro e integrações"],
-          ["Gerente", "Tudo, exceto usuários e integrações"],
-          ["Atendimento", "Pedidos, clientes e cupons"],
-          ["Cozinha", "Somente painel da cozinha"],
-          ["Expedição", "Pedidos prontos e atribuição de entregador"],
-          ["Entregador", "Somente as próprias entregas"],
-        ].map(([r, d]) => (
-          <div key={r} className="py-3" style={{ borderBottom: `1px solid ${C.gray850}` }}>
-            <div style={{ color: C.white, fontWeight: 800, fontSize: 13 }}>{r}</div>
-            <div style={{ color: "#8a8a8a", fontSize: 11.5, marginTop: 2 }}>{d}</div>
+      <Card className="p-4 lg:col-span-2">
+        <div style={{ color: C.white, fontWeight: 900, fontSize: 14, marginBottom: 10 }}>Usuários e permissões</div>
+        {store.me?.role === "ADMIN" ? (
+          <AdminUsers store={store} now={now} />
+        ) : (
+          <div>
+            {[
+              ["Administrador", "Acesso total, incluindo usuários, financeiro e integrações"],
+              ["Gerente", "Tudo, exceto gerenciar usuários"],
+              ["Atendimento", "Pedidos, clientes e cupons"],
+              ["Cozinha", "Somente painel da cozinha"],
+              ["Expedição", "Pedidos prontos e atribuição de entregador"],
+              ["Entregador", "Somente as próprias entregas"],
+            ].map(([r, d]) => (
+              <div key={r} className="py-2.5" style={{ borderBottom: `1px solid ${C.gray850}` }}>
+                <span style={{ color: C.white, fontWeight: 800, fontSize: 12.5 }}>{r}</span>
+                <span style={{ color: "#8a8a8a", fontSize: 11.5 }}> — {d}</span>
+              </div>
+            ))}
+            <div style={{ color: C.yellowLight, fontSize: 11.5, marginTop: 10, fontWeight: 700 }}>
+              🔒 Só o administrador gerencia acessos.
+            </div>
           </div>
-        ))}
+        )}
       </Card>
 
       <Card className="p-4">
@@ -3753,7 +3830,6 @@ const ADMIN_NAV = [
   { id: "categorias", icon: "🗂", label: "Categorias" },
   { id: "clientes", icon: "👥", label: "Clientes" },
   { id: "promos", icon: "🎟", label: "Promoções" },
-  { id: "equipe", icon: "🧑‍💼", label: "Equipe" },
   { id: "estoque", icon: "📦", label: "Estoque" },
   { id: "financeiro", icon: "💰", label: "Financeiro" },
   { id: "relatorios", icon: "📈", label: "Relatórios" },
@@ -3843,13 +3919,12 @@ function AdminApp({ store, now }) {
         {sec === "produtos" && <AdminProducts store={store} />}
         {sec === "categorias" && <AdminCategories store={store} />}
         {sec === "clientes" && <AdminCustomers store={store} />}
-        {sec === "promos" && <AdminPromos store={store} />}
-        {sec === "equipe" && <AdminUsers store={store} />}
+        {sec === "promos" && <AdminPromos store={store} now={now} />}
         {sec === "estoque" && <AdminInventory store={store} />}
         {sec === "financeiro" && <AdminFinance store={store} now={now} />}
         {sec === "relatorios" && <AdminReports store={store} now={now} />}
         {sec === "integracoes" && <AdminIntegrations store={store} />}
-        {sec === "config" && <AdminSettings store={store} />}
+        {sec === "config" && <AdminSettings store={store} now={now} />}
       </main>
     </div>
   );
@@ -4503,22 +4578,42 @@ export default function App() {
     return () => clearInterval(t);
   }, [applySync]);
 
+  const refreshAll = useCallback(async (announce) => {
+    try {
+      const d = await api("/api/bootstrap");
+      setCatalog({ categories: d.categories, optionGroups: d.optionGroups, builder: d.builder });
+      applySync(d);
+      if (announce) toast("Pedidos atualizados ✓");
+    } catch {
+      if (announce) toast("Sem conexão com o servidor");
+    }
+  }, [applySync]);
+
+  // Voltou pra aba/app depois de um tempo? Atualiza na hora (com trava
+  // de 15s para não refazer a carga a cada clique fora e dentro).
+  useEffect(() => {
+    let last = 0;
+    const wake = () => {
+      const t = Date.now();
+      if (t - last < 15000) return;
+      last = t;
+      refreshAll(false);
+    };
+    const onVis = () => { if (document.visibilityState === "visible") wake(); };
+    document.addEventListener("visibilitychange", onVis);
+    window.addEventListener("focus", wake);
+    return () => {
+      document.removeEventListener("visibilitychange", onVis);
+      window.removeEventListener("focus", wake);
+    };
+  }, [refreshAll]);
+
   const store = {
     role, tab, setTab, me,
     orders, products, inventory, drivers, customers, coupons, promos, settings,
     optionGroups: catalog.optionGroups, builder: catalog.builder, categories: catalog.categories,
     cart, coupon, setCoupon, myOrderId, myOrder, notifications, toast,
-    wsOnline, lastSyncAt,
-    refreshAll: async (announce) => {
-      try {
-        const d = await api("/api/bootstrap");
-        setCatalog({ categories: d.categories, optionGroups: d.optionGroups, builder: d.builder });
-        applySync(d);
-        if (announce) toast("Pedidos atualizados ✓");
-      } catch {
-        if (announce) toast("Sem conexão com o servidor");
-      }
-    },
+    wsOnline, lastSyncAt, refreshAll,
     refreshMyOrder: async () => {
       const id = localStorage.getItem("sarro_my_order");
       if (!id) return null;
