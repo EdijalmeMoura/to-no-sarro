@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useRef } from "react";
+import React, { useState, useEffect, useMemo, useRef, useCallback } from "react";
 
 // ============================================================
 // TÔ NO SARRO! — SMART FOOD SYSTEM
@@ -301,6 +301,42 @@ function WaIcon({ size = 22, color = "#fff", style }) {
     <svg width={size} height={size} viewBox="0 0 24 24" fill={color} style={style} aria-hidden="true">
       <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413Z" />
     </svg>
+  );
+}
+
+// Selo de sincronização dos painéis de pedido: mostra se o tempo real está
+// ligado e há quanto tempo os dados foram atualizados. Toque = atualizar agora.
+// Relógio de sincronização dos painéis de pedido: mostra há quanto tempo
+// os dados foram carregados + botão para forçar a atualização na hora.
+function SyncBadge({ store, now }) {
+  const age = Math.max(0, Math.floor((now - (store.lastSyncAt || now)) / 1000));
+  const label = age < 5 ? "agora mesmo" : age < 60 ? `há ${age}s` : `há ${Math.floor(age / 60)}min`;
+  const live = store.wsOnline;
+  return (
+    <span className="flex items-center gap-1.5">
+      <span
+        title={live ? "Tempo real ligado (com rede de segurança a cada 60s)" : "Tempo real caído — atualizando a cada 60s"}
+        className="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 font-bold"
+        style={{ background: C.gray850, border: `1px solid ${C.gray800}`, color: "#9a9a9a", fontSize: 10.5, whiteSpace: "nowrap" }}
+      >
+        <span
+          style={{
+            width: 7, height: 7, borderRadius: 99,
+            background: live ? C.green : C.yellow,
+            animation: "sarropulse 2s ease-in-out infinite",
+          }}
+        />
+        🔄 {label}
+      </span>
+      <button
+        onClick={() => store.refreshAll(true)}
+        title="Atualizar os pedidos agora"
+        className="rounded-lg px-2.5 py-1.5 font-bold"
+        style={{ background: C.gray800, border: `1px solid ${C.gray700}`, color: C.white, fontSize: 10.5, whiteSpace: "nowrap" }}
+      >
+        Atualizar agora
+      </button>
+    </span>
   );
 }
 
@@ -1567,7 +1603,7 @@ function BottomNav({ tab, setTab, cartCount }) {
   );
 }
 
-function ClientApp({ store, now }) {
+function ClientApp({ store, now, goRole }) {
   const [modal, setModal] = useState(null);
   const [checkout, setCheckout] = useState(null);
   const cartCount = store.cart.reduce((s, i) => s + i.qty, 0);
@@ -1626,6 +1662,21 @@ function ClientApp({ store, now }) {
         >
           <WaIcon size={24} color="#fff" />
         </a>
+      )}
+
+      {!checkout && (
+        <footer className="text-center py-6 pb-24 text-xs" style={{ color: "#555" }}>
+          <div>Tô no Sarro Burgers & Açaí · Smart Food System</div>
+          <div className="mt-1">
+            <a
+              href={rolePath("admin")}
+              onClick={(e) => { e.preventDefault(); goRole?.("admin"); }}
+              style={{ color: "#666", textDecoration: "none", fontSize: 10.5 }}
+            >
+              🔒 Área da equipe
+            </a>
+          </div>
+        </footer>
       )}
 
       {!checkout && <BottomNav tab={store.tab} setTab={store.setTab} cartCount={cartCount} />}
@@ -1850,6 +1901,7 @@ function AdminOrders({ store, now }) {
       <div className="flex flex-wrap items-center gap-2 mb-4">
         <Btn small variant={view === "kanban" ? "primary" : "dark"} onClick={() => setView("kanban")}>Kanban</Btn>
         <Btn small variant={view === "lista" ? "primary" : "dark"} onClick={() => setView("lista")}>Lista</Btn>
+        <SyncBadge store={store} now={now} />
         <div className="flex-1" />
         {["TODOS", ...Object.keys(CHANNELS)].map((k) => (
           <button
@@ -2546,38 +2598,536 @@ function AdminReports({ store, now }) {
   );
 }
 
-function AdminPromos({ store }) {
+// Interruptor pequeno de ativar/pausar (cupons, promos, usuários)
+function MiniToggle({ on, onClick, title }) {
+  return (
+    <button
+      onClick={onClick} title={title || (on ? "Pausar" : "Ativar")}
+      className="rounded-full shrink-0"
+      style={{ width: 38, height: 21, background: on ? C.green : C.gray700, position: "relative", transition: "background .2s" }}
+    >
+      <span
+        style={{
+          position: "absolute", top: 2.5, left: on ? 20 : 2.5, width: 16, height: 16,
+          borderRadius: 99, background: C.white, transition: "left .2s",
+        }}
+      />
+    </button>
+  );
+}
+
+// Molde dos modais de gestão (cupom, promoção, usuário)
+function FormShell({ title, sub, onClose, children }) {
+  return (
+    <div className="fixed inset-0 z-40 flex items-end sm:items-center justify-center" style={{ background: "rgba(0,0,0,.78)" }}>
+      <div
+        className="w-full sm:max-w-md max-h-[92vh] overflow-y-auto p-5"
+        style={{ background: C.gray900, borderTop: `3px solid ${C.orange}`, borderRadius: "22px 22px 0 0" }}
+      >
+        <div className="flex items-start justify-between mb-1">
+          <div>
+            <h3 style={{ fontFamily: font.display, fontStyle: "italic", fontSize: 20, color: C.white }}>{title}</h3>
+            {sub && <div style={{ color: "#8a8a8a", fontSize: 12, marginTop: 2 }}>{sub}</div>}
+          </div>
+          <button
+            onClick={onClose}
+            className="rounded-full flex items-center justify-center shrink-0"
+            style={{ width: 32, height: 32, background: C.gray800, color: C.white, fontSize: 15 }}
+          >
+            ✕
+          </button>
+        </div>
+        <div className="space-y-3 mt-4">{children}</div>
+      </div>
+    </div>
+  );
+}
+
+function FSelect({ label, value, onChange, options }) {
+  return (
+    <label className="block">
+      <span style={{ color: "#9a9a9a", fontSize: 11.5, fontWeight: 700 }}>{label}</span>
+      <select
+        value={value} onChange={(e) => onChange(e.target.value)}
+        className="w-full rounded-xl px-3 py-3 mt-1.5 outline-none"
+        style={{ background: C.gray850, border: `1px solid ${C.gray800}`, color: C.white, fontSize: 13.5 }}
+      >
+        {options.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+      </select>
+    </label>
+  );
+}
+
+const couponLabel = (c) =>
+  c.type === "percent" ? `${c.value}% off` : c.type === "fixed" ? `${brl(c.value)} off` : "Entrega grátis";
+
+// Selo automático da promoção: deriva do relógio — entra e sai do ar
+// sozinha, sem ninguém precisar lembrar de ligar/desligar.
+function promoStatus(p, now) {
+  if (!p.active) return { label: "PAUSADA", color: "#7a7a7a" };
+  if (p.startsAt && now < p.startsAt) return { label: "PROGRAMADA", color: C.blue };
+  if (p.endsAt && now > p.endsAt) return { label: "EXPIRADA", color: C.red };
+  return { label: "ATIVA AGORA", color: C.green };
+}
+
+const fmtShort = (ts) =>
+  new Date(ts).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
+
+// datetime-local ⟷ timestamp (hora local)
+const toLocalInput = (ts) => {
+  if (!ts) return "";
+  const d = new Date(ts);
+  const p2 = (n) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${p2(d.getMonth() + 1)}-${p2(d.getDate())}T${p2(d.getHours())}:${p2(d.getMinutes())}`;
+};
+const fromLocalInput = (v) => {
+  if (!v) return null;
+  const t = new Date(v).getTime();
+  return Number.isFinite(t) ? t : null;
+};
+
+// "Último acesso" da equipe
+function lastSeen(ts, now) {
+  if (!ts) return "nunca";
+  const m = Math.floor((now - ts) / 60000);
+  if (m < 1) return "agora";
+  if (m < 60) return `há ${m}min`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `há ${h}h`;
+  const d = Math.floor(h / 24);
+  if (d < 7) return `há ${d}d`;
+  return fmtShort(ts);
+}
+
+function CouponForm({ initial, onClose, onSaved }) {
+  const [f, setF] = useState({
+    code: initial?.code || "",
+    type: initial?.type || "percent",
+    value: initial ? String(initial.value) : "10",
+    min: initial ? String(initial.min) : "0",
+    max_uses: initial?.limit ? String(initial.limit) : "",
+    note: initial?.note || "",
+    active: initial ? !!initial.active : true,
+  });
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+  const set = (k, v) => setF((p) => ({ ...p, [k]: v }));
+  const num = (s) => parseFloat(String(s).replace(",", "."));
+
+  const save = async () => {
+    setBusy(true); setErr("");
+    try {
+      const body = {
+        type: f.type,
+        value: f.type === "freeship" ? 0 : num(f.value),
+        min: num(f.min) || 0,
+        max_uses: f.max_uses.trim() === "" ? null : Math.floor(num(f.max_uses)),
+        note: f.note.trim(),
+        active: f.active,
+      };
+      if (initial) {
+        await api(`/api/coupons/${initial.code}`, { method: "PATCH", body });
+      } else {
+        await api("/api/coupons", { method: "POST", body: { ...body, code: f.code } });
+      }
+      onSaved(initial ? `Cupom ${initial.code} atualizado ✓` : `Cupom ${f.code.toUpperCase()} criado ✓`);
+    } catch (e) {
+      setErr(e.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <FormShell title={initial ? "EDITAR CUPOM" : "NOVO CUPOM"} sub={initial?.code} onClose={onClose}>
+      {!initial && <Field label="Código (sem espaços)" value={f.code} onChange={(v) => set("code", v.toUpperCase())} ph="EX: SARRO15" />}
+      <FSelect label="Tipo de desconto" value={f.type} onChange={(v) => set("type", v)}
+        options={[["percent", "% sobre o subtotal"], ["fixed", "R$ fixo de desconto"], ["freeship", "Entrega grátis"]]} />
+      {f.type !== "freeship" && (
+        <Field label={f.type === "percent" ? "Porcentagem (1 a 90)" : "Valor em R$"} value={f.value} onChange={(v) => set("value", v)} ph="10" type="number" />
+      )}
+      <div className="grid grid-cols-2 gap-3">
+        <Field label="Pedido mínimo (R$)" value={f.min} onChange={(v) => set("min", v)} ph="0" type="number" />
+        <Field label="Limite de usos (vazio = ∞)" value={f.max_uses} onChange={(v) => set("max_uses", v)} ph="500" type="number" />
+      </div>
+      <Field label="Descrição curta" value={f.note} onChange={(v) => set("note", v)} ph="Ex: 10% acima de R$ 40" />
+      <button onClick={() => set("active", !f.active)} className="flex items-center gap-2.5">
+        <MiniToggle on={f.active} onClick={() => set("active", !f.active)} />
+        <span style={{ color: f.active ? C.green : "#7a7a7a", fontSize: 12.5, fontWeight: 800 }}>
+          {f.active ? "Cupom ativo" : "Cupom pausado"}
+        </span>
+      </button>
+      {err && <div className="rounded-lg px-3 py-2" style={{ background: `${C.red}18`, color: C.red, fontSize: 12, fontWeight: 700 }}>{err}</div>}
+      <Btn full disabled={busy} onClick={save}>{busy ? "SALVANDO…" : initial ? "SALVAR ALTERAÇÕES" : "CRIAR CUPOM"}</Btn>
+    </FormShell>
+  );
+}
+
+function PromoForm({ initial, onClose, onSaved }) {
+  const [f, setF] = useState({
+    name: initial?.name || "",
+    rule: initial?.rule || "",
+    window: initial?.window || "",
+    starts: toLocalInput(initial?.startsAt),
+    ends: toLocalInput(initial?.endsAt),
+    active: initial ? !!initial.active : true,
+  });
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+  const set = (k, v) => setF((p) => ({ ...p, [k]: v }));
+
+  const save = async () => {
+    setBusy(true); setErr("");
+    try {
+      const body = {
+        name: f.name.trim(), rule: f.rule.trim(), window: f.window.trim(),
+        starts_at: fromLocalInput(f.starts), ends_at: fromLocalInput(f.ends),
+        active: f.active,
+      };
+      if (initial) {
+        await api(`/api/promos/${initial.id}`, { method: "PATCH", body });
+      } else {
+        await api("/api/promos", { method: "POST", body });
+      }
+      onSaved(initial ? "Promoção atualizada ✓" : "Promoção criada ✓");
+    } catch (e) {
+      setErr(e.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <FormShell title={initial ? "EDITAR PROMOÇÃO" : "NOVA PROMOÇÃO"} onClose={onClose}>
+      <Field label="Nome" value={f.name} onChange={(v) => set("name", v)} ph="Ex: Happy Hour do Sarro" />
+      <Field label="Regra" value={f.rule} onChange={(v) => set("rule", v)} ph="Ex: 18h às 20h — 15% off em combos" />
+      <Field label="Quando vale (texto)" value={f.window} onChange={(v) => set("window", v)} ph="Ex: Terças · 18h às 20h" />
+      <div className="grid grid-cols-2 gap-3">
+        <Field label="Início (vazio = já)" value={f.starts} onChange={(v) => set("starts", v)} type="datetime-local" />
+        <Field label="Fim (vazio = sem fim)" value={f.ends} onChange={(v) => set("ends", v)} type="datetime-local" />
+      </div>
+      <button onClick={() => set("active", !f.active)} className="flex items-center gap-2.5">
+        <MiniToggle on={f.active} onClick={() => set("active", !f.active)} />
+        <span style={{ color: f.active ? C.green : "#7a7a7a", fontSize: 12.5, fontWeight: 800 }}>
+          {f.active ? "Promoção ativa" : "Promoção pausada"}
+        </span>
+      </button>
+      {err && <div className="rounded-lg px-3 py-2" style={{ background: `${C.red}18`, color: C.red, fontSize: 12, fontWeight: 700 }}>{err}</div>}
+      <Btn full disabled={busy} onClick={save}>{busy ? "SALVANDO…" : initial ? "SALVAR ALTERAÇÕES" : "CRIAR PROMOÇÃO"}</Btn>
+    </FormShell>
+  );
+}
+
+function AdminPromos({ store, now }) {
+  const [couponForm, setCouponForm] = useState(null); // null | "new" | cupom
+  const [promoForm, setPromoForm] = useState(null); // null | "new" | promo
+  const [confirmDel, setConfirmDel] = useState(null); // { kind: "coupon"|"promo", ref }
+  const say = (m) => store.toast(m);
+
+  const toggleCoupon = (c) =>
+    api(`/api/coupons/${c.code}`, { method: "PATCH", body: { active: !c.active } })
+      .then(() => say(c.active ? `Cupom ${c.code} pausado` : `Cupom ${c.code} ativado ✓`))
+      .catch((e) => say(e.message));
+
+  const togglePromo = (p) =>
+    api(`/api/promos/${p.id}`, { method: "PATCH", body: { active: !p.active } })
+      .then(() => say(p.active ? `“${p.name}” pausada` : `“${p.name}” ativada ✓`))
+      .catch((e) => say(e.message));
+
+  const doDelete = async () => {
+    try {
+      if (confirmDel.kind === "coupon") await api(`/api/coupons/${confirmDel.ref.code}`, { method: "DELETE" });
+      else await api(`/api/promos/${confirmDel.ref.id}`, { method: "DELETE" });
+      say("Excluído");
+    } catch (e) {
+      say(e.message);
+    }
+    setConfirmDel(null);
+  };
+
   return (
     <div className="space-y-5">
+      {confirmDel && (
+        <Card className="p-4" style={{ borderColor: `${C.red}66`, background: `${C.red}12` }}>
+          <div style={{ color: C.white, fontWeight: 800, fontSize: 13 }}>
+            Excluir {confirmDel.kind === "coupon" ? `o cupom ${confirmDel.ref.code}` : `a promoção “${confirmDel.ref.name}”`}?
+          </div>
+          <div className="flex gap-2 mt-3">
+            <Btn small variant="danger" onClick={doDelete}>Excluir de vez</Btn>
+            <Btn small variant="dark" onClick={() => setConfirmDel(null)}>Cancelar</Btn>
+          </div>
+        </Card>
+      )}
+
       <div>
-        <div style={{ color: C.white, fontWeight: 900, fontSize: 14, marginBottom: 10 }}>Cupons ativos</div>
+        <div className="flex items-center justify-between mb-2.5">
+          <div style={{ color: C.white, fontWeight: 900, fontSize: 14 }}>Cupons de desconto</div>
+          <Btn small onClick={() => setCouponForm("new")}>+ Novo cupom</Btn>
+        </div>
         <Card className="p-1">
           <Table
-            cols={["Código", "Regra", "Mínimo", "Usos", "Limite", "Status"]}
+            cols={["Cupom", "Desconto", "Mínimo", "Usos", "Status", ""]}
             rows={store.coupons.map((c) => [
-              c.code, c.note, brl(c.min), c.uses, c.limit,
-              <span key="s" style={{ color: c.active ? C.green : "#7a7a7a", fontSize: 11.5, fontWeight: 800 }}>{c.active ? "ATIVO" : "PAUSADO"}</span>,
+              <span key="c">
+                <span style={{ fontWeight: 800 }}>{c.code}</span>
+                {c.note && <span className="block" style={{ color: "#7a7a7a", fontSize: 10.5, fontWeight: 400 }}>{c.note}</span>}
+              </span>,
+              couponLabel(c),
+              brl(c.min),
+              `${c.uses}/${c.limit || "∞"}`,
+              <span key="s" className="flex items-center gap-2">
+                <MiniToggle on={c.active} onClick={() => toggleCoupon(c)} />
+                <span style={{ color: c.active ? C.green : "#7a7a7a", fontSize: 10.5, fontWeight: 800 }}>
+                  {c.active ? "ATIVO" : "PAUSADO"}
+                </span>
+              </span>,
+              <span key="a" className="flex items-center gap-1.5">
+                <button onClick={() => setCouponForm(c)} className="rounded-lg px-2 py-1 font-bold"
+                  style={{ background: C.gray800, color: C.white, fontSize: 11 }}>✎</button>
+                <button onClick={() => setConfirmDel({ kind: "coupon", ref: c })} className="rounded-lg px-2 py-1 font-bold"
+                  style={{ background: "transparent", border: `1px solid ${C.red}55`, color: C.red, fontSize: 11 }}>🗑</button>
+              </span>,
             ])}
           />
         </Card>
       </div>
+
       <div>
-        <div style={{ color: C.white, fontWeight: 900, fontSize: 14, marginBottom: 10 }}>Promoções programadas</div>
+        <div className="flex items-center justify-between mb-2.5">
+          <div style={{ color: C.white, fontWeight: 900, fontSize: 14 }}>Promoções programadas</div>
+          <Btn small onClick={() => setPromoForm("new")}>+ Nova promoção</Btn>
+        </div>
         <div className="grid md:grid-cols-3 gap-3">
-          {store.promos.map((p) => (
-            <Card key={p.id} className="p-4">
-              <div className="flex justify-between items-start">
+          {store.promos.map((p) => { const st = promoStatus(p, now); return (
+            <Card key={p.id} className="p-4" style={{ opacity: p.active ? 1 : 0.6 }}>
+              <div className="flex justify-between items-start gap-2">
                 <span style={{ color: C.white, fontWeight: 800, fontSize: 13.5 }}>{p.name}</span>
-                <span style={{ color: p.active ? C.green : "#6a6a6a", fontSize: 10.5, fontWeight: 800 }}>
-                  {p.active ? "ATIVA" : "PAUSADA"}
+                <MiniToggle on={p.active} onClick={() => togglePromo(p)} />
+              </div>
+              <div style={{ color: "#9a9a9a", fontSize: 12, marginTop: 6, minHeight: 18 }}>{p.rule}</div>
+              <div style={{ color: C.yellowLight, fontSize: 11, marginTop: 8, fontWeight: 700 }}>
+                ⏰ {p.startsAt || p.endsAt
+                  ? `${p.startsAt ? fmtShort(p.startsAt) : "…"} → ${p.endsAt ? fmtShort(p.endsAt) : "…"}`
+                  : (p.window || "sempre")}
+              </div>
+              {p.window && (p.startsAt || p.endsAt) && (
+                <div style={{ color: "#7a7a7a", fontSize: 10.5, marginTop: 2 }}>{p.window}</div>
+              )}
+              <div className="flex items-center justify-between mt-3 pt-3" style={{ borderTop: `1px solid ${C.gray800}` }}>
+                <span className="rounded-md px-2 py-0.5 font-bold" style={{ background: `${st.color}1f`, color: st.color, fontSize: 10.5 }}>
+                  {st.label}
+                </span>
+                <span className="flex items-center gap-1.5">
+                  <button onClick={() => setPromoForm(p)} className="rounded-lg px-2 py-1 font-bold"
+                    style={{ background: C.gray800, color: C.white, fontSize: 11 }}>✎ Editar</button>
+                  <button onClick={() => setConfirmDel({ kind: "promo", ref: p })} className="rounded-lg px-2 py-1 font-bold"
+                    style={{ background: "transparent", border: `1px solid ${C.red}55`, color: C.red, fontSize: 11 }}>🗑</button>
                 </span>
               </div>
-              <div style={{ color: "#9a9a9a", fontSize: 12, marginTop: 6 }}>{p.rule}</div>
-              <div style={{ color: C.yellowLight, fontSize: 11, marginTop: 8, fontWeight: 700 }}>⏰ {p.window}</div>
             </Card>
-          ))}
+          ); })}
+          {store.promos.length === 0 && (
+            <Card className="p-6 text-center"><span style={{ color: "#8a8a8a", fontSize: 13 }}>Nenhuma promoção. Crie a primeira acima ↑</span></Card>
+          )}
         </div>
       </div>
+
+      {couponForm && (
+        <CouponForm
+          key={couponForm === "new" ? "new" : couponForm.code}
+          initial={couponForm === "new" ? null : couponForm}
+          onClose={() => setCouponForm(null)}
+          onSaved={(m) => { setCouponForm(null); say(m); }}
+        />
+      )}
+      {promoForm && (
+        <PromoForm
+          key={promoForm === "new" ? "new" : promoForm.id}
+          initial={promoForm === "new" ? null : promoForm}
+          onClose={() => setPromoForm(null)}
+          onSaved={(m) => { setPromoForm(null); say(m); }}
+        />
+      )}
+    </div>
+  );
+}
+
+const ROLE_LABELS = {
+  ADMIN: "Administrador", GERENTE: "Gerente", ATENDIMENTO: "Atendimento",
+  COZINHA: "Cozinha", EXPEDICAO: "Expedição", ENTREGADOR: "Entregador",
+};
+
+function UserForm({ initial, roles, drivers, onClose, onSaved }) {
+  const [f, setF] = useState({
+    name: initial?.name || "",
+    username: initial?.username || "",
+    password: "",
+    role: initial?.role || "ATENDIMENTO",
+    driverId: initial?.driverId || "",
+    active: initial ? !!initial.active : true,
+  });
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+  const set = (k, v) => setF((p) => ({ ...p, [k]: v }));
+
+  const save = async () => {
+    setBusy(true); setErr("");
+    try {
+      const body = {
+        name: f.name.trim(),
+        role: f.role,
+        driver_id: f.role === "ENTREGADOR" ? (f.driverId || null) : null,
+        active: f.active,
+      };
+      if (!initial || f.password) body.password = f.password;
+      if (initial) {
+        await api(`/api/users/${initial.id}`, { method: "PATCH", body });
+      } else {
+        await api("/api/users", { method: "POST", body: { ...body, username: f.username } });
+      }
+      onSaved(initial ? `“${f.name}” atualizado ✓` : `Usuário ${f.username.toLowerCase()} criado ✓`);
+    } catch (e) {
+      setErr(e.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <FormShell title={initial ? "EDITAR USUÁRIO" : "NOVO USUÁRIO"} sub={initial?.username} onClose={onClose}>
+      <Field label="Nome" value={f.name} onChange={(v) => set("name", v)} ph="Ex: Maria da Chapa" />
+      {!initial && <Field label="Usuário (login)" value={f.username} onChange={(v) => set("username", v.toLowerCase())} ph="Ex: maria" />}
+      <Field
+        label={initial ? "Nova senha (vazio = manter)" : "Senha (mín. 6 caracteres)"}
+        value={f.password} onChange={(v) => set("password", v)} ph={initial ? "••••••" : "mínimo 6 caracteres"} type="password"
+      />
+      <FSelect label="Perfil" value={f.role} onChange={(v) => set("role", v)}
+        options={roles.map((r) => [r, ROLE_LABELS[r] || r])} />
+      {f.role === "ENTREGADOR" && (
+        <FSelect label="Entregador vinculado" value={f.driverId} onChange={(v) => set("driverId", v)}
+          options={[["", "— escolher —"], ...drivers.map((d) => [d.id, `${d.name} · ${d.vehicle}`])]} />
+      )}
+      <button onClick={() => set("active", !f.active)} className="flex items-center gap-2.5">
+        <MiniToggle on={f.active} onClick={() => set("active", !f.active)} />
+        <span style={{ color: f.active ? C.green : "#7a7a7a", fontSize: 12.5, fontWeight: 800 }}>
+          {f.active ? "Conta ativa" : "Conta desativada"}
+        </span>
+      </button>
+      {err && <div className="rounded-lg px-3 py-2" style={{ background: `${C.red}18`, color: C.red, fontSize: 12, fontWeight: 700 }}>{err}</div>}
+      <Btn full disabled={busy} onClick={save}>{busy ? "SALVANDO…" : initial ? "SALVAR ALTERAÇÕES" : "CRIAR USUÁRIO"}</Btn>
+    </FormShell>
+  );
+}
+
+function AdminUsers({ store, now }) {
+  const [users, setUsers] = useState([]);
+  const [roles, setRoles] = useState(Object.keys(ROLE_LABELS));
+  const [loading, setLoading] = useState(true);
+  const [form, setForm] = useState(null); // null | "new" | usuário
+  const [confirmDel, setConfirmDel] = useState(null);
+  const say = (m) => store.toast(m);
+  const isAdmin = store.me?.role === "ADMIN";
+
+  const load = () => {
+    setLoading(true);
+    api("/api/users")
+      .then((d) => { setUsers(d.users); setRoles(d.roles?.length ? d.roles : Object.keys(ROLE_LABELS)); })
+      .catch((e) => say(e.message))
+      .finally(() => setLoading(false));
+  };
+  useEffect(() => { load(); }, []);
+
+  const toggle = (u) =>
+    api(`/api/users/${u.id}`, { method: "PATCH", body: { active: !u.active } })
+      .then(() => { say(u.active ? `“${u.name}” desativado` : `“${u.name}” ativado ✓`); load(); })
+      .catch((e) => say(e.message));
+
+  const doDelete = async () => {
+    try {
+      await api(`/api/users/${confirmDel.id}`, { method: "DELETE" });
+      say(`“${confirmDel.name}” excluído`);
+      load();
+    } catch (e) {
+      say(e.message);
+    }
+    setConfirmDel(null);
+  };
+
+  const driverName = (id) => store.drivers.find((d) => d.id === id)?.name || "—";
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-4">
+        <div style={{ color: "#8a8a8a", fontSize: 12 }}>
+          {loading ? "Carregando equipe…" : `${users.length} contas · ${users.filter((u) => u.active).length} ativas`}
+        </div>
+        <Btn small onClick={() => setForm("new")}>+ Novo usuário</Btn>
+      </div>
+
+      {confirmDel && (
+        <Card className="p-4 mb-4" style={{ borderColor: `${C.red}66`, background: `${C.red}12` }}>
+          <div style={{ color: C.white, fontWeight: 800, fontSize: 13 }}>Excluir “{confirmDel.name}” ({confirmDel.username})?</div>
+          <div style={{ color: "#9a9a9a", fontSize: 12, marginTop: 2 }}>O login para de funcionar na hora. Prefira desativar.</div>
+          <div className="flex gap-2 mt-3">
+            <Btn small variant="danger" onClick={doDelete}>Excluir de vez</Btn>
+            <Btn small variant="dark" onClick={() => setConfirmDel(null)}>Cancelar</Btn>
+          </div>
+        </Card>
+      )}
+
+      <Card className="p-1">
+        <Table
+          cols={["Nome", "Usuário", "Perfil", "Vínculo", "Último acesso", "Status", ""]}
+          rows={users.map((u) => {
+            const self = u.id === store.me?.id;
+            return [
+              <span key="n" style={{ fontWeight: 700 }}>
+                {u.name} {self && <span style={{ color: C.orange, fontSize: 10, fontWeight: 800 }}> · VOCÊ</span>}
+              </span>,
+              <span key="u" style={{ fontSize: 12 }}>{u.username}</span>,
+              <span key="r" className="rounded-md px-2 py-0.5 font-bold"
+                style={{
+                  background: u.role === "ADMIN" ? `${C.orange}1f` : C.gray800,
+                  color: u.role === "ADMIN" ? C.orange : "#c9c9c9", fontSize: 10.5,
+                }}>
+                {ROLE_LABELS[u.role] || u.role}
+              </span>,
+              <span key="d" style={{ fontSize: 12 }}>{u.role === "ENTREGADOR" ? `🛵 ${driverName(u.driverId)}` : "—"}</span>,
+              <span key="l" style={{ fontSize: 11.5 }}>{lastSeen(u.lastLoginAt, now)}</span>,
+              <span key="s" className="flex items-center gap-2">
+                <span style={{ opacity: self ? 0.35 : 1, display: "inline-flex" }} title={self ? "Você não pode desativar a própria conta" : ""}>
+                  <MiniToggle on={u.active} onClick={() => !self && toggle(u)} />
+                </span>
+                <span style={{ color: u.active ? C.green : "#7a7a7a", fontSize: 10.5, fontWeight: 800 }}>
+                  {u.active ? "ATIVO" : "INATIVO"}
+                </span>
+              </span>,
+              <span key="a" className="flex items-center gap-1.5">
+                <button onClick={() => setForm(u)} className="rounded-lg px-2 py-1 font-bold"
+                  style={{ background: C.gray800, color: C.white, fontSize: 11 }}>✎</button>
+                {isAdmin && !self && (
+                  <button onClick={() => setConfirmDel(u)} className="rounded-lg px-2 py-1 font-bold"
+                    style={{ background: "transparent", border: `1px solid ${C.red}55`, color: C.red, fontSize: 11 }}>🗑</button>
+                )}
+              </span>,
+            ];
+          })}
+        />
+      </Card>
+      <div style={{ color: "#6a6a6a", fontSize: 11, marginTop: 10, lineHeight: 1.5 }}>
+        Desativar derruba o acesso na hora, sem apagar o histórico. Só o administrador exclui contas — e nunca a própria nem a do último administrador.
+      </div>
+
+      {form && (
+        <UserForm
+          key={form === "new" ? "new" : form.id}
+          initial={form === "new" ? null : form}
+          roles={roles}
+          drivers={store.drivers}
+          onClose={() => setForm(null)}
+          onSaved={(m) => { setForm(null); say(m); load(); }}
+        />
+      )}
     </div>
   );
 }
@@ -3198,7 +3748,7 @@ function AdminPrinterCard({ store }) {
     </Card>
   );
 }
-function AdminSettings({ store }) {
+function AdminSettings({ store, now }) {
   return (
     <div className="grid lg:grid-cols-2 gap-3">
       <AdminPaymentsCard store={store} />
@@ -3224,21 +3774,30 @@ function AdminSettings({ store }) {
         </Row>
       </Card>
 
-      <Card className="p-4">
-        <div style={{ color: C.white, fontWeight: 900, fontSize: 14, marginBottom: 4 }}>Usuários e permissões</div>
-        {[
-          ["Administrador", "Acesso total, incluindo financeiro e integrações"],
-          ["Gerente", "Tudo, exceto usuários e integrações"],
-          ["Atendimento", "Pedidos, clientes e cupons"],
-          ["Cozinha", "Somente painel da cozinha"],
-          ["Expedição", "Pedidos prontos e atribuição de entregador"],
-          ["Entregador", "Somente as próprias entregas"],
-        ].map(([r, d]) => (
-          <div key={r} className="py-3" style={{ borderBottom: `1px solid ${C.gray850}` }}>
-            <div style={{ color: C.white, fontWeight: 800, fontSize: 13 }}>{r}</div>
-            <div style={{ color: "#8a8a8a", fontSize: 11.5, marginTop: 2 }}>{d}</div>
+      <Card className="p-4 lg:col-span-2">
+        <div style={{ color: C.white, fontWeight: 900, fontSize: 14, marginBottom: 10 }}>Usuários e permissões</div>
+        {store.me?.role === "ADMIN" ? (
+          <AdminUsers store={store} now={now} />
+        ) : (
+          <div>
+            {[
+              ["Administrador", "Acesso total, incluindo usuários, financeiro e integrações"],
+              ["Gerente", "Tudo, exceto gerenciar usuários"],
+              ["Atendimento", "Pedidos, clientes e cupons"],
+              ["Cozinha", "Somente painel da cozinha"],
+              ["Expedição", "Pedidos prontos e atribuição de entregador"],
+              ["Entregador", "Somente as próprias entregas"],
+            ].map(([r, d]) => (
+              <div key={r} className="py-2.5" style={{ borderBottom: `1px solid ${C.gray850}` }}>
+                <span style={{ color: C.white, fontWeight: 800, fontSize: 12.5 }}>{r}</span>
+                <span style={{ color: "#8a8a8a", fontSize: 11.5 }}> — {d}</span>
+              </div>
+            ))}
+            <div style={{ color: C.yellowLight, fontSize: 11.5, marginTop: 10, fontWeight: 700 }}>
+              🔒 Só o administrador gerencia acessos.
+            </div>
           </div>
-        ))}
+        )}
       </Card>
 
       <Card className="p-4">
@@ -3325,9 +3884,20 @@ function AdminApp({ store, now }) {
             </button>
           ))}
         </nav>
-        <div className="rounded-xl p-3" style={{ background: C.gray850 }}>
-          <div style={{ color: "#8a8a8a", fontSize: 10.5 }}>Conectado como</div>
-          <div style={{ color: C.white, fontWeight: 800, fontSize: 12.5 }}>Administrador</div>
+        <div className="rounded-xl p-3 flex items-center justify-between" style={{ background: C.gray850 }}>
+          <div>
+            <div style={{ color: "#8a8a8a", fontSize: 10.5 }}>Conectado como</div>
+            <div style={{ color: C.white, fontWeight: 800, fontSize: 12.5 }}>{store.me?.name?.split(" ")[0] || "Administrador"}</div>
+          </div>
+          {store.me && (
+            <button
+              onClick={store.logout}
+              className="rounded-lg px-2 py-1 font-bold text-xs"
+              style={{ border: `1px solid ${C.gray800}`, color: "#9a9a9a" }}
+            >
+              Sair
+            </button>
+          )}
         </div>
       </aside>
 
@@ -3375,12 +3945,12 @@ function AdminApp({ store, now }) {
         {sec === "produtos" && <AdminProducts store={store} />}
         {sec === "categorias" && <AdminCategories store={store} />}
         {sec === "clientes" && <AdminCustomers store={store} />}
-        {sec === "promos" && <AdminPromos store={store} />}
+        {sec === "promos" && <AdminPromos store={store} now={now} />}
         {sec === "estoque" && <AdminInventory store={store} />}
         {sec === "financeiro" && <AdminFinance store={store} now={now} />}
         {sec === "relatorios" && <AdminReports store={store} now={now} />}
         {sec === "integracoes" && <AdminIntegrations store={store} />}
-        {sec === "config" && <AdminSettings store={store} />}
+        {sec === "config" && <AdminSettings store={store} now={now} />}
       </main>
     </div>
   );
@@ -3427,10 +3997,20 @@ function KitchenApp({ store, now }) {
           >
             🖨 Auto-print {autoPrint ? "ON" : "OFF"}
           </button>
+          <SyncBadge store={store} now={now} />
           <span style={{ color: "#7a7a7a", fontSize: 11.5 }}>Prontos hoje</span>
           <span style={{ color: C.green, fontWeight: 900, fontSize: 20 }}>
             {store.orders.filter((o) => ["PRONTO", "EMBALADO", "AGUARDANDO", "ROTA", "ENTREGUE"].includes(o.status)).length}
           </span>
+          {store.me && (
+            <button
+              onClick={store.logout}
+              className="rounded-lg px-2.5 py-1.5 font-bold"
+              style={{ border: `1px solid ${C.gray800}`, color: "#8a8a8a", fontSize: 11 }}
+            >
+              Sair
+            </button>
+          )}
         </div>
       </div>
 
@@ -3527,13 +4107,27 @@ function ExpeditionApp({ store, now }) {
 
   return (
     <div style={{ background: C.black, minHeight: "100%" }} className="p-4 md:p-6">
-      <div className="flex items-center gap-3 mb-5">
-        <Logo size={40} withText={false} />
-        <div>
-          <h2 style={{ fontFamily: font.display, fontStyle: "italic", fontSize: 24, color: C.white, letterSpacing: "-0.02em" }}>
-            EXPEDIÇÃO
-          </h2>
-          <div style={{ color: "#7a7a7a", fontSize: 11.5 }}>{ready.length} aguardando saída · {rota.length} em rota</div>
+      <div className="flex items-center justify-between gap-3 mb-5">
+        <div className="flex items-center gap-3">
+          <Logo size={40} withText={false} />
+          <div>
+            <h2 style={{ fontFamily: font.display, fontStyle: "italic", fontSize: 24, color: C.white, letterSpacing: "-0.02em" }}>
+              EXPEDIÇÃO
+            </h2>
+            <div style={{ color: "#7a7a7a", fontSize: 11.5 }}>{ready.length} aguardando saída · {rota.length} em rota</div>
+          </div>
+        </div>
+        <div className="flex items-center gap-2">
+          <SyncBadge store={store} now={now} />
+          {store.me && (
+            <button
+              onClick={store.logout}
+              className="rounded-lg px-2.5 py-1.5 font-bold"
+              style={{ border: `1px solid ${C.gray800}`, color: "#8a8a8a", fontSize: 11 }}
+            >
+              Sair
+            </button>
+          )}
         </div>
       </div>
 
@@ -3628,21 +4222,79 @@ function DriverApp({ store, now }) {
   const mine = store.orders.filter((o) => o.driverId === meId && ["ROTA", "ENTREGUE"].includes(o.status));
   const open = store.orders.filter((o) => o.status === "AGUARDANDO" && o.type === "delivery");
 
+  // Estados de atividades operacionais do entregador
+  const [arrivedMap, setArrivedMap] = useState({});
+  const [routeModal, setRouteModal] = useState(null);
+  const [confirmModal, setConfirmModal] = useState(null);
+  const [problemModal, setProblemModal] = useState(null);
+
+  const cleanPhone = (phone) => {
+    let d = String(phone || "").replace(/\D/g, "");
+    if (d.length >= 10 && !d.startsWith("55")) d = "55" + d;
+    return d;
+  };
+
+  const openMaps = (addr, type = "google") => {
+    const enc = encodeURIComponent(addr || "");
+    const url = type === "waze"
+      ? `https://waze.com/ul?q=${enc}&navigate=yes`
+      : `https://www.google.com/maps/dir/?api=1&destination=${enc}`;
+    if (typeof window !== "undefined" && window.open) window.open(url, "_blank");
+  };
+
+  const openWhatsApp = (phone, msg = "") => {
+    const p = cleanPhone(phone);
+    const enc = encodeURIComponent(msg);
+    const url = `https://wa.me/${p}${msg ? `?text=${enc}` : ""}`;
+    if (typeof window !== "undefined" && window.open) window.open(url, "_blank");
+  };
+
+  const copyAddress = (addr) => {
+    if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
+      navigator.clipboard.writeText(addr).then(() => {
+        store.toast("Endereço copiado para a área de transferência! 📋");
+      }).catch(() => store.toast("Endereço: " + addr));
+    } else {
+      store.toast("Endereço: " + addr);
+    }
+  };
+
+  const handleArrived = (o) => {
+    setArrivedMap((prev) => ({ ...prev, [o.id]: true }));
+    const msg = `Olá, ${o.customer?.name || "cliente"}! 🛵 Sou o entregador do Tô no Sarro. Já cheguei no seu endereço (${o.customer?.addr || ""}) com o pedido #${o.code}. Estou no portão/portaria te aguardando! 🔥`;
+    openWhatsApp(o.customer?.phone, msg);
+    store.toast(`📍 Chegada registrada no pedido #${o.code}! WhatsApp do cliente aberto.`);
+  };
+
   return (
     <div style={{ background: C.black, minHeight: "100%" }} className="p-4 pb-10">
       <div className="flex items-center justify-between mb-4">
         <Logo size={38} />
-        <span
-          className="rounded-lg px-2.5 py-1.5 font-bold"
-          style={{ background: C.gray850, color: C.white, border: `1px solid ${C.gray800}`, fontSize: 12 }}
-        >
-          🛵 {meDriver ? meDriver.name.split(" ")[0] : "…"} · {meDriver?.vehicle}
-        </span>
+        <div className="flex items-center gap-2">
+          <span
+            className="rounded-lg px-2.5 py-1.5 font-bold"
+            style={{ background: C.gray850, color: C.white, border: `1px solid ${C.gray800}`, fontSize: 12 }}
+          >
+            🛵 {meDriver ? meDriver.name.split(" ")[0] : "…"} · {meDriver?.vehicle}
+          </span>
+          {store.me && (
+            <button
+              onClick={store.logout}
+              className="rounded-lg px-2 py-1 font-bold"
+              style={{ border: `1px solid ${C.gray800}`, color: "#8a8a8a", fontSize: 11 }}
+            >
+              Sair
+            </button>
+          )}
+        </div>
       </div>
 
-      <h2 style={{ fontFamily: font.display, fontStyle: "italic", fontSize: 26, color: C.white, letterSpacing: "-0.02em" }}>
-        🛵 MINHAS ENTREGAS
-      </h2>
+      <div className="flex items-end justify-between gap-3">
+        <h2 style={{ fontFamily: font.display, fontStyle: "italic", fontSize: 26, color: C.white, letterSpacing: "-0.02em" }}>
+          🛵 MINHAS ENTREGAS
+        </h2>
+        <div className="pb-1"><SyncBadge store={store} now={now} /></div>
+      </div>
       <div style={{ color: "#7a7a7a", fontSize: 12, marginBottom: 16 }}>
         {meDriver?.name || "Entregador"} · {mine.filter((o) => o.status === "ROTA").length} em rota hoje
       </div>
@@ -3676,33 +4328,332 @@ function DriverApp({ store, now }) {
 
         {mine.map((o) => {
           const done = o.status === "ENTREGUE";
+          const isArrived = !!arrivedMap[o.id];
           return (
             <Card key={o.id} className="p-4" style={{ borderColor: done ? C.gray800 : `${C.orange}55`, opacity: done ? 0.6 : 1 }}>
               <div className="flex items-center justify-between mb-2">
-                <span style={{ color: C.white, fontFamily: font.display, fontStyle: "italic", fontSize: 20 }}>#{o.code}</span>
+                <div className="flex items-center gap-2">
+                  <span style={{ color: C.white, fontFamily: font.display, fontStyle: "italic", fontSize: 20 }}>#{o.code}</span>
+                  {isArrived && !done && (
+                    <span
+                      className="rounded-full px-2 py-0.5 text-xs font-bold"
+                      style={{ background: "#16653433", color: C.green, border: `1px solid ${C.green}55` }}
+                    >
+                      📍 No local
+                    </span>
+                  )}
+                </div>
                 <StatusPill status={o.status} small />
               </div>
 
-              {[["Cliente", o.customer.name], ["Endereço", o.customer.addr], ["Telefone", o.customer.phone],
-                ["Valor", `${brl(o.total)} · ${o.payment}`], ["Saiu há", elapsed(o.startedAt || o.createdAt, now)]].map(([k, v]) => (
-                <div key={k} className="flex justify-between py-1.5" style={{ borderBottom: `1px solid ${C.gray850}` }}>
-                  <span style={{ color: "#7a7a7a", fontSize: 11.5 }}>{k}</span>
-                  <span style={{ color: C.white, fontSize: 12.5, fontWeight: 600, textAlign: "right", maxWidth: "62%" }}>{v}</span>
+              {/* Informações detalhadas com atalhos interativos */}
+              <div className="space-y-1.5 text-xs">
+                <div className="flex justify-between py-1.5" style={{ borderBottom: `1px solid ${C.gray850}` }}>
+                  <span style={{ color: "#7a7a7a" }}>Cliente</span>
+                  <span style={{ color: C.white, fontWeight: 700 }}>{o.customer.name}</span>
                 </div>
-              ))}
 
+                <div className="flex justify-between items-center py-1.5" style={{ borderBottom: `1px solid ${C.gray850}` }}>
+                  <span style={{ color: "#7a7a7a" }}>Endereço</span>
+                  <div className="text-right max-w-[70%]">
+                    <div style={{ color: C.white, fontWeight: 600 }}>{o.customer.addr}</div>
+                    {!done && (
+                      <button
+                        onClick={() => setRouteModal(o)}
+                        className="mt-0.5 font-bold text-xs inline-flex items-center gap-1"
+                        style={{ color: C.orange, background: "none", border: "none", padding: 0, cursor: "pointer" }}
+                      >
+                        🗺️ Ver mapa / GPS
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                <div className="flex justify-between items-center py-1.5" style={{ borderBottom: `1px solid ${C.gray850}` }}>
+                  <span style={{ color: "#7a7a7a" }}>Telefone</span>
+                  <div className="flex items-center gap-1.5">
+                    <span style={{ color: C.white, fontWeight: 600 }}>{o.customer.phone}</span>
+                    {!done && (
+                      <>
+                        <button
+                          onClick={() => openWhatsApp(o.customer.phone, `Olá, ${o.customer.name}! Sou o entregador do Tô no Sarro referente ao pedido #${o.code}.`)}
+                          className="rounded px-1.5 py-0.5 font-bold text-xs"
+                          style={{ background: "#25D36622", color: "#25D366", border: "1px solid #25D36644" }}
+                        >
+                          💬 Zap
+                        </button>
+                        <a
+                          href={`tel:${o.customer.phone}`}
+                          className="rounded px-1.5 py-0.5 font-bold text-xs"
+                          style={{ background: C.gray800, color: C.white, textDecoration: "none" }}
+                        >
+                          📞
+                        </a>
+                      </>
+                    )}
+                  </div>
+                </div>
+
+                <div className="flex justify-between py-1.5" style={{ borderBottom: `1px solid ${C.gray850}` }}>
+                  <span style={{ color: "#7a7a7a" }}>Valor & Pagamento</span>
+                  <span style={{ color: C.yellowLight, fontWeight: 800 }}>{brl(o.total)} · {o.payment}</span>
+                </div>
+
+                <div className="flex justify-between py-1.5" style={{ borderBottom: `1px solid ${C.gray850}` }}>
+                  <span style={{ color: "#7a7a7a" }}>Saiu há</span>
+                  <span style={{ color: C.white, fontWeight: 600 }}>{elapsed(o.startedAt || o.createdAt, now)}</span>
+                </div>
+              </div>
+
+              {/* Botões de Ação com atividades reais */}
               {!done && (
                 <div className="grid grid-cols-2 gap-2 mt-4">
-                  <Btn variant="dark" onClick={() => store.toast(`Chegada registrada no pedido #${o.code}`)}>CHEGUEI NO LOCAL</Btn>
-                  <Btn variant="green" onClick={() => store.setStatus(o.id, "ENTREGUE")}>PEDIDO ENTREGUE</Btn>
-                  <Btn variant="dark" onClick={() => store.toast("Abrindo rota no mapa")}>🗺 VER ROTA</Btn>
-                  <Btn variant="danger" onClick={() => store.toast("Suporte acionado para este pedido")}>PROBLEMA</Btn>
+                  <Btn
+                    variant={isArrived ? "green" : "dark"}
+                    onClick={() => handleArrived(o)}
+                  >
+                    {isArrived ? "📍 NO LOCAL (REAVISAR)" : "CHEGUEI NO LOCAL"}
+                  </Btn>
+                  <Btn
+                    variant="green"
+                    onClick={() => setConfirmModal(o)}
+                  >
+                    PEDIDO ENTREGUE
+                  </Btn>
+                  <Btn
+                    variant="dark"
+                    onClick={() => setRouteModal(o)}
+                  >
+                    🗺 VER ROTA
+                  </Btn>
+                  <Btn
+                    variant="danger"
+                    onClick={() => setProblemModal(o)}
+                  >
+                    PROBLEMA
+                  </Btn>
                 </div>
               )}
             </Card>
           );
         })}
       </div>
+
+      {/* Modal 1: Rota no Mapa (Google Maps / Waze / Copiar) */}
+      {routeModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: "rgba(0,0,0,.82)" }}>
+          <Card className="w-full max-w-md p-5 space-y-4" style={{ border: `1px solid ${C.orange}55`, background: C.gray900 }}>
+            <div className="flex items-center justify-between">
+              <div style={{ color: C.white, fontFamily: font.display, fontStyle: "italic", fontSize: 22 }}>
+                🗺️ ROTA — PEDIDO #{routeModal.code}
+              </div>
+              <button onClick={() => setRouteModal(null)} className="text-gray-400 hover:text-white text-xl">✕</button>
+            </div>
+
+            <div className="p-3.5 rounded-xl" style={{ background: C.gray850 }}>
+              <div style={{ color: "#8a8a8a", fontSize: 11 }}>Destino de Entrega</div>
+              <div style={{ color: C.white, fontWeight: 800, fontSize: 14, marginTop: 4 }}>{routeModal.customer.name}</div>
+              <div style={{ color: C.yellowLight, fontSize: 13, marginTop: 4, lineHeight: 1.4 }}>{routeModal.customer.addr}</div>
+            </div>
+
+            <div className="space-y-2">
+              <button
+                onClick={() => { openMaps(routeModal.customer.addr, "google"); setRouteModal(null); }}
+                className="w-full flex items-center justify-center gap-2 rounded-xl py-3 font-bold text-white transition active:scale-95"
+                style={{ background: "#4285F4" }}
+              >
+                <span>🗺️</span>
+                <span>Abrir no Google Maps</span>
+              </button>
+
+              <button
+                onClick={() => { openMaps(routeModal.customer.addr, "waze"); setRouteModal(null); }}
+                className="w-full flex items-center justify-center gap-2 rounded-xl py-3 font-bold text-black transition active:scale-95"
+                style={{ background: "#33CCFF" }}
+              >
+                <span>🚗</span>
+                <span>Abrir no Waze</span>
+              </button>
+
+              <button
+                onClick={() => copyAddress(routeModal.customer.addr)}
+                className="w-full flex items-center justify-center gap-2 rounded-xl py-2.5 font-bold transition active:scale-95"
+                style={{ background: C.gray800, color: "#c0c0c0", border: `1px solid ${C.gray700}`, fontSize: 12.5 }}
+              >
+                <span>📋</span>
+                <span>Copiar Endereço</span>
+              </button>
+            </div>
+
+            <Btn full variant="dark" onClick={() => setRouteModal(null)}>Voltar</Btn>
+          </Card>
+        </div>
+      )}
+
+      {/* Modal 2: Confirmação de Entrega com Verificação de Pagamento */}
+      {confirmModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: "rgba(0,0,0,.82)" }}>
+          <Card className="w-full max-w-md p-5 space-y-4" style={{ border: `2px solid ${C.green}`, background: C.gray900 }}>
+            <div className="flex items-center justify-between">
+              <div style={{ color: C.white, fontFamily: font.display, fontStyle: "italic", fontSize: 22 }}>
+                ✅ CONFIRMAR ENTREGA #{confirmModal.code}
+              </div>
+              <button onClick={() => setConfirmModal(null)} className="text-gray-400 hover:text-white text-xl">✕</button>
+            </div>
+
+            <div className="p-3.5 rounded-xl space-y-2 text-xs" style={{ background: C.gray850 }}>
+              <div className="flex justify-between">
+                <span style={{ color: "#8a8a8a" }}>Cliente:</span>
+                <span style={{ color: C.white, fontWeight: 700 }}>{confirmModal.customer.name}</span>
+              </div>
+              <div className="flex justify-between">
+                <span style={{ color: "#8a8a8a" }}>Endereço:</span>
+                <span style={{ color: C.white, textAlign: "right", maxWidth: "70%" }}>{confirmModal.customer.addr}</span>
+              </div>
+              <div className="flex justify-between pt-2" style={{ borderTop: `1px solid ${C.gray800}` }}>
+                <span style={{ color: "#8a8a8a" }}>Total do pedido:</span>
+                <span style={{ color: C.yellowLight, fontWeight: 900, fontSize: 15 }}>{brl(confirmModal.total)}</span>
+              </div>
+            </div>
+
+            {/* Alerta de cobrança */}
+            <div
+              className="p-3 rounded-xl text-center font-bold text-xs"
+              style={{
+                background: ["PIX", "CARTAO_ONLINE"].includes(confirmModal.payment) ? "#16653433" : "#854d0e33",
+                border: `1px solid ${["PIX", "CARTAO_ONLINE"].includes(confirmModal.payment) ? C.green : C.yellow}`,
+                color: ["PIX", "CARTAO_ONLINE"].includes(confirmModal.payment) ? C.green : C.yellowLight,
+              }}
+            >
+              {["PIX", "CARTAO_ONLINE"].includes(confirmModal.payment) ? (
+                <span>🟢 JÁ PAGO ONLINE (InfinitePay/Pix) — Não cobrar nada do cliente!</span>
+              ) : confirmModal.payment === "Cartão" ? (
+                <span>💳 COBRAR NO CARTÃO — Passar {brl(confirmModal.total)} na maquininha</span>
+              ) : (
+                <span>💵 COBRAR EM DINHEIRO — Receber {brl(confirmModal.total)} em espécie</span>
+              )}
+            </div>
+
+            <div className="space-y-2 pt-2">
+              <button
+                onClick={() => {
+                  store.setStatus(confirmModal.id, "ENTREGUE");
+                  store.toast(`🎉 Pedido #${confirmModal.code} entregue com sucesso!`);
+                  setConfirmModal(null);
+                }}
+                className="w-full flex items-center justify-center gap-2 rounded-xl py-3.5 font-black text-black transition active:scale-95"
+                style={{ background: C.green, fontSize: 14 }}
+              >
+                <span>✅</span>
+                <span>CONFIRMAR ENTREGA</span>
+              </button>
+
+              <button
+                onClick={() => {
+                  store.setStatus(confirmModal.id, "ENTREGUE");
+                  const msg = `Olá, ${confirmModal.customer.name}! Seu pedido #${confirmModal.code} do Tô no Sarro foi entregue. Bom apetite e muito obrigado pela preferência! Se puder nos avaliar com 5 estrelas ficaremos muito gratos! ⭐⭐⭐⭐⭐`;
+                  openWhatsApp(confirmModal.customer.phone, msg);
+                  store.toast(`🎉 Pedido #${confirmModal.code} entregue + WhatsApp de agradecimento enviado!`);
+                  setConfirmModal(null);
+                }}
+                className="w-full flex items-center justify-center gap-2 rounded-xl py-2.5 font-bold transition active:scale-95 text-xs"
+                style={{ background: "#25D36622", color: "#25D366", border: "1px solid #25D36666" }}
+              >
+                <span>💬</span>
+                <span>Confirmar e agradecer no WhatsApp</span>
+              </button>
+
+              <Btn full variant="dark" onClick={() => setConfirmModal(null)}>Cancelar</Btn>
+            </div>
+          </Card>
+        </div>
+      )}
+
+      {/* Modal 3: Relatar Problema na Entrega */}
+      {problemModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: "rgba(0,0,0,.82)" }}>
+          <Card className="w-full max-w-md p-5 space-y-4" style={{ border: `2px solid ${C.red}`, background: C.gray900 }}>
+            <div className="flex items-center justify-between">
+              <div style={{ color: C.red, fontFamily: font.display, fontStyle: "italic", fontSize: 22 }}>
+                ⚠️ RELATAR PROBLEMA #{problemModal.code}
+              </div>
+              <button onClick={() => setProblemModal(null)} className="text-gray-400 hover:text-white text-xl">✕</button>
+            </div>
+
+            <div style={{ color: "#a0a0a0", fontSize: 12 }}>
+              Selecione uma ação rápida para resolver com o cliente ou acionar a loja:
+            </div>
+
+            <div className="space-y-2.5">
+              {/* Opção 1: Cliente não atende */}
+              <div className="p-3 rounded-xl" style={{ background: C.gray850, border: `1px solid ${C.gray800}` }}>
+                <div style={{ color: C.white, fontWeight: 800, fontSize: 13 }}>📵 Cliente não atende telefone / interfone</div>
+                <div className="flex gap-2 mt-2">
+                  <button
+                    onClick={() => {
+                      const msg = `Olá, ${problemModal.customer.name}! Sou o entregador do Tô no Sarro com seu pedido #${problemModal.code}. Já estou no portão/portaria te chamando mas não consegui contato. Por favor me responda aqui! 🛵`;
+                      openWhatsApp(problemModal.customer.phone, msg);
+                    }}
+                    className="flex-1 py-1.5 rounded-lg font-bold text-xs"
+                    style={{ background: "#25D366", color: C.black }}
+                  >
+                    💬 WhatsApp
+                  </button>
+                  <a
+                    href={`tel:${problemModal.customer.phone}`}
+                    className="flex-1 py-1.5 rounded-lg font-bold text-xs text-center flex items-center justify-center text-decoration-none"
+                    style={{ background: C.gray700, color: C.white }}
+                  >
+                    📞 Ligar
+                  </a>
+                </div>
+              </div>
+
+              {/* Opção 2: Endereço não encontrado */}
+              <div className="p-3 rounded-xl" style={{ background: C.gray850, border: `1px solid ${C.gray800}` }}>
+                <div style={{ color: C.white, fontWeight: 800, fontSize: 13 }}>📍 Endereço não localizado ou incompleto</div>
+                <button
+                  onClick={() => {
+                    const msg = `Olá, ${problemModal.customer.name}! Sou o entregador do Tô no Sarro com o pedido #${problemModal.code}. Estou na sua rua mas não localizei o número ${problemModal.customer.addr}. Pode me enviar a localização em tempo real ou ponto de referência?`;
+                    openWhatsApp(problemModal.customer.phone, msg);
+                  }}
+                  className="w-full mt-2 py-1.5 rounded-lg font-bold text-xs"
+                  style={{ background: C.gray700, color: C.yellowLight }}
+                >
+                  💬 Pedir localização no WhatsApp
+                </button>
+              </div>
+
+              {/* Opção 3: Suporte da Central / Loja */}
+              <div className="p-3 rounded-xl" style={{ background: C.gray850, border: `1px solid ${C.gray800}` }}>
+                <div style={{ color: C.white, fontWeight: 800, fontSize: 13 }}>🚨 Problema na rota ou maquininha (falar com a loja)</div>
+                <div className="flex gap-2 mt-2">
+                  <button
+                    onClick={() => {
+                      const storePhone = store.settings?.phone || "(81) 98765-4321";
+                      const msg = `🚨 SUPORTE ENTREGA: Sou o entregador ${meDriver?.name || "Rafael"} no pedido #${problemModal.code} (${problemModal.customer.name}). Preciso de suporte com a entrega!`;
+                      openWhatsApp(storePhone, msg);
+                    }}
+                    className="flex-1 py-1.5 rounded-lg font-bold text-xs"
+                    style={{ background: "#EF444422", color: "#EF4444", border: "1px solid #EF444466" }}
+                  >
+                    💬 WhatsApp da Loja
+                  </button>
+                  <a
+                    href={`tel:${store.settings?.phone || "(81) 98765-4321"}`}
+                    className="flex-1 py-1.5 rounded-lg font-bold text-xs text-center flex items-center justify-center text-decoration-none"
+                    style={{ background: C.gray700, color: C.white }}
+                  >
+                    📞 Ligar p/ Loja
+                  </a>
+                </div>
+              </div>
+            </div>
+
+            <Btn full variant="dark" onClick={() => setProblemModal(null)}>Fechar</Btn>
+          </Card>
+        </div>
+      )}
     </div>
   );
 }
@@ -3911,6 +4862,9 @@ export default function App() {
   const [confetti, setConfetti] = useState(false);
   const [notifications, setNotifications] = useState([]);
   const [now, setNow] = useState(Date.now());
+  const [appVersion, setAppVersion] = useState("");
+  const [wsOnline, setWsOnline] = useState(false);
+  const [lastSyncAt, setLastSyncAt] = useState(Date.now());
 
   const known = useRef(null);
   const roleRef = useRef(role);
@@ -3930,11 +4884,11 @@ export default function App() {
     setTimeout(() => setToastMsg(""), 2400);
   };
 
-  const notify = (msg) => {
+  const notify = useCallback((msg) => {
     setNotifications((n) => [{ id: uid(), msg, at: Date.now() }, ...n].slice(0, 20));
-  };
+  }, []);
 
-  const applySync = (d) => {
+  const applySync = useCallback((d) => {
     // Alerta de pedido novo para a equipe (o cliente tem o próprio fluxo)
     if (known.current && roleRef.current !== "cliente") {
       const fresh = d.orders.filter((o) => !known.current.has(o.id));
@@ -3958,7 +4912,8 @@ export default function App() {
     setCoupons(d.coupons);
     setPromos(d.promos);
     setSettings(d.settings);
-  };
+    setLastSyncAt(Date.now());
+  }, [notify]);
 
   const load = () => {
     setBootError(false);
@@ -3966,6 +4921,7 @@ export default function App() {
       .then((d) => {
         setCatalog({ categories: d.categories, optionGroups: d.optionGroups, builder: d.builder });
         setMe(d.me);
+        if (d.version) setAppVersion(d.version);
         const myId = localStorage.getItem("sarro_my_order");
         if (myId) {
           const t = encodeURIComponent(localStorage.getItem("sarro_my_token") || "");
@@ -3995,24 +4951,71 @@ export default function App() {
     const connect = () => {
       const proto = location.protocol === "https:" ? "wss" : "ws";
       ws = new WebSocket(`${proto}://${location.host}/ws`);
+      ws.onopen = () => setWsOnline(true);
       ws.onmessage = (ev) => {
         try {
           const m = JSON.parse(ev.data);
           if (m.type === "sync") applySync(m.data);
         } catch { /* ignora */ }
       };
-      ws.onclose = () => { if (!closed) retry = setTimeout(connect, 2000); };
-      ws.onerror = () => ws.close();
+      ws.onclose = () => { setWsOnline(false); if (!closed) retry = setTimeout(connect, 2000); };
+      ws.onerror = () => { setWsOnline(false); ws.close(); };
     };
     connect();
     return () => { closed = true; clearTimeout(retry); ws?.close(); };
-  }, []);
+  }, [applySync]);
+
+  // Rede de segurança: se o WebSocket cair, os painéis se atualizam
+  // sozinhos a cada 60s (a cozinha não pode ficar cega).
+  useEffect(() => {
+    const tick = () => {
+      api("/api/bootstrap")
+        .then((d) => {
+          setCatalog({ categories: d.categories, optionGroups: d.optionGroups, builder: d.builder });
+          applySync(d);
+        })
+        .catch(() => {});
+    };
+    const t = setInterval(tick, 60000);
+    return () => clearInterval(t);
+  }, [applySync]);
+
+  const refreshAll = useCallback(async (announce) => {
+    try {
+      const d = await api("/api/bootstrap");
+      setCatalog({ categories: d.categories, optionGroups: d.optionGroups, builder: d.builder });
+      applySync(d);
+      if (announce) toast("Pedidos atualizados ✓");
+    } catch {
+      if (announce) toast("Sem conexão com o servidor");
+    }
+  }, [applySync]);
+
+  // Voltou pra aba/app depois de um tempo? Atualiza na hora (com trava
+  // de 15s para não refazer a carga a cada clique fora e dentro).
+  useEffect(() => {
+    let last = 0;
+    const wake = () => {
+      const t = Date.now();
+      if (t - last < 15000) return;
+      last = t;
+      refreshAll(false);
+    };
+    const onVis = () => { if (document.visibilityState === "visible") wake(); };
+    document.addEventListener("visibilitychange", onVis);
+    window.addEventListener("focus", wake);
+    return () => {
+      document.removeEventListener("visibilitychange", onVis);
+      window.removeEventListener("focus", wake);
+    };
+  }, [refreshAll]);
 
   const store = {
     role, tab, setTab, me,
     orders, products, inventory, drivers, customers, coupons, promos, settings,
     optionGroups: catalog.optionGroups, builder: catalog.builder, categories: catalog.categories,
     cart, coupon, setCoupon, myOrderId, myOrder, notifications, toast,
+    wsOnline, lastSyncAt, refreshAll,
     refreshMyOrder: async () => {
       const id = localStorage.getItem("sarro_my_order");
       if (!id) return null;
@@ -4179,34 +5182,38 @@ export default function App() {
     <div style={{ background: C.black, minHeight: "100vh", fontFamily: font.body, color: C.white }}>
       <style>{css}</style>
 
-      <div
-        className="flex items-center gap-1.5 px-3 py-2 overflow-x-auto"
-        style={{ background: C.gray900, borderBottom: `1px solid ${C.gray800}`, position: "sticky", top: 0, zIndex: 40 }}
-      >
-        <span style={{ color: "#5a5a5a", fontSize: 10, fontWeight: 800, marginRight: 4, whiteSpace: "nowrap" }}>
-          SMART FOOD SYSTEM
-        </span>
-        {ROLES.map((r) => {
-          const locked = STAFF_GATE[r] && (!me || !STAFF_GATE[r].includes(me.role));
-          return (
-            <a
-              key={r.id}
-              href={rolePath(r.id)}
-              onClick={(e) => { e.preventDefault(); goRole(r.id); }}
-              className="shrink-0 rounded-lg px-2.5 py-1.5 font-bold"
-              style={{
-                background: role === r.id ? `linear-gradient(100deg, ${C.orange}, ${C.yellow})` : "transparent",
-                color: role === r.id ? C.black : "#8a8a8a",
-                border: `1px solid ${role === r.id ? "transparent" : C.gray800}`,
-                fontSize: 11.5, whiteSpace: "nowrap", textDecoration: "none",
-              }}
-            >
-              {r.icon} {r.label}{locked ? " 🔒" : ""}
-            </a>
-          );
-        })}
-        <div className="flex-1" />
-        {me ? (
+      {/* Barra superior de atalhos da equipe:
+          - Oculta no cardápio do cliente (tela 100% limpa para pedidos)
+          - Oculta para outros usuários (cozinha, expedição, entregador, etc.)
+          - Exibida APENAS para usuário administrador (ADMIN) nas áreas administrativas */}
+      {me && me.role === "ADMIN" && role !== "cliente" && (
+        <div
+          className="flex items-center gap-1.5 px-3 py-2 overflow-x-auto"
+          style={{ background: C.gray900, borderBottom: `1px solid ${C.gray800}`, position: "sticky", top: 0, zIndex: 40 }}
+        >
+          <span style={{ color: "#5a5a5a", fontSize: 10, fontWeight: 800, marginRight: 4, whiteSpace: "nowrap" }}>
+            SMART FOOD SYSTEM{appVersion ? ` · ${appVersion}` : ""}
+          </span>
+          {ROLES.map((r) => {
+            const locked = STAFF_GATE[r] && (!me || !STAFF_GATE[r].includes(me.role));
+            return (
+              <a
+                key={r.id}
+                href={rolePath(r.id)}
+                onClick={(e) => { e.preventDefault(); goRole(r.id); }}
+                className="shrink-0 rounded-lg px-2.5 py-1.5 font-bold"
+                style={{
+                  background: role === r.id ? `linear-gradient(100deg, ${C.orange}, ${C.yellow})` : "transparent",
+                  color: role === r.id ? C.black : "#8a8a8a",
+                  border: `1px solid ${role === r.id ? "transparent" : C.gray800}`,
+                  fontSize: 11.5, whiteSpace: "nowrap", textDecoration: "none",
+                }}
+              >
+                {r.icon} {r.label}{locked ? " 🔒" : ""}
+              </a>
+            );
+          })}
+          <div className="flex-1" />
           <span className="shrink-0 flex items-center gap-2">
             <span style={{ color: "#8a8a8a", fontSize: 11 }}>
               {me.name.split(" ")[0]} · {me.role}
@@ -4219,17 +5226,29 @@ export default function App() {
               Sair
             </button>
           </span>
-        ) : (
-          <a
-            href={rolePath("admin")}
-            onClick={(e) => { e.preventDefault(); goRole("admin"); }}
-            className="shrink-0 rounded-lg px-2 py-1 font-bold"
-            style={{ border: `1px solid ${C.gray800}`, color: "#9a9a9a", fontSize: 10.5, textDecoration: "none", whiteSpace: "nowrap" }}
-          >
-            Área da equipe →
-          </a>
-        )}
-      </div>
+        </div>
+      )}
+
+      {/* Quando o administrador visualiza o cardápio, botão flutuante para retornar */}
+      {me && me.role === "ADMIN" && role === "cliente" && (
+        <a
+          href={rolePath("admin")}
+          onClick={(e) => { e.preventDefault(); goRole("admin"); }}
+          className="fixed z-40 flex items-center gap-1.5 rounded-full px-3.5 py-2 font-bold shadow-2xl active:scale-95 transition"
+          style={{
+            bottom: 84, left: 16,
+            background: C.gray900,
+            border: `1px solid ${C.orange}`,
+            color: C.orange,
+            fontSize: 11.5,
+            boxShadow: "0 8px 24px rgba(0,0,0,.7)",
+            textDecoration: "none",
+          }}
+        >
+          <span>📊</span>
+          <span>Voltar ao Admin</span>
+        </a>
+      )}
 
       {!allowed ? (
         <LoginScreen
@@ -4240,7 +5259,7 @@ export default function App() {
         />
       ) : (
         <>
-          {role === "cliente" && <ClientApp store={store} now={now} />}
+          {role === "cliente" && <ClientApp store={store} now={now} goRole={goRole} />}
           {role === "admin" && <AdminApp store={store} now={now} />}
           {role === "cozinha" && <KitchenApp store={store} now={now} />}
           {role === "expedicao" && <ExpeditionApp store={store} now={now} />}

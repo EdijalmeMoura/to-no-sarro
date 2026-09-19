@@ -44,7 +44,9 @@ db.exec(`
     username TEXT UNIQUE NOT NULL,
     pass_hash TEXT NOT NULL,
     role TEXT NOT NULL,
-    driver_id TEXT
+    driver_id TEXT,
+    active INTEGER DEFAULT 1,
+    last_login_at INTEGER
   );
 
   CREATE TABLE IF NOT EXISTS sessions (
@@ -113,7 +115,8 @@ db.exec(`
   );
 
   CREATE TABLE IF NOT EXISTS promos (
-    id TEXT PRIMARY KEY, name TEXT, rule TEXT, active INTEGER DEFAULT 1, window TEXT
+    id TEXT PRIMARY KEY, name TEXT, rule TEXT, active INTEGER DEFAULT 1, window TEXT,
+    starts_at INTEGER, ends_at INTEGER
   );
 
   CREATE TABLE IF NOT EXISTS orders (
@@ -202,6 +205,63 @@ addColumnIfMissing("products", "updated_at", "updated_at INTEGER DEFAULT 0");
 addColumnIfMissing("orders", "payment_status", "payment_status TEXT DEFAULT ('indefinido')");
 addColumnIfMissing("orders", "ext_ref", "ext_ref TEXT");
 addColumnIfMissing("orders", "track_token", "track_token TEXT");
+addColumnIfMissing("users", "active", "active INTEGER DEFAULT 1");
+addColumnIfMissing("users", "last_login_at", "last_login_at INTEGER");
+addColumnIfMissing("promos", "starts_at", "starts_at INTEGER");
+addColumnIfMissing("promos", "ends_at", "ends_at INTEGER");
+
+// Migração de dados: cardápio real da loja (nomes, preços e pão brioche).
+// Só atualiza as linhas ainda iguais à semente fictícia — qualquer edição
+// feita pelo admin no Cardápio é preservada. Também carimba updated_at
+// para o app buscar as fotos novas (cache-busting do ?v=).
+// Migração do pão e fotos novas (atualiza ingredientes e força novo timestamp updated_at)
+try {
+  db.prepare(`UPDATE builder_options SET name = 'Pão Brioche Artesanal Amarelo (c/ gergelim preto)' WHERE id = 'brioche'`).run();
+  const prods = [
+    { id: "p1", desc: "100g de carne no pão brioche artesanal amarelo com gergelim preto, salada fresca e molho especial.", ing: ["Pão brioche amarelo c/ gergelim preto", "Carne 100g", "Alface", "Tomate", "Cebola roxa", "Molho especial"] },
+    { id: "p2", desc: "100g de carne, bacon crocante e creme cheddar no pão brioche artesanal amarelo.", ing: ["Pão brioche amarelo c/ gergelim preto", "Carne 100g", "Bacon crocante", "Creme cheddar", "Molho especial"] },
+    { id: "p3", desc: "100g de carne com calabresa fatiada e creme cheddar no pão brioche artesanal amarelo.", ing: ["Pão brioche amarelo c/ gergelim preto", "Carne 100g", "Calabresa fatiada", "Creme cheddar", "Molho especial"] },
+    { id: "p4", desc: "100g de carne com desmantelo de creme cheddar cascata no pão brioche amarelo.", ing: ["Pão brioche amarelo c/ gergelim preto", "Carne 100g", "Desmantelo de creme cheddar", "Molho especial"] },
+    { id: "p5", desc: "100g de carne com fatia grossa de queijo coalho grelhado no pão brioche amarelo.", ing: ["Pão brioche amarelo c/ gergelim preto", "Carne 100g", "Queijo coalho grelhado", "Molho especial"] },
+  ];
+  const updP = db.prepare(`UPDATE products SET description = ?, ingredients = ?, updated_at = ? WHERE id = ?`);
+  for (const pr of prods) {
+    updP.run(pr.desc, JSON.stringify(pr.ing), Date.now(), pr.id);
+  }
+} catch {}
+
+const MENU_REAL = [
+  { id: "p1", oldName: "Sarro Burger", name: "Tô no Sarro Salada Burger", cat: "burgers", emoji: "🍔",
+    desc: "100g de carne no pão brioche artesanal amarelo com gergelim preto, salada fresca e molho especial.",
+    ingredients: ["Pão brioche amarelo c/ gergelim preto", "Carne 100g", "Alface", "Tomate", "Cebola roxa", "Molho especial"],
+    price: 16, promo: null, badges: ["maisvendido"] },
+  { id: "p2", oldName: "Bacon Sarro", name: "Sarro Massa Bacon Burger", cat: "burgers", emoji: "🥓",
+    desc: "100g de carne, bacon crocante e creme cheddar no pão brioche.",
+    ingredients: ["Pão brioche", "Carne 100g", "Bacon crocante", "Creme cheddar", "Molho especial"],
+    price: 20, promo: null, badges: ["maisvendido"] },
+  { id: "p3", oldName: "Duplo Sarro", name: "Sarro Peso Calabresa Burger", cat: "burgers", emoji: "🍔",
+    desc: "100g de carne com calabresa e creme cheddar no pão brioche.",
+    ingredients: ["Pão brioche", "Carne 100g", "Calabresa", "Creme cheddar", "Molho especial"],
+    price: 25, promo: null, badges: [] },
+  { id: "p4", oldName: "Smash do Sarro", name: "Sarro Desmantelo Cheddar Burger", cat: "burgers", emoji: "🍔",
+    desc: "100g de carne com desmantelo de creme cheddar no pão brioche.",
+    ingredients: ["Pão brioche", "Carne 100g", "Desmantelo de creme cheddar", "Molho especial"],
+    price: 20, promo: null, badges: [] },
+  { id: "p5", oldName: "Frango Empanado Sarro", name: "Sarro Arretado Burger", cat: "burgers", emoji: "🍔",
+    desc: "100g de carne com queijo coalho grelhado no pão brioche. Arretado de bom!",
+    ingredients: ["Pão brioche", "Carne 100g", "Queijo coalho grelhado", "Molho especial"],
+    price: 23.9, promo: null, badges: ["novidade"] },
+  { id: "p6", oldName: "Combo Sarro Completo", name: "Combo Dois Sarro Massa + 2 Refri", cat: "combos", emoji: "🍟",
+    desc: "2x Sarro Massa Bacon + 2 refrigerantes lata. Pra dividir (ou não).",
+    ingredients: ["2x Sarro Massa Bacon", "2 refrigerantes lata"],
+    price: 49.99, promo: null, badges: ["maisvendido"] },
+];
+for (const m of MENU_REAL) {
+  db.prepare(`UPDATE products SET name = ?, cat = ?, emoji = ?, description = ?,
+    ingredients = ?, price = ?, promo = ?, badges = ?, updated_at = ? WHERE id = ? AND name = ?`)
+    .run(m.name, m.cat, m.emoji, m.desc, JSON.stringify(m.ingredients), m.price, m.promo,
+      JSON.stringify(m.badges), Date.now(), m.id, m.oldName);
+}
 
 function getSettingRaw(key) {
   try { return db.prepare("SELECT value FROM settings WHERE key = ?").get(key)?.value; } catch { return undefined; }
@@ -392,6 +452,12 @@ export function getCoupons() {
     .map((c) => ({ code: c.code, type: c.type, value: c.value, min: c.min, uses: c.uses, limit: c.max_uses, active: !!c.active, note: c.note }));
 }
 
+// Gestão de usuários — nunca devolve o hash da senha
+export function getUsers() {
+  return db.prepare("SELECT id, name, username, role, driver_id, active, last_login_at FROM users ORDER BY name").all()
+    .map((u) => ({ id: u.id, name: u.name, username: u.username, role: u.role, driverId: u.driver_id || null, active: u.active !== 0, lastLoginAt: u.last_login_at || null }));
+}
+
 export function getDrivers() {
   return db.prepare("SELECT * FROM drivers ORDER BY id").all()
     .map((d) => ({ id: d.id, name: d.name, phone: d.phone, vehicle: d.vehicle, status: d.status, deliveries: d.deliveries }));
@@ -409,7 +475,7 @@ export function getInventory() {
 
 export function getPromos() {
   return db.prepare("SELECT * FROM promos ORDER BY id").all()
-    .map((p) => ({ id: p.id, name: p.name, rule: p.rule, active: !!p.active, window: p.window }));
+    .map((p) => ({ id: p.id, name: p.name, rule: p.rule, active: !!p.active, window: p.window, startsAt: p.starts_at || null, endsAt: p.ends_at || null }));
 }
 
 export function getSettings() {

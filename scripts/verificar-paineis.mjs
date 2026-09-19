@@ -6,7 +6,8 @@
 //
 // Confere: raiz = cardápio do cliente (sem login da equipe);
 // /admin, /cozinha, /expedicao, /entregador = login do painel
-// certo e, com sessão, o painel certo. Não faz parte do build.
+// certo e, com sessão, o painel certo; APIs de cupons, promoções,
+// usuários e refresh de pedidos. Não faz parte do build.
 // ============================================================
 
 import fs from "node:fs";
@@ -45,8 +46,9 @@ async function garantirApi() {
 await garantirApi();
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-let fails = 0;
+let fails = 0, total = 0;
 const ok = (name, cond, extra = "") => {
+  total++;
   if (cond) console.log(`  ✅ ${name}`);
   else { fails++; console.log(`  ❌ ${name}${extra ? ` — ${extra}` : ""}`); }
 };
@@ -107,12 +109,13 @@ console.log("\n1) Cliente na raiz — sem login da equipe");
   ok("/ abre o cardápio", /TÔ NO SARRO|Sarro Burger|Cardápio/i.test(text()));
   ok("/ NÃO pede login da equipe", !text().includes("ÁREA DA EQUIPE"));
   ok("/ sem erro de JS", errs.length === 0, errs[0]);
-  ok("barra tem os atalhos dos painéis", ["/admin", "/cozinha", "/expedicao", "/entregador"].every((p) => window.document.querySelector(`a[href="${p}"]`)));
-  // clicar em "Admin" leva para /admin pedindo login
-  window.document.querySelector('a[href="/admin"]').dispatchEvent(new window.MouseEvent("click", { bubbles: true, cancelable: true }));
+  ok("barra de atalhos oculta no cardápio", !window.document.querySelector('a[href="/cozinha"]') && !text().includes("SMART FOOD SYSTEM ·"));
+  // clicar em "Área da equipe" no rodapé leva para /admin pedindo login
+  const linkAdmin = window.document.querySelector('a[href="/admin"]');
+  if (linkAdmin) linkAdmin.dispatchEvent(new window.MouseEvent("click", { bubbles: true, cancelable: true }));
   await sleep(400);
-  ok("clique em Admin muda a URL para /admin", pathname() === "/admin", pathname());
-  ok("clique em Admin mostra o login", text().includes("ÁREA DA EQUIPE"));
+  ok("clique em Área da equipe muda a URL para /admin", pathname() === "/admin", pathname());
+  ok("clique em Área da equipe mostra o login", text().includes("ÁREA DA EQUIPE"));
   window.close();
 }
 
@@ -138,6 +141,102 @@ for (const [path, conta, marca] of [
   window.close();
 }
 
-console.log(fails === 0 ? "\n🎉 tudo verde\n" : `\n💥 ${fails} falha(s)\n`);
+console.log("\n4) APIs — cupons, promoções, usuários e refresh de pedidos");
+{
+  const req = async (method, path, body, jar) => {
+    const r = await fetch(BASE + path, {
+      method,
+      headers: { "Content-Type": "application/json", ...(jar ? { cookie: jar } : {}) },
+      body: body === undefined ? undefined : JSON.stringify(body),
+    });
+    let data = {};
+    try { data = await r.json(); } catch { /* vazio */ }
+    return { status: r.status, ok: r.ok, data };
+  };
+  const loginJar = async (u, pw) => {
+    const r = await fetch(`${BASE}/api/auth/login`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ username: u, password: pw }),
+    });
+    const sc = r.headers.getSetCookie?.() || [];
+    return { ok: r.ok, status: r.status, jar: sc.map((c) => c.split(";")[0]).join("; ") };
+  };
+  const admin = (await loginJar("admin", "admin123")).jar;
+  const gerente = (await loginJar("gerente", "gerente123")).jar;
+  const tag = String(Date.now() % 100000);
+  const boot = async () => (await req("GET", "/api/bootstrap", undefined, admin)).data;
+
+  // Cupons (6)
+  const CCODE = `TST${tag}`;
+  const c1 = await req("POST", "/api/coupons", { code: CCODE, type: "percent", value: 10, min: 40, note: "check" }, admin);
+  ok("cria cupom (201)", c1.status === 201 && c1.data.coupon?.code === CCODE, JSON.stringify(c1.data).slice(0, 80));
+  const c2 = await req("POST", "/api/coupons", { code: `${CCODE}X`, type: "percent", value: 99 }, admin);
+  ok("rejeita percent > 90 (400)", c2.status === 400);
+  const c3 = await req("POST", "/api/coupons", { code: CCODE, type: "fixed", value: 5 }, admin);
+  ok("rejeita código duplicado (409)", c3.status === 409);
+  const c4 = await req("PATCH", `/api/coupons/${CCODE}`, { active: false }, admin);
+  ok("pausa cupom", c4.ok);
+  const c5 = await req("POST", "/api/coupons/validate", { code: CCODE, subtotal: 100 });
+  ok("cupom pausado não valida no checkout", !c5.ok);
+  const c6 = await req("DELETE", `/api/coupons/${CCODE}`, undefined, admin);
+  const c6b = await boot();
+  ok("exclui cupom e some do refresh", c6.ok && !c6b.coupons.some((c) => c.code === CCODE));
+
+  // Promoções programadas (6)
+  const t0 = Date.now();
+  const p1 = await req("POST", "/api/promos",
+    { name: `Check ${tag}`, rule: "validação automática", window: "só no teste", starts_at: t0, ends_at: t0 + 3600000 }, admin);
+  const PID = p1.data.promo?.id;
+  ok("cria promoção com vigência", p1.status === 201 && p1.data.promo?.startsAt === t0, JSON.stringify(p1.data).slice(0, 100));
+  const p2 = await req("POST", "/api/promos", { name: `Check ruim ${tag}`, starts_at: t0 + 5000, ends_at: t0 }, admin);
+  ok("rejeita fim antes do início (400)", p2.status === 400);
+  const p3 = await req("PATCH", `/api/promos/${PID}`, { rule: "editada pelo check" }, admin);
+  ok("edita promoção", p3.ok);
+  const p4 = await req("PATCH", `/api/promos/${PID}`, { active: false }, admin);
+  ok("pausa promoção", p4.ok);
+  const p5 = await boot();
+  ok("promoção aparece no refresh", p5.promos.some((x) => x.id === PID));
+  const p6 = await req("DELETE", `/api/promos/${PID}`, undefined, admin);
+  ok("exclui promoção", p6.ok);
+
+  // Usuários (7 — só admin)
+  const u1 = await req("GET", "/api/users", undefined, admin);
+  ok("lista usuários sem vazar hash", u1.ok && !JSON.stringify(u1.data).includes("pass_hash") && "lastLoginAt" in (u1.data.users?.[0] || {}));
+  const UNAME = `tst${tag}`;
+  const u2 = await req("POST", "/api/users", { name: "Check User", username: UNAME, password: "check12345", role: "COZINHA" }, admin);
+  const UID = u2.data.user?.id;
+  ok("cria usuário", u2.status === 201 && !!UID, JSON.stringify(u2.data).slice(0, 80));
+  const u3 = await req("POST", "/api/users", { name: "X", username: UNAME, password: "check12345", role: "COZINHA" }, admin);
+  ok("rejeita login duplicado (409)", u3.status === 409);
+  const u4 = await req("GET", "/api/users", undefined, gerente);
+  ok("gerente não acessa gestão (403)", u4.status === 403);
+  const uJar = (await loginJar(UNAME, "check12345")).jar;
+  const u5 = await req("PATCH", `/api/users/${UID}`, { password: "nova12345" }, admin);
+  const u5me = await req("GET", "/api/auth/me", undefined, uJar);
+  ok("troca de senha derruba a sessão", u5.ok && u5me.data.user === null);
+  const u6a = await req("PATCH", `/api/users/${UID}`, { active: false }, admin);
+  const u6b = await loginJar(UNAME, "nova12345");
+  const u6c = await req("PATCH", `/api/users/${UID}`, { active: true }, admin);
+  ok("desativar bloqueia o login (403)", u6a.ok && u6b.status === 403 && u6c.ok, `login=${u6b.status}`);
+  const u7a = await req("DELETE", `/api/users/${UID}`, undefined, admin);
+  const u7b = await req("DELETE", "/api/users/u1", undefined, admin);
+  ok("exclui usuário e bloqueia auto-exclusão", u7a.ok && u7b.status === 400);
+
+  // Refresh de pedidos (3)
+  const o1 = await req("POST", "/api/orders", {
+    customer: { name: "Teste Refresh", phone: "(81) 99999-1111", addr: "Rua Teste, 100 — Janga" },
+    items: [{ productId: "p1", qty: 2, optionIds: [], note: "" }],
+    type: "delivery", payment: "Dinheiro",
+  });
+  ok("cria pedido via API", o1.status === 201 && !!o1.data.order?.id, JSON.stringify(o1.data).slice(0, 100));
+  const o2 = await boot();
+  ok("pedido aparece no refresh", o2.orders.some((o) => o.id === o1.data.order?.id));
+  const o3 = await req("PATCH", `/api/orders/${o1.data.order.id}/status`, { status: "CONFIRMADO" }, admin);
+  const o3b = await boot();
+  ok("muda status e refresh reflete", o3.ok && o3b.orders.find((o) => o.id === o1.data.order.id)?.status === "CONFIRMADO");
+}
+
+console.log(fails === 0 ? `\n🎉 tudo verde — ${total} checagens\n` : `\n💥 ${fails} falha(s) em ${total}\n`);
 child?.kill();
 process.exit(fails === 0 ? 0 : 1);

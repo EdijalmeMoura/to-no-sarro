@@ -11,7 +11,9 @@
 
 import express from "express";
 import cookieParser from "cookie-parser";
+import bcrypt from "bcryptjs";
 import http from "node:http";
+import { execSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import crypto from "node:crypto";
@@ -22,10 +24,10 @@ import {
   db, audit, seedIfEmpty,
   getProducts, getOptionGroups, getBuilder, getCategories, getCoupons,
   getDrivers, getCustomers, getInventory, getPromos, getSettings,
-  getSetting, setSetting, getOrders, getPaymentSettings,
+  getSetting, setSetting, getOrders, getPaymentSettings, getUsers,
   logIntegration, enqueueWhatsApp, markOutbox, getOutbox, getIntegrationLogs,
 } from "./db.js";
-import { attachUser, requireRole, login, logout, publicUser } from "./auth.js";
+import { attachUser, requireRole, login, logout, publicUser, ROLES } from "./auth.js";
 import { createCheckoutLink, paymentCheck, cents } from "./payments/infinitepay.js";
 import { waCredentials, normalizePhone, buildOrderMessage, sendWhatsApp } from "./messaging/whatsapp.js";
 import * as ifood from "./integrations/ifood.js";
@@ -34,6 +36,11 @@ import * as escpos from "./printing/escpos.js";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.PORT) || 3001;
 const HOST = process.env.HOST || "0.0.0.0";
+// Versão exibida no app (diagnóstico: confirma qual build está rodando)
+const APP_VERSION = process.env.APP_VERSION || (() => {
+  try { return execSync("git rev-parse --short HEAD", { cwd: path.join(__dirname, "..") }).toString().trim(); }
+  catch { return "dev"; }
+})();
 
 seedIfEmpty();
 
@@ -184,7 +191,7 @@ server.on("upgrade", (req, socket, head) => {
       ws.isStaff = false;
       if (m) {
         const u = db
-          .prepare("SELECT u.id FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.token = ?")
+          .prepare("SELECT u.id FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.token = ? AND u.active = 1")
           .get(m[1]);
         ws.isStaff = !!u;
       }
@@ -212,6 +219,7 @@ app.get("/api/bootstrap", (req, res) => {
     optionGroups: getOptionGroups(),
     builder: getBuilder(),
     me: publicUser(req.user),
+    version: APP_VERSION,
   });
 });
 
@@ -1038,6 +1046,312 @@ app.delete("/api/options/:oid", requireRole("ADMIN", "GERENTE"), (req, res) => {
 });
 
 // ------------------------------------------------------------
+// CUPONS / PROMOÇÕES / USUÁRIOS (admin)
+// ------------------------------------------------------------
+
+const COUPON_TYPES = new Set(["percent", "fixed", "freeship"]);
+
+// Valida e normaliza o payload de cupom; devolve { patch } ou { error }
+function couponPatch(body, { partial = true } = {}) {
+  const b = body || {};
+  const patch = {};
+  const req = (cond, msg) => { if (!cond) throw new Error(msg); };
+
+  try {
+    if (b.type !== undefined || !partial) {
+      const v = String(b.type ?? "");
+      req(COUPON_TYPES.has(v), "Tipo de cupom inválido (percent, fixed ou freeship).");
+      patch.type = v;
+    }
+    if (b.value !== undefined || !partial) {
+      const v = Math.round(Number(b.value ?? 0) * 100) / 100;
+      req(Number.isFinite(v) && v >= 0 && v <= 500, "Valor do cupom inválido.");
+      patch.value = v;
+    }
+    if (patch.type === "percent" && (patch.value < 1 || patch.value > 90)) {
+      return { error: "Cupom de % precisa valer entre 1 e 90." };
+    }
+    if (patch.type === "freeship") patch.value = 0;
+    if (b.min !== undefined) {
+      const v = Math.round(Number(b.min) * 100) / 100;
+      req(Number.isFinite(v) && v >= 0 && v <= 9999, "Pedido mínimo inválido.");
+      patch.min = v;
+    }
+    if (b.max_uses !== undefined) {
+      if (b.max_uses === null || b.max_uses === "") patch.max_uses = null;
+      else {
+        const v = Math.floor(Number(b.max_uses));
+        req(Number.isFinite(v) && v >= 1 && v <= 100000, "Limite de usos inválido.");
+        patch.max_uses = v;
+      }
+    }
+    if (b.note !== undefined) patch.note = String(b.note ?? "").trim().slice(0, 120);
+    if (b.active !== undefined) patch.active = b.active ? 1 : 0;
+  } catch (e) {
+    return { error: e.message };
+  }
+  return { patch };
+}
+
+const validCouponCode = (c) => /^[A-Z0-9_-]{3,20}$/.test(c);
+
+app.post("/api/coupons", requireRole("ADMIN", "GERENTE"), (req, res) => {
+  const code = String(req.body?.code || "").trim().toUpperCase();
+  if (!validCouponCode(code)) return res.status(400).json({ error: "Código inválido (3 a 20 letras/números, sem espaço)." });
+  if (db.prepare("SELECT 1 FROM coupons WHERE code = ?").get(code)) {
+    return res.status(409).json({ error: `O cupom ${code} já existe.` });
+  }
+  const { patch, error } = couponPatch(req.body, { partial: false });
+  if (error) return res.status(400).json({ error });
+  db.prepare("INSERT INTO coupons (code, type, value, min, uses, max_uses, active, note) VALUES (?, ?, ?, ?, 0, ?, ?, ?)")
+    .run(code, patch.type, patch.value, patch.min ?? 0, patch.max_uses ?? null, patch.active ?? 1, patch.note ?? "");
+  audit(req.user.username, "cupom_criado", code);
+  broadcast();
+  res.status(201).json({ coupon: getCoupons().find((c) => c.code === code) });
+});
+
+app.patch("/api/coupons/:code", requireRole("ADMIN", "GERENTE"), (req, res) => {
+  const code = String(req.params.code || "").toUpperCase();
+  const c = db.prepare("SELECT * FROM coupons WHERE code = ?").get(code);
+  if (!c) return res.status(404).json({ error: "Cupom não encontrado." });
+  const { patch, error } = couponPatch(req.body, { partial: true });
+  if (error) return res.status(400).json({ error });
+  const keys = Object.keys(patch);
+  if (!keys.length) return res.status(400).json({ error: "Nada para atualizar." });
+
+  const type = patch.type ?? c.type;
+  const value = patch.value ?? c.value;
+  if (type === "percent" && (value < 1 || value > 90)) {
+    return res.status(400).json({ error: "Cupom de % precisa valer entre 1 e 90." });
+  }
+  const set = keys.map((k) => `${k} = ?`).join(", ");
+  db.prepare(`UPDATE coupons SET ${set} WHERE code = ?`).run(...keys.map((k) => patch[k]), code);
+  audit(req.user.username, "cupom_atualizado", `${code}: ${JSON.stringify(patch).slice(0, 200)}`);
+  broadcast();
+  res.json({ ok: true });
+});
+
+app.delete("/api/coupons/:code", requireRole("ADMIN", "GERENTE"), (req, res) => {
+  const code = String(req.params.code || "").toUpperCase();
+  const c = db.prepare("SELECT * FROM coupons WHERE code = ?").get(code);
+  if (!c) return res.status(404).json({ error: "Cupom não encontrado." });
+  db.prepare("DELETE FROM coupons WHERE code = ?").run(code);
+  audit(req.user.username, "cupom_excluido", code);
+  broadcast();
+  res.json({ ok: true });
+});
+
+// --- Promoções programadas ---
+
+function promoPatch(body) {
+  const b = body || {};
+  const patch = {};
+  if (b.name !== undefined) {
+    const v = String(b.name ?? "").trim();
+    if (v.length < 3 || v.length > 60) return { error: "Nome da promoção deve ter 3 a 60 caracteres." };
+    patch.name = v;
+  }
+  if (b.rule !== undefined) patch.rule = String(b.rule ?? "").trim().slice(0, 140);
+  if (b.window !== undefined) patch.window = String(b.window ?? "").trim().slice(0, 40);
+  if (b.active !== undefined) patch.active = b.active ? 1 : 0;
+  for (const k of ["starts_at", "ends_at"]) {
+    if (b[k] !== undefined) {
+      if (b[k] === null || b[k] === "") patch[k] = null;
+      else {
+        const v = Math.floor(Number(b[k]));
+        if (!Number.isFinite(v) || v < 0 || v > 4102444800000) {
+          return { error: k === "starts_at" ? "Início da vigência inválido." : "Fim da vigência inválido." };
+        }
+        patch[k] = v;
+      }
+    }
+  }
+  return { patch };
+}
+
+// A vigência precisa fazer sentido: fim depois do início
+function promoWindowOk(startsAt, endsAt) {
+  return startsAt == null || endsAt == null || endsAt > startsAt;
+}
+
+app.post("/api/promos", requireRole("ADMIN", "GERENTE"), (req, res) => {
+  const { patch, error } = promoPatch({ name: req.body?.name ?? "", ...req.body });
+  if (error) return res.status(400).json({ error });
+  if (!patch.name) return res.status(400).json({ error: "Dê um nome para a promoção." });
+  if (!promoWindowOk(patch.starts_at ?? null, patch.ends_at ?? null)) {
+    return res.status(400).json({ error: "O fim da vigência precisa ser depois do início." });
+  }
+  const id = "pr_" + crypto.randomBytes(4).toString("hex");
+  db.prepare("INSERT INTO promos (id, name, rule, active, window, starts_at, ends_at) VALUES (?, ?, ?, ?, ?, ?, ?)")
+    .run(id, patch.name, patch.rule ?? "", patch.active ?? 1, patch.window ?? "", patch.starts_at ?? null, patch.ends_at ?? null);
+  audit(req.user.username, "promo_criada", patch.name);
+  broadcast();
+  res.status(201).json({ promo: getPromos().find((p) => p.id === id) });
+});
+
+app.patch("/api/promos/:id", requireRole("ADMIN", "GERENTE"), (req, res) => {
+  const p = db.prepare("SELECT * FROM promos WHERE id = ?").get(req.params.id);
+  if (!p) return res.status(404).json({ error: "Promoção não encontrada." });
+  const { patch, error } = promoPatch(req.body);
+  if (error) return res.status(400).json({ error });
+  const keys = Object.keys(patch);
+  if (!keys.length) return res.status(400).json({ error: "Nada para atualizar." });
+  const starts = patch.starts_at !== undefined ? patch.starts_at : p.starts_at;
+  const ends = patch.ends_at !== undefined ? patch.ends_at : p.ends_at;
+  if (!promoWindowOk(starts, ends)) {
+    return res.status(400).json({ error: "O fim da vigência precisa ser depois do início." });
+  }
+  const set = keys.map((k) => `${k} = ?`).join(", ");
+  db.prepare(`UPDATE promos SET ${set} WHERE id = ?`).run(...keys.map((k) => patch[k]), p.id);
+  audit(req.user.username, "promo_atualizada", `${p.name}: ${JSON.stringify(patch).slice(0, 200)}`);
+  broadcast();
+  res.json({ ok: true });
+});
+
+app.delete("/api/promos/:id", requireRole("ADMIN", "GERENTE"), (req, res) => {
+  const p = db.prepare("SELECT * FROM promos WHERE id = ?").get(req.params.id);
+  if (!p) return res.status(404).json({ error: "Promoção não encontrada." });
+  db.prepare("DELETE FROM promos WHERE id = ?").run(p.id);
+  audit(req.user.username, "promo_excluida", p.name);
+  broadcast();
+  res.json({ ok: true });
+});
+
+// --- Usuários da equipe (só ADMIN) ---
+// A lista NÃO vai no broadcast (só o admin busca via GET) para não
+// vazar logins para os outros painéis da equipe.
+
+app.get("/api/users", requireRole("ADMIN"), (_req, res) => {
+  res.json({ users: getUsers(), roles: ROLES });
+});
+
+function userPatch(body, { partial = true } = {}) {
+  const b = body || {};
+  const patch = {};
+  const req = (cond, msg) => { if (!cond) throw new Error(msg); };
+  try {
+    if (b.name !== undefined || !partial) {
+      const v = String(b.name ?? "").trim();
+      req(v.length >= 3 && v.length <= 60, "Nome deve ter entre 3 e 60 caracteres.");
+      patch.name = v;
+    }
+    if (b.role !== undefined || !partial) {
+      const v = String(b.role ?? "");
+      req(ROLES.includes(v), "Perfil inválido.");
+      patch.role = v;
+    }
+    if (b.driver_id !== undefined) {
+      const v = b.driver_id ? String(b.driver_id) : null;
+      if (v) req(db.prepare("SELECT 1 FROM drivers WHERE id = ?").get(v), "Entregador vinculado inválido.");
+      patch.driver_id = v;
+    }
+    if (b.active !== undefined) patch.active = b.active ? 1 : 0;
+    if (b.password !== undefined && b.password !== "") {
+      const v = String(b.password);
+      req(v.length >= 6 && v.length <= 72, "A senha precisa de 6 a 72 caracteres.");
+      patch.pass_hash = bcrypt.hashSync(v, 10);
+    }
+  } catch (e) {
+    return { error: e.message };
+  }
+  return { patch };
+}
+
+const validUsername = (u) => /^[a-z0-9._-]{3,20}$/.test(u);
+
+// Entregador precisa estar ligado a um cadastro de entregador;
+// os outros perfis não carregam vínculo.
+function normalizeDriver(role, driverId) {
+  if (role !== "ENTREGADOR") return null;
+  return driverId;
+}
+
+app.post("/api/users", requireRole("ADMIN"), (req, res) => {
+  const username = String(req.body?.username || "").trim().toLowerCase();
+  if (!validUsername(username)) {
+    return res.status(400).json({ error: "Usuário inválido (3 a 20 minúsculas, números, ponto, _ ou -)." });
+  }
+  if (db.prepare("SELECT 1 FROM users WHERE username = ?").get(username)) {
+    return res.status(409).json({ error: `O usuário “${username}” já existe.` });
+  }
+  const password = String(req.body?.password || "");
+  if (password.length < 6 || password.length > 72) {
+    return res.status(400).json({ error: "A senha precisa de 6 a 72 caracteres." });
+  }
+  const { patch, error } = userPatch({ ...req.body, password }, { partial: false });
+  if (error) return res.status(400).json({ error });
+  const driverId = normalizeDriver(patch.role, patch.driver_id ?? null);
+  if (patch.role === "ENTREGADOR" && !driverId) {
+    return res.status(400).json({ error: "Escolha o entregador vinculado a este login." });
+  }
+  const id = "u_" + crypto.randomBytes(4).toString("hex");
+  db.prepare("INSERT INTO users (id, name, username, pass_hash, role, driver_id, active) VALUES (?, ?, ?, ?, ?, ?, ?)")
+    .run(id, patch.name, username, patch.pass_hash, patch.role, driverId, patch.active ?? 1);
+  audit(req.user.username, "usuario_criado", `${username} (${patch.role})`);
+  res.status(201).json({ user: getUsers().find((u) => u.id === id) });
+});
+
+app.patch("/api/users/:id", requireRole("ADMIN"), (req, res) => {
+  const u = db.prepare("SELECT * FROM users WHERE id = ?").get(req.params.id);
+  if (!u) return res.status(404).json({ error: "Usuário não encontrado." });
+
+  const self = u.id === req.user.id;
+
+  const { patch, error } = userPatch(req.body, { partial: true });
+  if (error) return res.status(400).json({ error });
+  const keys = Object.keys(patch).filter((k) => k !== "pass_hash" || req.body?.password);
+  if (!keys.length && !patch.pass_hash) return res.status(400).json({ error: "Nada para atualizar." });
+
+  const role = patch.role ?? u.role;
+  let driverId = patch.driver_id !== undefined ? patch.driver_id : u.driver_id;
+  driverId = normalizeDriver(role, driverId);
+  if (role === "ENTREGADOR" && !driverId) {
+    return res.status(400).json({ error: "Escolha o entregador vinculado a este login." });
+  }
+  patch.role = role;
+  patch.driver_id = driverId;
+
+  const active = patch.active !== undefined ? patch.active : (u.active !== 0 ? 1 : 0);
+  patch.active = active;
+  if (active === 0) {
+    if (self) return res.status(400).json({ error: "Você não pode desativar a própria conta." });
+    if (u.role === "ADMIN") {
+      const others = db.prepare("SELECT COUNT(*) AS n FROM users WHERE role = 'ADMIN' AND active = 1 AND id != ?").get(u.id).n;
+      if (!others) return res.status(400).json({ error: "Não dá para desativar o último administrador." });
+    }
+  }
+  // Rebaixar o último admin ativo também é bloqueado
+  if (u.role === "ADMIN" && role !== "ADMIN") {
+    const others = db.prepare("SELECT COUNT(*) AS n FROM users WHERE role = 'ADMIN' AND active = 1 AND id != ?").get(u.id).n;
+    if (!others) return res.status(400).json({ error: "Sempre precisa existir um administrador ativo." });
+  }
+
+  const cols = Object.keys(patch);
+  const set = cols.map((k) => `${k} = ?`).join(", ");
+  db.prepare(`UPDATE users SET ${set} WHERE id = ?`).run(...cols.map((k) => patch[k]), u.id);
+  // Troca de senha, perfil ou desativação derruba as sessões na hora
+  if (patch.pass_hash || patch.role !== u.role || active === 0) {
+    db.prepare("DELETE FROM sessions WHERE user_id = ?").run(u.id);
+  }
+  audit(req.user.username, "usuario_atualizado", `${u.username}: ${JSON.stringify({ ...patch, pass_hash: patch.pass_hash ? "***" : undefined }).slice(0, 200)}`);
+  res.json({ ok: true });
+});
+
+app.delete("/api/users/:id", requireRole("ADMIN"), (req, res) => {
+  const u = db.prepare("SELECT * FROM users WHERE id = ?").get(req.params.id);
+  if (!u) return res.status(404).json({ error: "Usuário não encontrado." });
+  if (u.id === req.user.id) return res.status(400).json({ error: "Você não pode excluir a própria conta." });
+  if (u.role === "ADMIN") {
+    const others = db.prepare("SELECT COUNT(*) AS n FROM users WHERE role = 'ADMIN' AND active = 1 AND id != ?").get(u.id).n;
+    if (!others) return res.status(400).json({ error: "Não dá para excluir o último administrador." });
+  }
+  db.prepare("DELETE FROM sessions WHERE user_id = ?").run(u.id);
+  db.prepare("DELETE FROM users WHERE id = ?").run(u.id);
+  audit(req.user.username, "usuario_excluido", `${u.username} (${u.role})`);
+  res.json({ ok: true });
+});
+
+// ------------------------------------------------------------
 // PRODUTOS / ESTOQUE / CONFIG (admin)
 // ------------------------------------------------------------
 
@@ -1333,7 +1647,12 @@ const INDEX = path.join(DIST, "index.html");
 const hasFrontend = fs.existsSync(INDEX);
 if (hasFrontend) {
   app.use(express.static(DIST, { index: false }));
-  app.get(/^(?!\/api|\/ws|\/healthz).*/, (_req, res) => res.sendFile(INDEX));
+  app.get(/^(?!\/api|\/ws|\/healthz).*/, (_req, res) => {
+    // Shell do SPA nunca cacheado: garante que o navegador sempre
+    // carregue o bundle mais novo (os assets têm hash no nome).
+    res.setHeader("Cache-Control", "no-store");
+    res.sendFile(INDEX);
+  });
 } else {
   app.get(/^(?!\/api|\/ws|\/healthz).*/, (_req, res) => {
     res.status(503).type("html").send(
