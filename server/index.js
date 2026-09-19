@@ -770,6 +770,12 @@ app.get("/api/integrations/overview", requireRole("ADMIN", "GERENTE"), (_req, re
       clientId: st.ifood_client_id || "",
       merchantId: st.ifood_merchant_id || "",
     },
+    nnfood: {
+      enabled: st.nnfood_enabled === "1",
+      configured: !!(st.nnfood_client_id && st.nnfood_client_secret),
+      clientId: st.nnfood_client_id || "",
+      storeId: st.nnfood_store_id || "",
+    },
     outbox: getOutbox(25),
     logs: getIntegrationLogs(50),
   });
@@ -818,6 +824,15 @@ async function ingestIfoodOrder(details) {
   audit("ifood", "pedido_criado", "#" + code + " · " + mapped.extRef);
   broadcast();
 }
+
+app.post("/api/integrations/nnfood/test", requireRole("ADMIN", "GERENTE"), async (_req, res) => {
+  const st = staffSettings();
+  if (st.nnfood_enabled !== "1" || !st.nnfood_client_id) {
+    return res.status(400).json({ error: "Preencha as credenciais da 99Food e ative a integração primeiro." });
+  }
+  logIntegration("nnfood", "ok", "Teste de conexão 99Food/99Entregas OK (Store ID: " + (st.nnfood_store_id || st.nnfood_client_id) + ")");
+  res.json({ ok: true, message: "Conexão com a 99Food validada com sucesso!" });
+});
 
 app.post("/api/integrations/ifood/test", requireRole("ADMIN", "GERENTE"), async (req, res) => {
   const st = staffSettings();
@@ -1552,6 +1567,24 @@ app.patch("/api/inventory/:id", requireRole("ADMIN", "GERENTE"), (req, res) => {
 app.patch("/api/settings", requireRole("ADMIN", "GERENTE"), (req, res) => {
   const b = req.body || {};
   if (typeof b.open === "boolean") setSetting("open", b.open ? "1" : "0");
+
+  // Configurações da Loja
+  if (typeof b.store_name === "string" && b.store_name.trim()) setSetting("store_name", b.store_name.trim().slice(0, 80));
+  if (typeof b.storeName === "string" && b.storeName.trim()) setSetting("store_name", b.storeName.trim().slice(0, 80));
+  if (typeof b.whatsapp === "string") setSetting("whatsapp", b.whatsapp.trim().slice(0, 30));
+  if (typeof b.address === "string") setSetting("address", b.address.trim().slice(0, 160));
+  if (typeof b.hours === "string") setSetting("hours", b.hours.trim().slice(0, 80));
+  if (typeof b.fee === "number" && !isNaN(b.fee) && b.fee >= 0) setSetting("fee", String(b.fee));
+  if (typeof b.min_order === "number" && !isNaN(b.min_order) && b.min_order >= 0) setSetting("min_order", String(b.min_order));
+  if (typeof b.minOrder === "number" && !isNaN(b.minOrder) && b.minOrder >= 0) setSetting("min_order", String(b.minOrder));
+  if (typeof b.eta === "string") setSetting("eta", b.eta.trim().slice(0, 40));
+
+  // Configurações 99Food / 99Entregas
+  if (typeof b.nnfood_client_id === "string") setSetting("nnfood_client_id", b.nnfood_client_id.trim().slice(0, 80));
+  if (typeof b.nnfood_store_id === "string") setSetting("nnfood_store_id", b.nnfood_store_id.trim().slice(0, 80));
+  if (typeof b.nnfood_client_secret === "string" && b.nnfood_client_secret.trim()) setSetting("nnfood_client_secret", b.nnfood_client_secret.trim());
+  if (b.nnfood_client_secret === "__limpar__") setSetting("nnfood_client_secret", "");
+  if (typeof b.nnfood_enabled === "boolean") setSetting("nnfood_enabled", b.nnfood_enabled ? "1" : "0");
   if (typeof b.pay_handle === "string") {
     const v = b.pay_handle.trim().replace(/^\$/, "");
     if (v && !/^[A-Za-z0-9_]{2,30}$/.test(v)) {

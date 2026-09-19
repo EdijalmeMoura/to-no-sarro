@@ -3309,6 +3309,7 @@ function AdminIntegrations({ store }) {
   const [ov, setOv] = useState(null);
   const [wa, setWa] = useState({ phone_number_id: "", token: "", verify: "", template: "tonosarro_status" });
   const [iff, setIff] = useState({ client_id: "", secret: "", merchant_id: "" });
+  const [nn, setNn] = useState({ client_id: "", secret: "", store_id: "" });
   const [testPhone, setTestPhone] = useState("");
   const [busy, setBusy] = useState("");
   const [msg, setMsg] = useState("");
@@ -3380,8 +3381,37 @@ function AdminIntegrations({ store }) {
     setBusy("");
   };
 
+  const saveNn = async (enabledDelta) => {
+    setBusy("nn");
+    try {
+      const body = {
+        nnfood_client_id: nn.client_id || undefined,
+        nnfood_store_id: nn.store_id || undefined,
+        nnfood_client_secret: nn.secret || undefined,
+      };
+      if (typeof enabledDelta === "boolean") body.nnfood_enabled = enabledDelta;
+      Object.keys(body).forEach((k) => body[k] === undefined && delete body[k]);
+      await api("/api/settings", { method: "PATCH", body });
+      setNn({ client_id: "", secret: "", store_id: "" });
+      await load();
+      say(enabledDelta === undefined ? "Credenciais da 99Food salvas ✓" : enabledDelta ? "99Food ativada ✓" : "99Food pausada");
+    } catch (e) { say(e.message); }
+    setBusy("");
+  };
+
+  const testNn = async () => {
+    setBusy("tnn");
+    try {
+      await api("/api/integrations/nnfood/test", { method: "POST" });
+      say("Conexão com a 99Food/99Entregas OK ✓");
+      await load();
+    } catch (e) { say(e.message); await load(); }
+    setBusy("");
+  };
+
   const w = ov?.whatsapp || {};
   const f = ov?.ifood || {};
+  const n = ov?.nnfood || {};
 
   return (
     <div className="space-y-4">
@@ -3478,6 +3508,48 @@ function AdminIntegrations({ store }) {
               {f.enabled ? "⏸ Pausar" : "▶ Ativar polling"}
             </Btn>
             <Btn small variant="dark" disabled={busy === "tif"} onClick={testIfood}>{busy === "tif" ? "…" : "Testar conexão"}</Btn>
+          </div>
+        </Card>
+
+        {/* 99FOOD & 99ENTREGAS */}
+        <Card className="p-4 lg:col-span-2">
+          <div className="flex items-center justify-between">
+            <span style={{ color: C.white, fontWeight: 900, fontSize: 15 }}>🟡 99Food & 99Entregas — API oficial</span>
+            <span
+              className="rounded-full px-2.5 py-1 font-bold"
+              style={{
+                fontSize: 10,
+                background: n.configured ? `${C.green}1f` : `${C.yellow}1f`,
+                color: n.configured ? C.green : C.yellow,
+                border: `1px solid ${n.configured ? C.green : C.yellow}44`,
+              }}
+            >
+              {n.configured ? (n.enabled ? "ATIVO" : "CONFIGURADO · PAUSADO") : "FALTA CREDENCIAL"}
+            </span>
+          </div>
+          <p style={{ color: "#8a8a8a", fontSize: 11.5, marginTop: 6, lineHeight: 1.5 }}>
+            Recebimento de pedidos da <strong style={{ color: "#FFD400" }}>99Food</strong> direto na cozinha e despacho integrado via <strong style={{ color: "#FFD400" }}>99Entregas</strong>.
+            Insira suas credenciais de parceiro da plataforma 99 para habilitar a sincronização.
+          </p>
+          <div className="grid md:grid-cols-3 gap-2 mt-3">
+            <input value={nn.client_id} onChange={(e) => setNn({ ...nn, client_id: e.target.value })}
+              placeholder={n.clientId ? `Client ID: ${n.clientId}` : "Client ID / App Key"} className="rounded-lg px-2.5 py-2 outline-none" style={inField} />
+            <input value={nn.secret} onChange={(e) => setNn({ ...nn, secret: e.target.value })} type="password"
+              placeholder={n.configured ? "Secret •••• salvo (deixe vazio p/ manter)" : "Client Secret / App Secret"} className="rounded-lg px-2.5 py-2 outline-none" style={inField} />
+            <input value={nn.store_id} onChange={(e) => setNn({ ...nn, store_id: e.target.value })}
+              placeholder={n.storeId ? `Store ID: ${n.storeId}` : "Store ID da loja na 99"} className="rounded-lg px-2.5 py-2 outline-none" style={inField} />
+          </div>
+          <div className="flex flex-wrap gap-2 mt-3">
+            <Btn small disabled={busy === "nn"} onClick={() => saveNn(undefined)}>Salvar credenciais</Btn>
+            <Btn small variant={n.enabled ? "dark" : "green"} disabled={busy === "nn"} onClick={() => saveNn(!n.enabled)}>
+              {n.enabled ? "⏸ Pausar" : "▶ Ativar 99Food"}
+            </Btn>
+            <Btn small variant="dark" disabled={busy === "tnn" || !n.configured} onClick={testNn}>
+              {busy === "tnn" ? "…" : "Testar conexão"}
+            </Btn>
+            <Btn small variant="dark" onClick={() => store.injectExternal("NNFOOD")}>
+              + Simular pedido 99Food
+            </Btn>
           </div>
         </Card>
       </div>
@@ -3748,31 +3820,135 @@ function AdminPrinterCard({ store }) {
     </Card>
   );
 }
+function AdminStoreCard({ store }) {
+  const st = store.settings || {};
+  const [name, setName] = useState(st.storeName || "TÔ NO SARRO! Burgers & Açaí");
+  const [wa, setWa] = useState(st.whatsapp || "(81) 99999-0000");
+  const [addr, setAddr] = useState(st.address || "Av. Cláudio José Gueiros Leite, 3200 — Janga, Paulista/PE");
+  const [hours, setHours] = useState(st.hours || "Ter a Dom · 18:00 – 23:30");
+  const [fee, setFee] = useState(String(st.fee ?? 7.9).replace(".", ","));
+  const [minOrder, setMinOrder] = useState(String(st.minOrder ?? 25).replace(".", ","));
+  const [eta, setEta] = useState(st.eta || "35–45 min");
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    if (store.settings) {
+      if (store.settings.storeName) setName(store.settings.storeName);
+      if (store.settings.whatsapp) setWa(store.settings.whatsapp);
+      if (store.settings.address) setAddr(store.settings.address);
+      if (store.settings.hours) setHours(store.settings.hours);
+      if (store.settings.fee !== undefined) setFee(String(store.settings.fee).replace(".", ","));
+      if (store.settings.minOrder !== undefined) setMinOrder(String(store.settings.minOrder).replace(".", ","));
+      if (store.settings.eta) setEta(store.settings.eta);
+    }
+  }, [store.settings]);
+
+  const save = async () => {
+    setBusy(true);
+    try {
+      const numFee = parseFloat(String(fee).replace(",", ".")) || 0;
+      const numMin = parseFloat(String(minOrder).replace(",", ".")) || 0;
+      await api("/api/settings", {
+        method: "PATCH",
+        body: {
+          store_name: name.trim(),
+          whatsapp: wa.trim(),
+          address: addr.trim(),
+          hours: hours.trim(),
+          fee: numFee,
+          min_order: numMin,
+          eta: eta.trim(),
+        },
+      });
+      store.toast("Informações da loja salvas com sucesso! ✓");
+    } catch (e) {
+      store.toast(e.message);
+    }
+    setBusy(false);
+  };
+
+  const fieldStyle = {
+    background: C.black,
+    border: `1px solid ${C.gray800}`,
+    color: C.white,
+    fontSize: 12.5,
+  };
+
+  return (
+    <Card className="p-4 space-y-2">
+      <div className="flex items-center justify-between mb-2">
+        <div style={{ color: C.white, fontWeight: 900, fontSize: 15 }}>🏪 Loja & Operação</div>
+        <Btn small disabled={busy} onClick={save}>
+          {busy ? "Salvando…" : "💾 Salvar loja"}
+        </Btn>
+      </div>
+
+      <Row label="Nome da Loja">
+        <input value={name} onChange={(e) => setName(e.target.value)}
+          className="rounded-lg px-2.5 py-1.5 outline-none text-right" style={{ ...fieldStyle, width: 230 }} />
+      </Row>
+
+      <Row label="WhatsApp da Loja">
+        <input value={wa} onChange={(e) => setWa(e.target.value)}
+          className="rounded-lg px-2.5 py-1.5 outline-none text-right" style={{ ...fieldStyle, width: 150 }} />
+      </Row>
+
+      <Row label="Endereço">
+        <input value={addr} onChange={(e) => setAddr(e.target.value)}
+          className="rounded-lg px-2.5 py-1.5 outline-none text-right" style={{ ...fieldStyle, width: 260 }} />
+      </Row>
+
+      <Row label="Horário de Funcionamento">
+        <input value={hours} onChange={(e) => setHours(e.target.value)}
+          className="rounded-lg px-2.5 py-1.5 outline-none text-right" style={{ ...fieldStyle, width: 200 }} />
+      </Row>
+
+      <Row label="Taxa de entrega padrão">
+        <div className="flex items-center gap-1.5">
+          <span style={{ color: "#777", fontSize: 12 }}>R$</span>
+          <input value={fee} onChange={(e) => setFee(e.target.value)}
+            className="rounded-lg px-2.5 py-1.5 outline-none text-right" style={{ ...fieldStyle, width: 75 }} />
+        </div>
+      </Row>
+
+      <Row label="Pedido mínimo para entrega">
+        <div className="flex items-center gap-1.5">
+          <span style={{ color: "#777", fontSize: 12 }}>R$</span>
+          <input value={minOrder} onChange={(e) => setMinOrder(e.target.value)}
+            className="rounded-lg px-2.5 py-1.5 outline-none text-right" style={{ ...fieldStyle, width: 75 }} />
+        </div>
+      </Row>
+
+      <Row label="Tempo médio estimado">
+        <input value={eta} onChange={(e) => setEta(e.target.value)}
+          className="rounded-lg px-2.5 py-1.5 outline-none text-right" style={{ ...fieldStyle, width: 120 }} />
+      </Row>
+
+      <Row label="Status da loja (Aberto / Fechado)">
+        <button
+          onClick={() => store.setOpen(!store.open)}
+          className="rounded-full transition"
+          style={{ width: 44, height: 24, background: store.open ? C.green : C.gray700, position: "relative" }}
+        >
+          <span style={{ position: "absolute", top: 3, left: store.open ? 23 : 3, width: 18, height: 18, borderRadius: 99, background: C.white, transition: "left .2s" }} />
+        </button>
+      </Row>
+
+      <div className="pt-2">
+        <Btn full disabled={busy} onClick={save}>
+          {busy ? "Salvando…" : "💾 Salvar informações da loja"}
+        </Btn>
+      </div>
+    </Card>
+  );
+}
+
 function AdminSettings({ store, now }) {
   return (
     <div className="grid lg:grid-cols-2 gap-3">
       <AdminPaymentsCard store={store} />
       <AdminPrinterCard store={store} />
-
-      <Card className="p-4">
-        <div style={{ color: C.white, fontWeight: 900, fontSize: 14, marginBottom: 4 }}>Loja</div>
-        <Row label="Nome"><Input v="TÔ NO SARRO! Burgers & Açaí" /></Row>
-        <Row label="WhatsApp"><Input v="(81) 99999-0000" w={140} /></Row>
-        <Row label="Endereço"><Input v="Av. Cláudio J. Gueiros Leite, 3200" /></Row>
-        <Row label="Horário"><Input v="Ter a Dom · 18:00 – 23:30" w={180} /></Row>
-        <Row label="Taxa de entrega"><Input v="7,90" w={80} /></Row>
-        <Row label="Pedido mínimo"><Input v="25,00" w={80} /></Row>
-        <Row label="Tempo médio"><Input v="35–45 min" w={110} /></Row>
-        <Row label="Loja aberta">
-          <button
-            onClick={() => store.setOpen(!store.open)}
-            className="rounded-full"
-            style={{ width: 44, height: 24, background: store.open ? C.green : C.gray700, position: "relative" }}
-          >
-            <span style={{ position: "absolute", top: 3, left: store.open ? 23 : 3, width: 18, height: 18, borderRadius: 99, background: C.white, transition: "left .2s" }} />
-          </button>
-        </Row>
-      </Card>
+      <AdminStoreCard store={store} />
 
       <Card className="p-4 lg:col-span-2">
         <div style={{ color: C.white, fontWeight: 900, fontSize: 14, marginBottom: 10 }}>Usuários e permissões</div>
@@ -4899,7 +5075,9 @@ export default function App() {
         );
         // Impressão automática da comanda quando o KDS está aberto com o modo ligado
         if (roleRef.current === "cozinha" && localStorage.getItem("sarro_autoprint") === "1") {
-          fresh.slice(0, 3).forEach((o) => printKitchen(o));
+          fresh.slice(0, 3).forEach((o) => {
+            api(`/api/print/kitchen/${o.id}`, { method: "POST" }).catch(() => printKitchen(o));
+          });
         }
       }
     }
