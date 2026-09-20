@@ -300,6 +300,58 @@ console.log("\n4) APIs — cupons, promoções, usuários e refresh de pedidos")
     const confirmManual = await req("POST", `/api/orders/${pOrder.id}/confirm-payment`, undefined, admin);
     const trackAfterPaid = await req("GET", `/api/track/${pOrder.id}?t=${pOrder.trackToken}`);
     ok("equipe confirma pagamento Pix manualmente e reflete no rastreio", confirmManual.ok && trackAfterPaid.data.order?.paymentStatus === "pago" && trackAfterPaid.data.order?.status === "CONFIRMADO");
+
+    // Frente de Caixa / PDV (Part 4)
+    const checkCurrentCash = await req("GET", "/api/cash/current", undefined, admin);
+    if (checkCurrentCash.data?.register) {
+      await req("POST", "/api/cash/close", { closedCash: checkCurrentCash.data.register.summary.expectedCash }, admin);
+    }
+
+    const openCash = await req("POST", "/api/cash/open", {
+      initialCash: 150.00,
+      notes: "Turno Noite - Caixa 01",
+    }, admin);
+    ok("abre turno de caixa com fundo de troco (201)", openCash.status === 201 && openCash.data.register?.status === "OPEN" && openCash.data.register?.summary?.initialCash === 150);
+
+    const openDuplicate = await req("POST", "/api/cash/open", { initialCash: 100.00 }, admin);
+    ok("rejeita abrir caixa duplicado (400)", openDuplicate.status === 400);
+
+    const txSuprimento = await req("POST", "/api/cash/transaction", {
+      type: "SUPRIMENTO",
+      amount: 50.00,
+      reason: "Troco moedas de 1 real",
+    }, admin);
+    ok("registra suprimento de caixa", txSuprimento.ok && txSuprimento.data.register?.summary?.suprimentos === 50 && txSuprimento.data.register?.summary?.expectedCash === 200);
+
+    const txSangria = await req("POST", "/api/cash/transaction", {
+      type: "SANGRIA",
+      amount: 30.00,
+      reason: "Compra urgente de pão",
+    }, admin);
+    ok("registra sangria de caixa", txSangria.ok && txSangria.data.register?.summary?.sangrias === 30 && txSangria.data.register?.summary?.expectedCash === 170);
+
+    const cashOrder = await req("POST", "/api/orders", {
+      customer: { name: "Cliente Dinheiro", phone: "(81) 98765-4321", addr: "Rua do Caixa, 10" },
+      items: [{ productId: "p1", qty: 2, optionIds: [], note: "" }],
+      type: "pickup", payment: "Dinheiro",
+    });
+    const cashCurrent = await req("GET", "/api/cash/current", undefined, admin);
+    ok("venda em dinheiro reflete automaticamente no caixa", cashCurrent.ok && cashCurrent.data.register?.summary?.cashSales > 0);
+
+    const expectedCashToClose = cashCurrent.data.register.summary.expectedCash;
+    const closeCash = await req("POST", "/api/cash/close", {
+      closedCash: expectedCashToClose,
+      declaredPix: cashCurrent.data.register.summary.pixSales,
+      declaredCard: cashCurrent.data.register.summary.cardSales,
+      notes: "Fechamento conferido sem quebra",
+    }, admin);
+    ok("fecha caixa com conferência e quebra zero", closeCash.ok && closeCash.data.register?.status === "CLOSED" && closeCash.data.register?.summary?.diffCash === 0);
+
+    const cashHistory = await req("GET", "/api/cash/history", undefined, admin);
+    ok("histórico lista o caixa fechado", cashHistory.ok && cashHistory.data.history?.some((h) => h.id === openCash.data.register?.id));
+
+    const printSummary = await req("POST", "/api/cash/print-summary", { registerId: openCash.data.register?.id }, admin);
+    ok("gera resumo de impressão do caixa", printSummary.ok);
   }
 
 console.log(fails === 0 ? `\n🎉 tudo verde — ${total} checagens\n` : `\n💥 ${fails} falha(s) em ${total}\n`);

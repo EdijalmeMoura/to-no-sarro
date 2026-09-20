@@ -26,6 +26,7 @@ import {
   getDrivers, getCustomers, getInventory, getPromos, getSettings,
   getSetting, setSetting, getOrders, getPaymentSettings, getUsers,
   logIntegration, enqueueWhatsApp, markOutbox, getOutbox, getIntegrationLogs,
+  getCurrentCashRegister, openCashRegister, addCashTransaction, closeCashRegister, getCashHistory,
 } from "./db.js";
 import { attachUser, requireRole, login, logout, publicUser, ROLES } from "./auth.js";
 import { createCheckoutLink, paymentCheck, cents } from "./payments/infinitepay.js";
@@ -103,6 +104,7 @@ function snapshot() {
     settings: getSettings(),
     promos: getPromos(),
     coupons: getCoupons(),
+    cashRegister: getCurrentCashRegister(),
   };
 }
 
@@ -1791,6 +1793,121 @@ app.get("/api/settings/payments", requireRole("ADMIN", "GERENTE"), (req, res) =>
     webhookUrl: base + "/api/payments/infinitepay/webhook?secret=" + ps.webhookSecret,
     configured: !!(ps.payHandle || ps.pixKey),
   });
+});
+
+// ============================================================
+// FRENTE DE CAIXA / PDV (Turnos, Suprimentos, Sangrias e Fechamento)
+// ============================================================
+
+app.get("/api/cash/current", requireRole("ADMIN", "GERENTE", "ATENDIMENTO"), (_req, res) => {
+  const current = getCurrentCashRegister();
+  res.json({ register: current });
+});
+
+app.post("/api/cash/open", requireRole("ADMIN", "GERENTE", "ATENDIMENTO"), (req, res) => {
+  const b = req.body || {};
+  try {
+    const reg = openCashRegister({
+      openedBy: req.user?.name || req.user?.username || "Operador",
+      initialCash: b.initialCash,
+      notes: b.notes,
+    });
+    audit(req.user.username, "abertura_caixa", `Fundo: R$ ${b.initialCash || 0}`);
+    broadcast();
+    res.status(201).json({ ok: true, register: reg });
+  } catch (e) {
+    res.status(400).json({ error: e.message });
+  }
+});
+
+app.post("/api/cash/transaction", requireRole("ADMIN", "GERENTE", "ATENDIMENTO"), (req, res) => {
+  const b = req.body || {};
+  try {
+    const reg = addCashTransaction({
+      type: b.type,
+      amount: b.amount,
+      reason: b.reason,
+      method: b.method || "DINHEIRO",
+      createdBy: req.user?.name || req.user?.username || "Operador",
+      registerId: b.registerId,
+    });
+    audit(req.user.username, `movimentacao_caixa_${b.type?.toLowerCase()}`, `R$ ${b.amount} · ${b.reason}`);
+    broadcast();
+    res.json({ ok: true, register: reg });
+  } catch (e) {
+    res.status(400).json({ error: e.message });
+  }
+});
+
+app.post("/api/cash/close", requireRole("ADMIN", "GERENTE", "ATENDIMENTO"), (req, res) => {
+  const b = req.body || {};
+  try {
+    const reg = closeCashRegister({
+      registerId: b.registerId,
+      closedBy: req.user?.name || req.user?.username || "Operador",
+      closedCash: b.closedCash,
+      declaredPix: b.declaredPix,
+      declaredCard: b.declaredCard,
+      notes: b.notes,
+    });
+    audit(req.user.username, "fechamento_caixa", `Dinheiro contado: R$ ${b.closedCash}`);
+    broadcast();
+    res.json({ ok: true, register: reg });
+  } catch (e) {
+    res.status(400).json({ error: e.message });
+  }
+});
+
+app.get("/api/cash/history", requireRole("ADMIN", "GERENTE", "ATENDIMENTO"), (req, res) => {
+  const limit = Math.min(100, Math.max(1, parseInt(req.query.limit || "20", 10)));
+  const history = getCashHistory(limit);
+  res.json({ history });
+});
+
+app.post("/api/cash/print-summary", requireRole("ADMIN", "GERENTE", "ATENDIMENTO"), async (req, res) => {
+  const b = req.body || {};
+  const current = b.registerId ? getCashHistory(50).find((x) => x.id === b.registerId) : getCurrentCashRegister();
+  if (!current) return res.status(404).json({ error: "Turno de caixa não encontrado." });
+
+  const st = staffSettings();
+  if (st.printer_enabled === "1" && st.printer_host) {
+    try {
+      const port = parseInt(st.printer_port || "9100", 10);
+      const lines = [
+        "================================",
+        "  TO NO SARRO - RESUMO DE CAIXA ",
+        "================================",
+        `Turno: ${current.id.slice(0, 8)}`,
+        `Status: ${current.status === "OPEN" ? "ABERTO" : "FECHADO"}`,
+        `Operador: ${current.openedBy}`,
+        `Abertura: ${new Date(current.openedAt).toLocaleString("pt-BR")}`,
+        current.closedAt ? `Fechamento: ${new Date(current.closedAt).toLocaleString("pt-BR")}` : "",
+        "--------------------------------",
+        `Fundo Inicial:      R$ ${current.summary.initialCash.toFixed(2)}`,
+        `Vendas em Dinheiro: R$ ${current.summary.cashSales.toFixed(2)}`,
+        `Suprimentos (+):    R$ ${current.summary.suprimentos.toFixed(2)}`,
+        `Sangrias (-):       R$ ${current.summary.sangrias.toFixed(2)}`,
+        "--------------------------------",
+        `ESPERADO GAVETA:    R$ ${current.summary.expectedCash.toFixed(2)}`,
+        current.summary.closedCash !== null ? `CONTADO GAVETA:     R$ ${current.summary.closedCash.toFixed(2)}` : "",
+        current.summary.diffCash !== null ? `DIFERENCA:          R$ ${current.summary.diffCash.toFixed(2)}` : "",
+        "--------------------------------",
+        "VENDAS POR FORMA DE PAGAMENTO:",
+        `Dinheiro: R$ ${current.summary.cashSales.toFixed(2)}`,
+        `Pix:      R$ ${current.summary.pixSales.toFixed(2)}`,
+        `Cartao:   R$ ${current.summary.cardSales.toFixed(2)}`,
+        `TOTAL VENDIDO: R$ ${current.summary.totalSales.toFixed(2)} (${current.summary.orderCount} pedidos)`,
+        "================================",
+      ].filter(Boolean);
+
+      await escpos.sendRaw(st.printer_host, port, Buffer.from(lines.join("\n") + "\n\n\n\n\x1d\x56\x00"));
+      return res.json({ ok: true, printed: true });
+    } catch (e) {
+      console.warn("[print-cash] falha ao imprimir na rede:", e.message);
+    }
+  }
+
+  res.json({ ok: true, printed: false, message: "Impressora de rede não configurada." });
 });
 
 app.get("/api/audit", requireRole("ADMIN"), (_req, res) => {

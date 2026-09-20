@@ -192,8 +192,36 @@ db.exec(`
     at INTEGER, user TEXT, action TEXT, detail TEXT
   );
 
+  CREATE TABLE IF NOT EXISTS cash_registers (
+    id TEXT PRIMARY KEY,
+    opened_at INTEGER NOT NULL,
+    closed_at INTEGER,
+    opened_by TEXT NOT NULL,
+    closed_by TEXT,
+    initial_cash REAL NOT NULL DEFAULT 0,
+    closed_cash REAL,
+    declared_pix REAL,
+    declared_card REAL,
+    status TEXT NOT NULL DEFAULT 'OPEN',
+    notes TEXT
+  );
+
+  CREATE TABLE IF NOT EXISTS cash_transactions (
+    id TEXT PRIMARY KEY,
+    register_id TEXT NOT NULL REFERENCES cash_registers(id) ON DELETE CASCADE,
+    type TEXT NOT NULL,
+    method TEXT NOT NULL DEFAULT 'DINHEIRO',
+    amount REAL NOT NULL,
+    order_id TEXT,
+    reason TEXT NOT NULL,
+    created_at INTEGER NOT NULL,
+    created_by TEXT NOT NULL
+  );
+
   CREATE INDEX IF NOT EXISTS idx_orders_created ON orders(created_at DESC);
   CREATE INDEX IF NOT EXISTS idx_items_order ON order_items(order_id);
+  CREATE INDEX IF NOT EXISTS idx_cash_reg_status ON cash_registers(status);
+  CREATE INDEX IF NOT EXISTS idx_cash_tx_reg ON cash_transactions(register_id);
 `);
 
 // Migrações leves: adiciona colunas novas em bancos já existentes
@@ -575,4 +603,193 @@ export function getOrders() {
       items: byOrder.get(o.id) || [],
     };
   });
+}
+
+// ============================================================
+// FRENTE DE CAIXA / PDV — Turnos, Suprimentos, Sangrias e Fechamento
+// ============================================================
+
+export function getCashSummary(reg) {
+  if (!reg) return null;
+
+  const txs = db.prepare(`
+    SELECT * FROM cash_transactions WHERE register_id = ? ORDER BY created_at DESC
+  `).all(reg.id);
+
+  let suprimentos = 0;
+  let sangrias = 0;
+  for (const t of txs) {
+    if (t.type === "SUPRIMENTO") suprimentos += t.amount;
+    if (t.type === "SANGRIA") sangrias += t.amount;
+  }
+
+  const endAt = reg.closed_at || Date.now();
+  const orders = db.prepare(`
+    SELECT total, payment, status FROM orders
+    WHERE created_at >= ? AND created_at <= ? AND status != 'CANCELADO'
+  `).all(reg.opened_at, endAt);
+
+  let cashSales = 0;
+  let pixSales = 0;
+  let cardSales = 0;
+  let otherSales = 0;
+  let orderCount = orders.length;
+
+  for (const o of orders) {
+    const p = String(o.payment || "").toUpperCase();
+    if (p.includes("DINHEIRO")) {
+      cashSales += o.total;
+    } else if (p.includes("PIX")) {
+      pixSales += o.total;
+    } else if (p.includes("CART") || p.includes("CREDITO") || p.includes("DEBITO")) {
+      cardSales += o.total;
+    } else {
+      otherSales += o.total;
+    }
+  }
+
+  const initialCash = Number(reg.initial_cash || 0);
+  const totalSales = cashSales + pixSales + cardSales + otherSales;
+  const expectedCash = initialCash + cashSales + suprimentos - sangrias;
+
+  const closedCash = reg.closed_cash !== null ? Number(reg.closed_cash) : null;
+  const declaredPix = reg.declared_pix !== null ? Number(reg.declared_pix) : null;
+  const declaredCard = reg.declared_card !== null ? Number(reg.declared_card) : null;
+
+  return {
+    id: reg.id,
+    status: reg.status,
+    openedAt: reg.opened_at,
+    closedAt: reg.closed_at,
+    openedBy: reg.opened_by,
+    closedBy: reg.closed_by,
+    notes: reg.notes || "",
+    summary: {
+      initialCash: Math.round(initialCash * 100) / 100,
+      suprimentos: Math.round(suprimentos * 100) / 100,
+      sangrias: Math.round(sangrias * 100) / 100,
+      cashSales: Math.round(cashSales * 100) / 100,
+      pixSales: Math.round(pixSales * 100) / 100,
+      cardSales: Math.round(cardSales * 100) / 100,
+      otherSales: Math.round(otherSales * 100) / 100,
+      totalSales: Math.round(totalSales * 100) / 100,
+      orderCount,
+      expectedCash: Math.round(expectedCash * 100) / 100,
+      closedCash,
+      declaredPix,
+      declaredCard,
+      diffCash: closedCash !== null ? Math.round((closedCash - expectedCash) * 100) / 100 : null,
+      diffPix: declaredPix !== null ? Math.round((declaredPix - pixSales) * 100) / 100 : null,
+      diffCard: declaredCard !== null ? Math.round((declaredCard - cardSales) * 100) / 100 : null,
+    },
+    transactions: txs.map((t) => ({
+      id: t.id,
+      registerId: t.register_id,
+      type: t.type,
+      method: t.method,
+      amount: t.amount,
+      reason: t.reason,
+      createdAt: t.created_at,
+      createdBy: t.created_by,
+    })),
+  };
+}
+
+export function getCurrentCashRegister() {
+  const reg = db.prepare(`
+    SELECT * FROM cash_registers WHERE status = 'OPEN' ORDER BY opened_at DESC LIMIT 1
+  `).get();
+  if (!reg) return null;
+  return getCashSummary(reg);
+}
+
+export function openCashRegister({ openedBy, initialCash = 0, notes = "" }) {
+  const existing = db.prepare(`SELECT id FROM cash_registers WHERE status = 'OPEN' LIMIT 1`).get();
+  if (existing) {
+    throw new Error("Já existe um turno de caixa aberto. Feche o anterior antes de abrir um novo.");
+  }
+
+  const id = crypto.randomUUID();
+  const now = Date.now();
+  const initAmount = Math.max(0, parseFloat(initialCash) || 0);
+
+  db.prepare(`
+    INSERT INTO cash_registers (id, opened_at, opened_by, initial_cash, status, notes)
+    VALUES (?, ?, ?, ?, 'OPEN', ?)
+  `).run(id, now, openedBy || "Operador", initAmount, notes || "");
+
+  db.prepare(`
+    INSERT INTO cash_transactions (id, register_id, type, method, amount, reason, created_at, created_by)
+    VALUES (?, ?, 'ABERTURA', 'DINHEIRO', ?, 'Abertura de caixa / Fundo de troco inicial', ?, ?)
+  `).run(crypto.randomUUID(), id, initAmount, now, openedBy || "Operador");
+
+  const reg = db.prepare(`SELECT * FROM cash_registers WHERE id = ?`).get(id);
+  return getCashSummary(reg);
+}
+
+export function addCashTransaction({ type, amount, reason, method = "DINHEIRO", createdBy, registerId }) {
+  let targetId = registerId;
+  if (!targetId) {
+    const openReg = db.prepare(`SELECT id FROM cash_registers WHERE status = 'OPEN' LIMIT 1`).get();
+    if (!openReg) throw new Error("Não há nenhum turno de caixa aberto no momento.");
+    targetId = openReg.id;
+  }
+
+  const cleanAmount = Math.max(0, parseFloat(amount) || 0);
+  if (cleanAmount <= 0) throw new Error("O valor da movimentação deve ser maior que zero.");
+
+  const cleanType = String(type).toUpperCase();
+  if (!["SUPRIMENTO", "SANGRIA"].includes(cleanType)) {
+    throw new Error("Tipo de movimentação inválido (use SUPRIMENTO ou SANGRIA).");
+  }
+
+  const now = Date.now();
+  const id = crypto.randomUUID();
+
+  db.prepare(`
+    INSERT INTO cash_transactions (id, register_id, type, method, amount, reason, created_at, created_by)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(id, targetId, cleanType, method || "DINHEIRO", cleanAmount, reason || cleanType, now, createdBy || "Operador");
+
+  const reg = db.prepare(`SELECT * FROM cash_registers WHERE id = ?`).get(targetId);
+  return getCashSummary(reg);
+}
+
+export function closeCashRegister({ registerId, closedBy, closedCash, declaredPix, declaredCard, notes = "" }) {
+  let reg;
+  if (registerId) {
+    reg = db.prepare(`SELECT * FROM cash_registers WHERE id = ?`).get(registerId);
+  } else {
+    reg = db.prepare(`SELECT * FROM cash_registers WHERE status = 'OPEN' LIMIT 1`).get();
+  }
+
+  if (!reg || reg.status !== "OPEN") {
+    throw new Error("Não há nenhum turno de caixa aberto para ser fechado.");
+  }
+
+  const now = Date.now();
+  const finalCash = parseFloat(closedCash) ?? 0;
+  const finalPix = declaredPix !== undefined && declaredPix !== null && declaredPix !== "" ? parseFloat(declaredPix) : null;
+  const finalCard = declaredCard !== undefined && declaredCard !== null && declaredCard !== "" ? parseFloat(declaredCard) : null;
+
+  db.prepare(`
+    UPDATE cash_registers
+    SET status = 'CLOSED', closed_at = ?, closed_by = ?, closed_cash = ?, declared_pix = ?, declared_card = ?, notes = COALESCE(?, notes)
+    WHERE id = ?
+  `).run(now, closedBy || "Operador", finalCash, finalPix, finalCard, notes || null, reg.id);
+
+  db.prepare(`
+    INSERT INTO cash_transactions (id, register_id, type, method, amount, reason, created_at, created_by)
+    VALUES (?, ?, 'FECHAMENTO', 'DINHEIRO', ?, 'Fechamento de caixa com conferência', ?, ?)
+  `).run(crypto.randomUUID(), reg.id, finalCash, now, closedBy || "Operador");
+
+  const updated = db.prepare(`SELECT * FROM cash_registers WHERE id = ?`).get(reg.id);
+  return getCashSummary(updated);
+}
+
+export function getCashHistory(limit = 20) {
+  const rows = db.prepare(`
+    SELECT * FROM cash_registers WHERE status = 'CLOSED' ORDER BY closed_at DESC LIMIT ?
+  `).all(limit);
+  return rows.map((r) => getCashSummary(r));
 }
