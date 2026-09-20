@@ -232,10 +232,31 @@ console.log("\n4) APIs — cupons, promoções, usuários e refresh de pedidos")
   ok("cria pedido via API", o1.status === 201 && !!o1.data.order?.id, JSON.stringify(o1.data).slice(0, 100));
   const o2 = await boot();
   ok("pedido aparece no refresh", o2.orders.some((o) => o.id === o1.data.order?.id));
-  const o3 = await req("PATCH", `/api/orders/${o1.data.order.id}/status`, { status: "CONFIRMADO" }, admin);
-  const o3b = await boot();
-  ok("muda status e refresh reflete", o3.ok && o3b.orders.find((o) => o.id === o1.data.order.id)?.status === "CONFIRMADO");
-}
+    const o3 = await req("PATCH", `/api/orders/${o1.data.order.id}/status`, { status: "CONFIRMADO" }, admin);
+    const o3b = await boot();
+    ok("muda status e refresh reflete", o3.ok && o3b.orders.find((o) => o.id === o1.data.order.id)?.status === "CONFIRMADO");
+
+    // Módulo de Mesas / Salão (4)
+    const setMesasOn = await req("PATCH", "/api/settings", { tables_enabled: true, tables_count: 12 }, admin);
+    const bootMesasOn = await boot();
+    ok("ativa módulo de mesas e reflete nas configs", setMesasOn.ok && bootMesasOn.settings?.tablesEnabled === true && bootMesasOn.settings?.tablesCount === 12);
+
+    const orderMesa = await req("POST", "/api/orders", {
+      customer: { name: "Mesa 03 · Cliente Salão", phone: "(81) 90000-0000", addr: "Mesa 03" },
+      items: [{ productId: "p1", qty: 1, optionIds: [], note: "Pão brioche bem tostado" }],
+      type: "dine_in", payment: "No fechamento da mesa",
+    });
+    ok("cria comanda de mesa com taxa zero (dine_in)", orderMesa.status === 201 && orderMesa.data.order?.fee === 0 && orderMesa.data.order?.type === "dine_in");
+
+    const closeMesa = await req("PATCH", `/api/orders/${orderMesa.data.order.id}/status`, { status: "ENTREGUE", payment: "PIX" }, admin);
+    const bootAfterClose = await boot();
+    const closedOrder = bootAfterClose.orders.find((o) => o.id === orderMesa.data.order?.id);
+    ok("fecha conta da mesa e registra pagamento", closeMesa.ok && closedOrder?.status === "ENTREGUE" && closedOrder?.payment === "PIX");
+
+    const setMesasOff = await req("PATCH", "/api/settings", { tables_enabled: false }, admin);
+    const bootMesasOff = await boot();
+    ok("desativa módulo de mesas via settings", setMesasOff.ok && bootMesasOff.settings?.tablesEnabled === false);
+  }
 
 console.log(fails === 0 ? `\n🎉 tudo verde — ${total} checagens\n` : `\n💥 ${fails} falha(s) em ${total}\n`);
 child?.kill();

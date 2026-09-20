@@ -278,9 +278,9 @@ app.post("/api/orders", (req, res) => {
 
   if (name.length < 3) return res.status(400).json({ error: "Informe seu nome completo." });
   if (phone.replace(/\D/g, "").length < 10) return res.status(400).json({ error: "WhatsApp inválido." });
-  if (!["delivery", "pickup"].includes(type)) return res.status(400).json({ error: "Tipo de pedido inválido." });
+  if (!["delivery", "pickup", "dine_in", "mesa"].includes(type)) return res.status(400).json({ error: "Tipo de pedido inválido." });
   if (type === "delivery" && addr.length < 8) return res.status(400).json({ error: "Informe o endereço de entrega." });
-  const PM_METHODS = new Set(["PIX", "CARTAO_ONLINE", "Cartão", "Dinheiro"]);
+  const PM_METHODS = new Set(["PIX", "CARTAO_ONLINE", "Cartão", "Dinheiro", "No fechamento da mesa", "Mesa", "Balcão"]);
   if (!PM_METHODS.has(payment)) {
     return res.status(400).json({ error: "Forma de pagamento inválida." });
   }
@@ -347,7 +347,7 @@ app.post("/api/orders", (req, res) => {
 
   // Cupom
   let discount = 0;
-  let fee = type === "pickup" ? 0 : settings.fee;
+  let fee = (type === "pickup" || type === "dine_in" || type === "mesa") ? 0 : settings.fee;
   let coupon = null;
   if (couponCode) {
     const c = db.prepare("SELECT * FROM coupons WHERE code = ? AND active = 1").get(String(couponCode).toUpperCase());
@@ -473,6 +473,10 @@ app.patch("/api/orders/:id/status", requireRole("ADMIN", "GERENTE", "ATENDIMENTO
   const startedAt = o.started_at ?? (status !== "NOVO" ? Date.now() : null);
   db.prepare("UPDATE orders SET status = ?, started_at = ?, payment_status = CASE WHEN payment_status = 'pendente' AND ? IN ('CONFIRMADO','PREPARO','PRONTO','EMBALADO','AGUARDANDO','ROTA','ENTREGUE') THEN 'pago' ELSE payment_status END WHERE id = ?")
     .run(status, startedAt, status, o.id);
+
+  if (typeof req.body?.payment === "string" && req.body.payment.trim()) {
+    db.prepare("UPDATE orders SET payment = ? WHERE id = ?").run(req.body.payment.trim(), o.id);
+  }
 
   // contador do entregador
   if (status === "ENTREGUE" && o.driver_id) {
@@ -1585,6 +1589,8 @@ app.patch("/api/settings", requireRole("ADMIN", "GERENTE"), (req, res) => {
   if (typeof b.nnfood_client_secret === "string" && b.nnfood_client_secret.trim()) setSetting("nnfood_client_secret", b.nnfood_client_secret.trim());
   if (b.nnfood_client_secret === "__limpar__") setSetting("nnfood_client_secret", "");
   if (typeof b.nnfood_enabled === "boolean") setSetting("nnfood_enabled", b.nnfood_enabled ? "1" : "0");
+  if (typeof b.tables_enabled === "boolean") setSetting("tables_enabled", b.tables_enabled ? "1" : "0");
+  if (typeof b.tables_count === "number" && b.tables_count >= 1 && b.tables_count <= 50) setSetting("tables_count", String(b.tables_count));
   if (typeof b.pay_handle === "string") {
     const v = b.pay_handle.trim().replace(/^\$/, "");
     if (v && !/^[A-Za-z0-9_]{2,30}$/.test(v)) {

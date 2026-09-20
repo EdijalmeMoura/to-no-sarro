@@ -304,4 +304,6 @@ export const SETTINGS = {
   printer_host: "",
   printer_port: "9100",
   printer_auto: 1,
+  tables_enabled: 0,
+  tables_count: 10,
 };

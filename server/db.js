@@ -274,6 +274,12 @@ function setSettingRaw(key, value) {
 if (!getSettingRaw("pay_webhook_secret")) {
   setSettingRaw("pay_webhook_secret", crypto.randomBytes(12).toString("hex"));
 }
+if (getSettingRaw("tables_enabled") === undefined) {
+  setSettingRaw("tables_enabled", "0");
+}
+if (getSettingRaw("tables_count") === undefined) {
+  setSettingRaw("tables_count", "10");
+}
 
 export function audit(user, action, detail = "") {
   db.prepare("INSERT INTO audit_logs (at, user, action, detail) VALUES (?, ?, ?, ?)")
@@ -493,6 +499,8 @@ export function getSettings() {
     hours: s.hours,
     payHandle: s.pay_handle || "",
     appBaseUrl: s.app_base_url || "",
+    tablesEnabled: s.tables_enabled === "1",
+    tablesCount: parseInt(s.tables_count || "10", 10),
   };
 }
 

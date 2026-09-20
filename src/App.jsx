@@ -3943,12 +3943,131 @@ function AdminStoreCard({ store }) {
   );
 }
 
+function AdminModalitiesCard({ store }) {
+  const [busy, setBusy] = useState(false);
+  const tablesOn = !!store.settings?.tablesEnabled;
+  const count = store.settings?.tablesCount || 10;
+  const [tablesCount, setTablesCount] = useState(count);
+
+  useEffect(() => {
+    if (store.settings?.tablesCount) setTablesCount(store.settings.tablesCount);
+  }, [store.settings?.tablesCount]);
+
+  const toggle = async () => {
+    setBusy(true);
+    try {
+      const next = !tablesOn;
+      await api("/api/settings", { method: "PATCH", body: { tables_enabled: next } });
+      store.toast(next ? "🍽️ Módulo de Mesas ATIVADO! Visível no menu lateral." : "Módulo de Mesas desativado.");
+    } catch (e) {
+      store.toast(e.message);
+    }
+    setBusy(false);
+  };
+
+  const saveCount = async () => {
+    setBusy(true);
+    try {
+      const val = parseInt(tablesCount, 10) || 10;
+      await api("/api/settings", { method: "PATCH", body: { tables_count: val } });
+      store.toast(`Capacidade atualizada: ${val} mesas no salão.`);
+    } catch (e) {
+      store.toast(e.message);
+    }
+    setBusy(false);
+  };
+
+  return (
+    <Card className="p-4 space-y-3">
+      <div className="flex items-center justify-between">
+        <div style={{ color: C.white, fontWeight: 900, fontSize: 15 }}>
+          🍽️ Modalidades de Atendimento
+        </div>
+        <span
+          className="rounded-full px-2.5 py-1 font-bold text-xs"
+          style={{
+            background: tablesOn ? "#16653433" : C.gray800,
+            color: tablesOn ? C.green : "#888",
+            border: `1px solid ${tablesOn ? C.green : C.gray700}`,
+          }}
+        >
+          {tablesOn ? "MESAS ATIVAS" : "MESAS DESATIVADAS"}
+        </span>
+      </div>
+
+      <p style={{ color: "#8a8a8a", fontSize: 11.5, lineHeight: 1.5 }}>
+        Controle se o seu estabelecimento atende mesas / salão presencial.
+        Quando ativado, a opção <strong>🍽️ Mesas / Salão</strong> fica visível no menu lateral do Admin.
+      </p>
+
+      <div className="p-3.5 rounded-xl flex items-center justify-between" style={{ background: C.gray850, border: `1px solid ${C.gray800}` }}>
+        <div>
+          <div style={{ color: C.white, fontWeight: 800, fontSize: 13 }}>
+            Atendimento em Mesas / Salão
+          </div>
+          <div style={{ color: "#7a7a7a", fontSize: 11, marginTop: 2 }}>
+            {tablesOn ? "Habilitado — exibindo no menu lateral com comandas e KDS" : "Desabilitado — oculto no menu lateral"}
+          </div>
+        </div>
+
+        <button
+          onClick={toggle}
+          disabled={busy}
+          className="rounded-full transition active:scale-95 shrink-0 ml-3"
+          style={{
+            width: 48,
+            height: 26,
+            background: tablesOn ? C.green : C.gray700,
+            position: "relative",
+          }}
+          title={tablesOn ? "Clique para desativar modalidade de mesas" : "Clique para ativar modalidade de mesas"}
+        >
+          <span
+            style={{
+              position: "absolute",
+              top: 3,
+              left: tablesOn ? 25 : 3,
+              width: 20,
+              height: 20,
+              borderRadius: 99,
+              background: C.white,
+              transition: "left .2s",
+            }}
+          />
+        </button>
+      </div>
+
+      {tablesOn && (
+        <div className="p-3.5 rounded-xl flex items-center justify-between gap-3" style={{ background: C.gray850, border: `1px solid ${C.gray800}` }}>
+          <div>
+            <div style={{ color: C.white, fontWeight: 700, fontSize: 12.5 }}>Número total de mesas</div>
+            <div style={{ color: "#7a7a7a", fontSize: 11 }}>Capacidade do salão (1 a 50 mesas)</div>
+          </div>
+          <div className="flex items-center gap-2">
+            <input
+              type="number"
+              min="1"
+              max="50"
+              value={tablesCount}
+              onChange={(e) => setTablesCount(e.target.value)}
+              className="rounded-lg px-2 py-1 text-center outline-none font-bold text-white text-xs"
+              style={{ width: 55, background: C.black, border: `1px solid ${C.gray700}` }}
+            />
+            <Btn small variant="dark" disabled={busy} onClick={saveCount}>Salvar</Btn>
+          </div>
+        </div>
+      )}
+    </Card>
+  );
+}
+
 function AdminSettings({ store, now }) {
   return (
     <div className="grid lg:grid-cols-2 gap-3">
       <AdminPaymentsCard store={store} />
       <AdminPrinterCard store={store} />
       <AdminStoreCard store={store} />
+      <AdminModalitiesCard store={store} />
 
       <Card className="p-4 lg:col-span-2">
         <div style={{ color: C.white, fontWeight: 900, fontSize: 14, marginBottom: 10 }}>Usuários e permissões</div>
@@ -4014,9 +4133,478 @@ function AdminSettings({ store, now }) {
   );
 }
 
+// ============================================================
+// MESAS / SALÃO — Gestão de comandas presenciais
+// ============================================================
+
+function AdminTables({ store, now }) {
+  const [filter, setFilter] = useState("TODAS"); // TODAS | LIVRES | OCUPADAS
+  const [openModal, setOpenModal] = useState(null); // { tableNum, tableName }
+  const [closeModal, setCloseModal] = useState(null); // table object to close
+  const [addItemModal, setAddItemModal] = useState(null); // order to append items
+  const [custName, setCustName] = useState("");
+  const [cartItems, setCartItems] = useState({});
+  const [obs, setObs] = useState("");
+  const [serviceCharge, setServiceCharge] = useState(true);
+  const [payMethod, setPayMethod] = useState("Cartão");
+  const [busy, setBusy] = useState(false);
+
+  const tablesCount = store.settings?.tablesCount || 10;
+  const tables = Array.from({ length: tablesCount }, (_, i) => {
+    const num = String(i + 1).padStart(2, "0");
+    const name = `Mesa ${num}`;
+    const activeOrder = store.orders.find(
+      (o) =>
+        (o.type === "dine_in" || o.type === "mesa" || (o.customer?.addr && o.customer.addr.includes(name))) &&
+        !["ENTREGUE", "CANCELADO"].includes(o.status)
+    );
+    return {
+      num,
+      name,
+      order: activeOrder,
+      occupied: !!activeOrder,
+    };
+  });
+
+  const occupiedCount = tables.filter((t) => t.occupied).length;
+  const freeCount = tablesCount - occupiedCount;
+  const totalConsumption = tables.reduce((acc, t) => acc + (t.order?.total || 0), 0);
+
+  const filteredTables = tables.filter((t) => {
+    if (filter === "OCUPADAS") return t.occupied;
+    if (filter === "LIVRES") return !t.occupied;
+    return true;
+  });
+
+  const handleStartOrder = async () => {
+    const items = Object.entries(cartItems)
+      .filter(([_, qty]) => qty > 0)
+      .map(([pid, qty]) => ({ productId: pid, qty, optionIds: [], note: "" }));
+
+    if (items.length === 0) {
+      store.toast("Selecione pelo menos 1 produto para abrir a comanda.");
+      return;
+    }
+
+    setBusy(true);
+    try {
+      const body = {
+        customer: {
+          name: custName.trim() ? `${openModal.tableName} · ${custName.trim()}` : openModal.tableName,
+          phone: "(81) 90000-0000",
+          addr: openModal.tableName,
+        },
+        items,
+        type: "dine_in",
+        payment: "No fechamento da mesa",
+        note: obs.trim(),
+      };
+      await api("/api/orders", { method: "POST", body });
+      store.toast(`🎉 ${openModal.tableName} aberta! Comanda enviada para a cozinha.`);
+      setOpenModal(null);
+      setCartItems({});
+      setCustName("");
+      setObs("");
+    } catch (e) {
+      store.toast(e.message);
+    }
+    setBusy(false);
+  };
+
+  const handleCloseTable = async () => {
+    if (!closeModal?.order) return;
+    setBusy(true);
+    try {
+      await api(`/api/orders/${closeModal.order.id}/status`, {
+        method: "PATCH",
+        body: { status: "ENTREGUE", payment: payMethod },
+      });
+      store.toast(`✅ ${closeModal.name} fechada e liberada com sucesso! (${payMethod})`);
+      setCloseModal(null);
+    } catch (e) {
+      store.toast(e.message);
+    }
+    setBusy(false);
+  };
+
+  const printTableBill = (t) => {
+    if (!t.order) return;
+    const o = t.order;
+    const subtotal = o.total;
+    const serv = serviceCharge ? subtotal * 0.1 : 0;
+    const totalFinal = subtotal + serv;
+    const itemsHtml = (o.items || []).map((i) => `
+      <div style="display:flex; justify-content:space-between; margin-bottom:4px;">
+        <span>${i.qty}x ${i.name}</span>
+        <span>${brl(i.unit * i.qty)}</span>
+      </div>
+    `).join("");
+
+    printHTML(`
+      <div style="font-family:sans-serif; padding:12px; max-width:280px; margin:0 auto; font-size:12px;">
+        <h2 style="text-align:center; margin:0 0 4px;">TÔ NO SARRO!</h2>
+        <div style="text-align:center; font-size:10px; color:#666; margin-bottom:8px;">PRE-CONTA · CONFERÊNCIA</div>
+        <div style="border-top:1px dashed #ccc; border-bottom:1px dashed #ccc; padding:6px 0; margin-bottom:8px;">
+          <strong>${t.name}</strong> · Pedido #${o.code}<br/>
+          <span style="font-size:10px; color:#555;">Permanência: ${elapsed(o.createdAt, now)}</span>
+        </div>
+        <div style="margin-bottom:8px;">
+          ${itemsHtml}
+        </div>
+        <div style="border-top:1px dashed #ccc; padding-top:6px;">
+          <div style="display:flex; justify-content:space-between;"><span>Subtotal:</span><span>${brl(subtotal)}</span></div>
+          ${serviceCharge ? `<div style="display:flex; justify-content:space-between; color:#555;"><span>Serviço (10%):</span><span>${brl(serv)}</span></div>` : ""}
+          <div style="display:flex; justify-content:space-between; font-weight:bold; font-size:14px; margin-top:4px;">
+            <span>TOTAL:</span><span>${brl(totalFinal)}</span>
+          </div>
+        </div>
+        <div style="text-align:center; font-size:9px; color:#888; margin-top:12px;">Não é documento fiscal</div>
+      </div>
+    `);
+  };
+
+  return (
+    <div className="space-y-4">
+      {/* KPI CARDS */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <KPI icon="🍽️" label="Total de Mesas" value={tablesCount} />
+        <KPI icon="🟢" label="Mesas Livres" value={freeCount} accent={C.green} />
+        <KPI icon="🟡" label="Mesas Ocupadas" value={occupiedCount} accent={C.yellowLight} />
+        <KPI icon="💰" label="Consumo no Salão" value={brl(totalConsumption)} accent={C.orange} />
+      </div>
+
+      {/* BARRA DE FILTROS */}
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex gap-2">
+          {["TODAS", "LIVRES", "OCUPADAS"].map((k) => (
+            <button
+              key={k}
+              onClick={() => setFilter(k)}
+              className="rounded-lg px-3 py-1.5 font-bold text-xs transition"
+              style={{
+                background: filter === k ? C.orange : C.gray850,
+                color: filter === k ? C.black : "#8a8a8a",
+                border: `1px solid ${filter === k ? C.orange : C.gray800}`,
+              }}
+            >
+              {k === "TODAS" ? `Todas (${tablesCount})` : k === "LIVRES" ? `Livres (${freeCount})` : `Ocupadas (${occupiedCount})`}
+            </button>
+          ))}
+        </div>
+        <div style={{ color: "#7a7a7a", fontSize: 11.5 }}>
+          Atualizado em tempo real · Cozinha recebe comanda automática
+        </div>
+      </div>
+
+      {/* GRADE DE MESAS */}
+      <div className="grid sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
+        {filteredTables.map((t) => (
+          <Card
+            key={t.num}
+            className="p-4 flex flex-col justify-between transition"
+            style={{
+              borderColor: t.occupied ? `${C.orange}66` : C.gray800,
+              background: t.occupied ? `linear-gradient(135deg, ${C.gray900}, ${C.black})` : C.gray900,
+            }}
+          >
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <span style={{ color: C.white, fontFamily: font.display, fontStyle: "italic", fontSize: 20 }}>
+                  {t.name}
+                </span>
+                <span
+                  className="rounded-full px-2 py-0.5 font-bold text-xs"
+                  style={{
+                    background: t.occupied ? "#854d0e33" : "#16653433",
+                    color: t.occupied ? C.yellowLight : C.green,
+                    border: `1px solid ${t.occupied ? C.yellow : C.green}44`,
+                  }}
+                >
+                  {t.occupied ? `Ocupada · #${t.order.code}` : "Livre"}
+                </span>
+              </div>
+
+              {t.occupied ? (
+                <div className="space-y-2 mt-3 text-xs">
+                  <div className="flex justify-between" style={{ color: "#8a8a8a" }}>
+                    <span>Permanência:</span>
+                    <span style={{ color: C.white, fontWeight: 700 }}>⏱ {elapsed(t.order.createdAt, now)}</span>
+                  </div>
+                  <div className="flex justify-between" style={{ color: "#8a8a8a" }}>
+                    <span>Status na cozinha:</span>
+                    <span style={{ color: C.orange, fontWeight: 800 }}>{t.order.status}</span>
+                  </div>
+
+                  <div className="p-2 rounded-lg space-y-1 mt-2" style={{ background: C.black, border: `1px solid ${C.gray800}` }}>
+                    <div style={{ color: "#7a7a7a", fontSize: 10, fontWeight: 700 }}>ITENS CONSUMIDOS:</div>
+                    {(t.order.items || []).slice(0, 4).map((it, idx) => (
+                      <div key={idx} className="flex justify-between text-white" style={{ fontSize: 11.5 }}>
+                        <span className="truncate max-w-[70%]">{it.qty}x {it.name}</span>
+                        <span style={{ color: C.yellowLight }}>{brl(it.unit * it.qty)}</span>
+                      </div>
+                    ))}
+                    {(t.order.items || []).length > 4 && (
+                      <div style={{ color: "#7a7a7a", fontSize: 10 }}>+ {t.order.items.length - 4} outros itens...</div>
+                    )}
+                  </div>
+
+                  <div className="flex justify-between items-center pt-2 font-black text-sm" style={{ borderTop: `1px solid ${C.gray800}` }}>
+                    <span style={{ color: "#8a8a8a" }}>TOTAL:</span>
+                    <span style={{ color: C.yellowLight, fontSize: 16 }}>{brl(t.order.total)}</span>
+                  </div>
+                </div>
+              ) : (
+                <div className="py-6 text-center">
+                  <div style={{ fontSize: 36, opacity: 0.4 }}>🍽️</div>
+                  <div style={{ color: "#777", fontSize: 11.5, marginTop: 6 }}>Mesa disponível para receber clientes</div>
+                </div>
+              )}
+            </div>
+
+            <div className="mt-4 pt-2">
+              {t.occupied ? (
+                <div className="grid grid-cols-2 gap-1.5">
+                  <button
+                    onClick={() => printTableBill(t)}
+                    className="rounded-lg py-2 font-bold text-xs transition active:scale-95"
+                    style={{ background: C.gray800, color: C.white, border: `1px solid ${C.gray700}` }}
+                  >
+                    🖨️ Pré-Conta
+                  </button>
+                  <button
+                    onClick={() => setCloseModal(t)}
+                    className="rounded-lg py-2 font-bold text-xs transition active:scale-95 text-black"
+                    style={{ background: C.green }}
+                  >
+                    💵 Fechar Mesa
+                  </button>
+                </div>
+              ) : (
+                <button
+                  onClick={() => { setOpenModal({ tableNum: t.num, tableName: t.name }); setCartItems({}); setCustName(""); setObs(""); }}
+                  className="w-full rounded-lg py-2.5 font-bold text-xs transition active:scale-95 text-black"
+                  style={{ background: `linear-gradient(100deg, ${C.orange}, ${C.yellow})` }}
+                >
+                  + Abrir Mesa
+                </button>
+              )}
+            </div>
+          </Card>
+        ))}
+      </div>
+
+      {/* MODAL 1: ABRIR MESA & ENVIAR COMANDA */}
+      {openModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: "rgba(0,0,0,.82)" }}>
+          <Card className="w-full max-w-lg p-5 space-y-3.5 max-h-[92vh] overflow-y-auto" style={{ border: `1px solid ${C.orange}`, background: C.gray900 }}>
+            <div className="flex items-center justify-between">
+              <div style={{ color: C.white, fontFamily: font.display, fontStyle: "italic", fontSize: 22 }}>
+                🍽️ ABRIR COMANDA — {openModal.tableName}
+              </div>
+              <button onClick={() => setOpenModal(null)} className="text-gray-400 hover:text-white text-xl">✕</button>
+            </div>
+
+            <div className="grid grid-cols-2 gap-2 text-xs">
+              <div>
+                <label style={{ color: "#8a8a8a" }}>Identificação do Cliente (opcional)</label>
+                <input
+                  value={custName}
+                  onChange={(e) => setCustName(e.target.value)}
+                  placeholder="ex.: João e amigos"
+                  className="w-full rounded-lg px-2.5 py-1.5 mt-1 outline-none text-white"
+                  style={{ background: C.black, border: `1px solid ${C.gray800}` }}
+                />
+              </div>
+              <div>
+                <label style={{ color: "#8a8a8a" }}>Observação para Cozinha</label>
+                <input
+                  value={obs}
+                  onChange={(e) => setObs(e.target.value)}
+                  placeholder="ex.: Sem cebola, gelo à parte"
+                  className="w-full rounded-lg px-2.5 py-1.5 mt-1 outline-none text-white"
+                  style={{ background: C.black, border: `1px solid ${C.gray800}` }}
+                />
+              </div>
+            </div>
+
+            {/* SELEÇÃO DE PRODUTOS */}
+            <div>
+              <div style={{ color: C.white, fontWeight: 800, fontSize: 13, marginBottom: 6 }}>
+                Selecione os itens do primeiro pedido:
+              </div>
+              <div className="space-y-1.5 max-h-56 overflow-y-auto pr-1">
+                {store.products.map((p) => {
+                  const qty = cartItems[p.id] || 0;
+                  return (
+                    <div
+                      key={p.id}
+                      className="flex items-center justify-between p-2 rounded-lg text-xs"
+                      style={{ background: C.black, border: `1px solid ${qty > 0 ? C.orange : C.gray850}` }}
+                    >
+                      <div className="flex items-center gap-2 truncate max-w-[65%]">
+                        <span style={{ fontSize: 16 }}>{p.emoji || "🍔"}</span>
+                        <div>
+                          <div className="text-white font-bold truncate">{p.name}</div>
+                          <div style={{ color: C.yellowLight }}>{brl(p.price)}</div>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-2">
+                        {qty > 0 && (
+                          <button
+                            onClick={() => setCartItems((prev) => ({ ...prev, [p.id]: Math.max(0, qty - 1) }))}
+                            className="w-6 h-6 rounded flex items-center justify-center font-bold"
+                            style={{ background: C.gray800, color: C.white }}
+                          >
+                            −
+                          </button>
+                        )}
+                        {qty > 0 && <span className="font-bold text-white px-1">{qty}</span>}
+                        <button
+                          onClick={() => setCartItems((prev) => ({ ...prev, [p.id]: qty + 1 }))}
+                          className="w-6 h-6 rounded flex items-center justify-center font-bold text-black"
+                          style={{ background: C.orange }}
+                        >
+                          +
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* TOTAL DO PEDIDO */}
+            <div className="p-3 rounded-xl flex items-center justify-between" style={{ background: C.gray850 }}>
+              <span style={{ color: "#8a8a8a", fontSize: 12 }}>Total da comanda inicial:</span>
+              <span style={{ color: C.yellowLight, fontWeight: 900, fontSize: 16 }}>
+                {brl(
+                  Object.entries(cartItems).reduce((sum, [pid, qty]) => {
+                    const pr = store.products.find((p) => p.id === pid);
+                    return sum + (pr ? pr.price * qty : 0);
+                  }, 0)
+                )}
+              </span>
+            </div>
+
+            <div className="flex gap-2 pt-2">
+              <Btn full variant="dark" onClick={() => setOpenModal(null)}>Cancelar</Btn>
+              <Btn full disabled={busy} onClick={handleStartOrder}>
+                {busy ? "Abrindo…" : "🔥 Abrir Mesa & Enviar à Cozinha"}
+              </Btn>
+            </div>
+          </Card>
+        </div>
+      )}
+
+      {/* MODAL 2: FECHAR MESA & PAGAMENTO */}
+      {closeModal && closeModal.order && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: "rgba(0,0,0,.82)" }}>
+          <Card className="w-full max-w-md p-5 space-y-4" style={{ border: `2px solid ${C.green}`, background: C.gray900 }}>
+            <div className="flex items-center justify-between">
+              <div style={{ color: C.white, fontFamily: font.display, fontStyle: "italic", fontSize: 22 }}>
+                💵 FECHAR CONTA — {closeModal.name}
+              </div>
+              <button onClick={() => setCloseModal(null)} className="text-gray-400 hover:text-white text-xl">✕</button>
+            </div>
+
+            <div className="p-3.5 rounded-xl space-y-2 text-xs" style={{ background: C.gray850 }}>
+              <div className="flex justify-between" style={{ color: "#8a8a8a" }}>
+                <span>Pedido:</span>
+                <span style={{ color: C.white, fontWeight: 700 }}>#{closeModal.order.code}</span>
+              </div>
+              <div className="flex justify-between" style={{ color: "#8a8a8a" }}>
+                <span>Tempo no salão:</span>
+                <span style={{ color: C.white }}>⏱ {elapsed(closeModal.order.createdAt, now)}</span>
+              </div>
+
+              <div className="pt-2 pb-1 border-t border-gray-800 space-y-1">
+                {(closeModal.order.items || []).map((it, idx) => (
+                  <div key={idx} className="flex justify-between text-white">
+                    <span>{it.qty}x {it.name}</span>
+                    <span style={{ color: C.yellowLight }}>{brl(it.unit * it.qty)}</span>
+                  </div>
+                ))}
+              </div>
+
+              <div className="pt-2 border-t border-gray-800 flex justify-between">
+                <span style={{ color: "#8a8a8a" }}>Subtotal:</span>
+                <span style={{ color: C.white, fontWeight: 700 }}>{brl(closeModal.order.total)}</span>
+              </div>
+
+              <div className="flex items-center justify-between py-1">
+                <label className="flex items-center gap-1.5 cursor-pointer" style={{ color: "#aaa" }}>
+                  <input
+                    type="checkbox"
+                    checked={serviceCharge}
+                    onChange={(e) => setServiceCharge(e.target.checked)}
+                    className="accent-orange-500"
+                  />
+                  <span>Taxa de serviço 10% (opcional)</span>
+                </label>
+                <span style={{ color: serviceCharge ? C.green : "#555" }}>
+                  {brl(serviceCharge ? closeModal.order.total * 0.1 : 0)}
+                </span>
+              </div>
+
+              <div className="flex justify-between items-center pt-2 border-t border-gray-800 font-black text-sm">
+                <span style={{ color: C.white }}>TOTAL A COBRAR:</span>
+                <span style={{ color: C.yellowLight, fontSize: 18 }}>
+                  {brl(closeModal.order.total + (serviceCharge ? closeModal.order.total * 0.1 : 0))}
+                </span>
+              </div>
+            </div>
+
+            {/* SELEÇÃO DE PAGAMENTO */}
+            <div>
+              <div style={{ color: "#8a8a8a", fontSize: 11, marginBottom: 6 }}>Forma de pagamento utilizada:</div>
+              <div className="grid grid-cols-3 gap-1.5">
+                {["PIX", "Cartão", "Dinheiro"].map((m) => (
+                  <button
+                    key={m}
+                    onClick={() => setPayMethod(m)}
+                    className="rounded-lg py-2 font-bold text-xs transition"
+                    style={{
+                      background: payMethod === m ? `${C.orange}22` : C.gray850,
+                      border: `1px solid ${payMethod === m ? C.orange : C.gray800}`,
+                      color: payMethod === m ? C.orange : "#8a8a8a",
+                    }}
+                  >
+                    {m === "PIX" ? "⚡ Pix" : m === "Cartão" ? "💳 Cartão" : "💵 Dinheiro"}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="space-y-2 pt-2">
+              <button
+                onClick={handleCloseTable}
+                disabled={busy}
+                className="w-full rounded-xl py-3.5 font-black text-black transition active:scale-95"
+                style={{ background: C.green, fontSize: 14 }}
+              >
+                {busy ? "Finalizando…" : "✅ Confirmar Pagamento & Liberar Mesa"}
+              </button>
+
+              <button
+                onClick={() => printTableBill(closeModal)}
+                className="w-full rounded-xl py-2 font-bold text-xs"
+                style={{ background: C.gray800, color: C.white, border: `1px solid ${C.gray700}` }}
+              >
+                🖨️ Imprimir Pré-Conta
+              </button>
+            </div>
+          </Card>
+        </div>
+      )}
+    </div>
+  );
+}
+
 const ADMIN_NAV = [
   { id: "dashboard", icon: "📊", label: "Dashboard" },
   { id: "pedidos", icon: "🧾", label: "Pedidos" },
+  { id: "mesas", icon: "🍽️", label: "Mesas / Salão" },
   { id: "produtos", icon: "🍔", label: "Cardápio" },
   { id: "categorias", icon: "🗂", label: "Categorias" },
   { id: "clientes", icon: "👥", label: "Clientes" },
@@ -4031,7 +4619,8 @@ const ADMIN_NAV = [
 function AdminApp({ store, now }) {
   const [sec, setSec] = useState("dashboard");
   const [menu, setMenu] = useState(false);
-  const title = ADMIN_NAV.find((n) => n.id === sec)?.label;
+  const navItems = ADMIN_NAV.filter((n) => n.id !== "mesas" || store.settings?.tablesEnabled);
+  const title = navItems.find((n) => n.id === sec)?.label || ADMIN_NAV.find((n) => n.id === sec)?.label;
 
   return (
     <div className="flex" style={{ background: C.black, minHeight: "100%" }}>
@@ -4044,7 +4633,7 @@ function AdminApp({ store, now }) {
           SMART FOOD SYSTEM
         </div>
         <nav className="space-y-1 flex-1">
-          {ADMIN_NAV.map((n) => (
+          {navItems.map((n) => (
             <button
               key={n.id}
               onClick={() => setSec(n.id)}
@@ -4103,7 +4692,7 @@ function AdminApp({ store, now }) {
 
         {menu && (
           <div className="md:hidden grid grid-cols-2 gap-2 mb-5">
-            {ADMIN_NAV.map((n) => (
+            {navItems.map((n) => (
               <button
                 key={n.id}
                 onClick={() => { setSec(n.id); setMenu(false); }}
@@ -4118,6 +4707,20 @@ function AdminApp({ store, now }) {
 
         {sec === "dashboard" && <AdminDashboard store={store} now={now} />}
         {sec === "pedidos" && <AdminOrders store={store} now={now} />}
+        {sec === "mesas" && (
+          store.settings?.tablesEnabled ? (
+            <AdminTables store={store} now={now} />
+          ) : (
+            <Card className="p-8 text-center max-w-md mx-auto my-12">
+              <div className="text-4xl mb-3">🍽️</div>
+              <div style={{ color: C.white, fontWeight: 900, fontSize: 16, marginBottom: 8 }}>Módulo de Mesas Desativado</div>
+              <p style={{ color: "#8a8a8a", fontSize: 13, marginBottom: 16 }}>
+                O atendimento em mesas e salão está desativado nas configurações do sistema.
+              </p>
+              <Btn variant="primary" onClick={() => setSec("config")}>Ir para Configurações</Btn>
+            </Card>
+          )
+        )}
         {sec === "produtos" && <AdminProducts store={store} />}
         {sec === "categorias" && <AdminCategories store={store} />}
         {sec === "clientes" && <AdminCustomers store={store} />}
