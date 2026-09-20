@@ -393,7 +393,7 @@ export function seedIfEmpty() {
   const insPromo = db.prepare("INSERT INTO promos (id, name, rule, active, window) VALUES (?, ?, ?, ?, ?)");
   for (const p of PROMOS) insPromo.run(p.id, p.name, p.rule, p.active, p.window);
 
-  const insSet = db.prepare("INSERT INTO settings (key, value) VALUES (?, ?)");
+  const insSet = db.prepare("INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value");
   for (const [k, v] of Object.entries(SETTINGS)) insSet.run(k, String(v));
 
   // Pedidos de demonstração para os painéis nascerem com movimento
