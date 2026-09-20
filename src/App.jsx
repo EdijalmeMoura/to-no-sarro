@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from "react";
+import QRCode from "qrcode";
 
 // ============================================================
 // TÔ NO SARRO! — SMART FOOD SYSTEM
@@ -1160,22 +1161,23 @@ function Choice({ on, onClick, icon, title, sub }) {
 }
 
 function Checkout({ store, totals, onBack, onDone }) {
+  const isTable = !!store.tableParam;
   const [step, setStep] = useState(1);
   const [f, setF] = useState({
-    name: "", phone: "", cpf: "", type: "delivery",
+    name: "", phone: "", cpf: "", type: isTable ? "dine_in" : "delivery",
     street: "", number: "", district: "", city: "Paulista/PE", ref: "",
-    payment: "PIX", changeFor: "", needChange: false,
+    payment: isTable ? "No fechamento da mesa" : "PIX", changeFor: "", needChange: false,
   });
   const set = (k, v) => setF((p) => ({ ...p, [k]: v }));
 
-  const fee = f.type === "pickup" ? 0 : totals.fee;
+  const fee = (f.type === "pickup" || f.type === "dine_in") ? 0 : totals.fee;
   const total = Math.max(0, totals.subtotal + fee - totals.discount);
 
-  const steps = ["Você", "Entrega", "Endereço", "Pagamento", "Confirmar"];
+  const steps = ["Você", "Entrega", "Local", "Pagamento", "Confirmar"];
   const valid = {
     1: f.name.trim().length > 2 && f.phone.replace(/\D/g, "").length >= 10,
     2: true,
-    3: f.type === "pickup" || (f.street.trim() && f.number.trim() && f.district.trim()),
+    3: f.type === "pickup" || f.type === "dine_in" || (f.street.trim() && f.number.trim() && f.district.trim()),
     4: f.payment !== "Dinheiro" || !f.needChange || f.changeFor.trim(),
     5: true,
   };
@@ -1184,9 +1186,9 @@ function Checkout({ store, totals, onBack, onDone }) {
     // O servidor recalcula preços, cupom, taxa e total — aqui vai só a intenção.
     onDone({
       customer: {
-        name: f.name,
+        name: f.type === "dine_in" ? `${store.tableParam} · ${f.name}` : f.name,
         phone: f.phone,
-        addr: f.type === "pickup" ? "Retirada na loja" : `${f.street}, ${f.number} — ${f.district}, ${f.city}`,
+        addr: f.type === "dine_in" ? store.tableParam : f.type === "pickup" ? "Retirada na loja" : `${f.street}, ${f.number} — ${f.district}, ${f.city}`,
       },
       type: f.type,
       payment: f.payment,
@@ -1231,6 +1233,15 @@ function Checkout({ store, totals, onBack, onDone }) {
           <h3 style={{ fontFamily: font.display, fontStyle: "italic", fontSize: 22, color: C.white, marginBottom: 6 }}>
             COMO VOCÊ QUER RECEBER?
           </h3>
+          {store.tableParam && (
+            <Choice
+              on={f.type === "dine_in"}
+              onClick={() => { set("type", "dine_in"); set("payment", "No fechamento da mesa"); }}
+              icon="🍽️"
+              title={`Consumo na ${store.tableParam}`}
+              sub="Comanda enviada direto para a cozinha · sem taxa de entrega"
+            />
+          )}
           <Choice on={f.type === "delivery"} onClick={() => set("type", "delivery")} icon="🛵"
             title="Delivery" sub={`35–45 min · taxa ${brl(store.fee)}`} />
           <Choice on={f.type === "pickup"} onClick={() => set("type", "pickup")} icon="🏪"
@@ -1239,7 +1250,18 @@ function Checkout({ store, totals, onBack, onDone }) {
       )}
 
       {step === 3 && (
-        f.type === "pickup" ? (
+        f.type === "dine_in" ? (
+          <div>
+            <h3 style={{ fontFamily: font.display, fontStyle: "italic", fontSize: 22, color: C.white }}>CONSUMO NO SALÃO</h3>
+            <Card className="p-4 mt-4 space-y-2">
+              <div style={{ color: C.yellowLight, fontWeight: 800, fontSize: 16 }}>🍽️ {store.tableParam || "Mesa do Salão"}</div>
+              <div style={{ color: "#9a9a9a", fontSize: 12.5, lineHeight: 1.5 }}>
+                Seu pedido será preparado na cozinha e entregue diretamente na sua mesa no salão.
+                Não é necessário informar endereço de entrega.
+              </div>
+            </Card>
+          </div>
+        ) : f.type === "pickup" ? (
           <div>
             <h3 style={{ fontFamily: font.display, fontStyle: "italic", fontSize: 22, color: C.white }}>RETIRADA NA LOJA</h3>
             <Card className="p-4 mt-4">
@@ -1269,10 +1291,19 @@ function Checkout({ store, totals, onBack, onDone }) {
           <h3 style={{ fontFamily: font.display, fontStyle: "italic", fontSize: 22, color: C.white, marginBottom: 6 }}>
             COMO VAI PAGAR?
           </h3>
+          {f.type === "dine_in" && (
+            <Choice
+              on={f.payment === "No fechamento da mesa"}
+              onClick={() => set("payment", "No fechamento da mesa")}
+              icon="🍽️"
+              title="No fechamento da mesa"
+              sub="Acerto com o garçom/caixa ao encerrar a conta"
+            />
+          )}
           <Choice on={f.payment === "PIX"} onClick={() => set("payment", "PIX")} icon="⚡" title="Pix" sub="Aprovação na hora · checkout seguro InfinitePay" />
           <Choice on={f.payment === "CARTAO_ONLINE"} onClick={() => set("payment", "CARTAO_ONLINE")} icon="💳" title="Cartão online" sub="Crédito em até 12x · link seguro InfinitePay" />
-          <Choice on={f.payment === "Cartão"} onClick={() => set("payment", "Cartão")} icon="🛵" title="Cartão na entrega" sub="Maquininha com o entregador" />
-          <Choice on={f.payment === "Dinheiro"} onClick={() => set("payment", "Dinheiro")} icon="💵" title="Dinheiro" sub="Pagamento na entrega" />
+          <Choice on={f.payment === "Cartão"} onClick={() => set("payment", "Cartão")} icon="💳" title={f.type === "dine_in" ? "Cartão na mesa" : "Cartão na entrega"} sub="Maquininha com a equipe" />
+          <Choice on={f.payment === "Dinheiro"} onClick={() => set("payment", "Dinheiro")} icon="💵" title="Dinheiro" sub="Pagamento em cédulas" />
 
           {f.payment === "CARTAO_ONLINE" && (
             <Card className="p-4">
@@ -1331,7 +1362,7 @@ function Checkout({ store, totals, onBack, onDone }) {
           </Card>
           <Card className="p-4 mt-3" style={{ fontSize: 12.5, color: "#9a9a9a", lineHeight: 1.6 }}>
             <div><strong style={{ color: C.white }}>{f.name}</strong> · {f.phone}</div>
-            <div>{f.type === "pickup" ? "🏪 Retirada na loja" : `🛵 ${f.street}, ${f.number} — ${f.district}`}</div>
+            <div>{f.type === "dine_in" ? `🍽️ ${store.tableParam} (Salão)` : f.type === "pickup" ? "🏪 Retirada na loja" : `🛵 ${f.street}, ${f.number} — ${f.district}`}</div>
             <div>💳 {f.payment}{f.needChange && f.changeFor ? ` · troco para ${f.changeFor}` : ""}</div>
           </Card>
         </div>
@@ -1617,6 +1648,36 @@ function ClientApp({ store, now, goRole }) {
 
   return (
     <div style={{ background: C.black, minHeight: "100%", paddingBottom: 66 }}>
+      {store.tableParam && (
+        <div
+          className="flex items-center justify-between px-3.5 py-2 mx-3 my-2 rounded-xl shadow-md"
+          style={{ background: `linear-gradient(100deg, ${C.orange}, ${C.yellow})`, color: C.black }}
+        >
+          <div className="flex items-center gap-2">
+            <span className="text-xl">🍽️</span>
+            <div>
+              <div style={{ fontSize: 10, fontWeight: 900, textTransform: "uppercase", letterSpacing: 0.5 }}>
+                Atendimento no Salão
+              </div>
+              <div style={{ fontSize: 13, fontWeight: 900 }}>
+                Você está na {store.tableParam} · Tô no Sarro
+              </div>
+            </div>
+          </div>
+          <button
+            onClick={() => {
+              store.setTableParam(null);
+              const u = new URL(window.location);
+              u.searchParams.delete("mesa");
+              window.history.replaceState({}, "", u.pathname);
+            }}
+            className="text-xs font-black underline bg-black/15 hover:bg-black/25 px-2.5 py-1 rounded-lg"
+          >
+            Sair da mesa
+          </button>
+        </div>
+      )}
+
       {checkout ? (
         <Checkout
           store={store} totals={checkout}
@@ -4137,11 +4198,36 @@ function AdminSettings({ store, now }) {
 // MESAS / SALÃO — Gestão de comandas presenciais
 // ============================================================
 
+function QRCodeImage({ value, size = 160, className = "" }) {
+  const [src, setSrc] = useState("");
+  useEffect(() => {
+    let alive = true;
+    if (!value) { setSrc(""); return; }
+    QRCode.toDataURL(value, { width: size * 2, margin: 1, color: { dark: "#000000", light: "#ffffff" } })
+      .then((url) => { if (alive) setSrc(url); })
+      .catch(() => {});
+    return () => { alive = false; };
+  }, [value, size]);
+
+  if (!src) {
+    return (
+      <div style={{ width: size, height: size, background: "#fff" }} className={`flex items-center justify-center rounded-lg ${className}`}>
+        <span style={{ color: "#888", fontSize: 11 }}>Carregando QR...</span>
+      </div>
+    );
+  }
+  return <img src={src} alt={value} style={{ width: size, height: size }} className={`rounded-lg ${className}`} />;
+}
+
 function AdminTables({ store, now }) {
   const [filter, setFilter] = useState("TODAS"); // TODAS | LIVRES | OCUPADAS
   const [openModal, setOpenModal] = useState(null); // { tableNum, tableName }
   const [closeModal, setCloseModal] = useState(null); // table object to close
-  const [addItemModal, setAddItemModal] = useState(null); // order to append items
+  const [addItemModal, setAddItemModal] = useState(null); // table object to append items
+  const [transferModal, setTransferModal] = useState(null); // table object to transfer
+  const [targetTable, setTargetTable] = useState("");
+  const [qrSingle, setQrSingle] = useState(null); // table object for QR preview
+  const [qrAllModal, setQrAllModal] = useState(false); // all QR codes modal
   const [custName, setCustName] = useState("");
   const [cartItems, setCartItems] = useState({});
   const [obs, setObs] = useState("");
@@ -4153,22 +4239,29 @@ function AdminTables({ store, now }) {
   const tables = Array.from({ length: tablesCount }, (_, i) => {
     const num = String(i + 1).padStart(2, "0");
     const name = `Mesa ${num}`;
-    const activeOrder = store.orders.find(
+    const activeOrders = store.orders.filter(
       (o) =>
         (o.type === "dine_in" || o.type === "mesa" || (o.customer?.addr && o.customer.addr.includes(name))) &&
         !["ENTREGUE", "CANCELADO"].includes(o.status)
     );
+    const primaryOrder = activeOrders[0] || null;
+    const allItems = activeOrders.flatMap((o) => o.items || []);
+    const tableTotal = activeOrders.reduce((acc, o) => acc + (o.total || 0), 0);
+
     return {
       num,
       name,
-      order: activeOrder,
-      occupied: !!activeOrder,
+      orders: activeOrders,
+      order: primaryOrder,
+      items: allItems,
+      total: tableTotal,
+      occupied: activeOrders.length > 0,
     };
   });
 
   const occupiedCount = tables.filter((t) => t.occupied).length;
   const freeCount = tablesCount - occupiedCount;
-  const totalConsumption = tables.reduce((acc, t) => acc + (t.order?.total || 0), 0);
+  const totalConsumption = tables.reduce((acc, t) => acc + t.total, 0);
 
   const filteredTables = tables.filter((t) => {
     if (filter === "OCUPADAS") return t.occupied;
@@ -4211,14 +4304,62 @@ function AdminTables({ store, now }) {
     setBusy(false);
   };
 
-  const handleCloseTable = async () => {
-    if (!closeModal?.order) return;
+  const handleAppendItems = async () => {
+    if (!addItemModal?.order) return;
+    const items = Object.entries(cartItems)
+      .filter(([_, qty]) => qty > 0)
+      .map(([pid, qty]) => ({ productId: pid, qty, optionIds: [], note: obs.trim() }));
+
+    if (items.length === 0) {
+      store.toast("Selecione pelo menos 1 produto para a nova rodada.");
+      return;
+    }
+
     setBusy(true);
     try {
-      await api(`/api/orders/${closeModal.order.id}/status`, {
-        method: "PATCH",
-        body: { status: "ENTREGUE", payment: payMethod },
+      await api(`/api/orders/${addItemModal.order.id}/items`, {
+        method: "POST",
+        body: { items },
       });
+      store.toast(`🔥 Nova rodada enviada para a cozinha na ${addItemModal.name}!`);
+      setAddItemModal(null);
+      setCartItems({});
+      setObs("");
+    } catch (e) {
+      store.toast(e.message);
+    }
+    setBusy(false);
+  };
+
+  const handleTransferTable = async () => {
+    if (!transferModal?.order || !targetTable) return;
+    setBusy(true);
+    try {
+      for (const ord of transferModal.orders) {
+        await api(`/api/orders/${ord.id}/table`, {
+          method: "PATCH",
+          body: { table: targetTable },
+        });
+      }
+      store.toast(`🔄 Comanda transferida para a ${targetTable}!`);
+      setTransferModal(null);
+      setTargetTable("");
+    } catch (e) {
+      store.toast(e.message);
+    }
+    setBusy(false);
+  };
+
+  const handleCloseTable = async () => {
+    if (!closeModal?.orders?.length) return;
+    setBusy(true);
+    try {
+      for (const ord of closeModal.orders) {
+        await api(`/api/orders/${ord.id}/status`, {
+          method: "PATCH",
+          body: { status: "ENTREGUE", payment: payMethod },
+        });
+      }
       store.toast(`✅ ${closeModal.name} fechada e liberada com sucesso! (${payMethod})`);
       setCloseModal(null);
     } catch (e) {
@@ -4228,12 +4369,15 @@ function AdminTables({ store, now }) {
   };
 
   const printTableBill = (t) => {
-    if (!t.order) return;
-    const o = t.order;
-    const subtotal = o.total;
+    if (!t.occupied) return;
+    const items = t.items;
+    const subtotal = t.total;
     const serv = serviceCharge ? subtotal * 0.1 : 0;
     const totalFinal = subtotal + serv;
-    const itemsHtml = (o.items || []).map((i) => `
+    const codes = t.orders.map((o) => `#${o.code}`).join(", ");
+    const oldest = t.orders.reduce((min, o) => Math.min(min, o.createdAt), Date.now());
+
+    const itemsHtml = items.map((i) => `
       <div style="display:flex; justify-content:space-between; margin-bottom:4px;">
         <span>${i.qty}x ${i.name}</span>
         <span>${brl(i.unit * i.qty)}</span>
@@ -4243,10 +4387,10 @@ function AdminTables({ store, now }) {
     printHTML(`
       <div style="font-family:sans-serif; padding:12px; max-width:280px; margin:0 auto; font-size:12px;">
         <h2 style="text-align:center; margin:0 0 4px;">TÔ NO SARRO!</h2>
-        <div style="text-align:center; font-size:10px; color:#666; margin-bottom:8px;">PRE-CONTA · CONFERÊNCIA</div>
+        <div style="text-align:center; font-size:10px; color:#666; margin-bottom:8px;">PRÉ-CONTA · CONFERÊNCIA DE MESA</div>
         <div style="border-top:1px dashed #ccc; border-bottom:1px dashed #ccc; padding:6px 0; margin-bottom:8px;">
-          <strong>${t.name}</strong> · Pedido #${o.code}<br/>
-          <span style="font-size:10px; color:#555;">Permanência: ${elapsed(o.createdAt, now)}</span>
+          <strong>${t.name}</strong> · Comanda ${codes}<br/>
+          <span style="font-size:10px; color:#555;">Permanência: ${elapsed(oldest, now)}</span>
         </div>
         <div style="margin-bottom:8px;">
           ${itemsHtml}
@@ -4258,9 +4402,50 @@ function AdminTables({ store, now }) {
             <span>TOTAL:</span><span>${brl(totalFinal)}</span>
           </div>
         </div>
-        <div style="text-align:center; font-size:9px; color:#888; margin-top:12px;">Não é documento fiscal</div>
+        <div style="text-align:center; font-size:9px; color:#888; margin-top:12px;">Não é documento fiscal · Agradecemos a preferência!</div>
       </div>
     `);
+  };
+
+  const printTableQRCodes = async () => {
+    setBusy(true);
+    try {
+      const baseUrl = window.location.origin;
+      const cards = await Promise.all(
+        tables.map(async (t) => {
+          const url = `${baseUrl}/?mesa=${t.num}`;
+          const qr = await QRCode.toDataURL(url, { width: 320, margin: 1 });
+          return `
+            <div style="border: 2px dashed #000; border-radius: 14px; padding: 18px 14px; text-align: center; background: #fff; width: 44%; margin: 2% 2%; box-sizing: border-box; page-break-inside: avoid; display: inline-block; vertical-align: top;">
+              <div style="font-size: 16px; font-weight: 900; color: #f58200; margin-bottom: 2px;">🍔 TÔ NO SARRO!</div>
+              <div style="font-size: 10px; font-weight: 700; text-transform: uppercase; color: #666; margin-bottom: 8px;">Burgers Artesanais</div>
+              <div style="background: #000; color: #fff; font-size: 22px; font-weight: 900; padding: 4px 16px; border-radius: 8px; margin-bottom: 10px; display: inline-block;">
+                ${t.name}
+              </div>
+              <div style="margin: 0 auto 10px;">
+                <img src="${qr}" width="150" height="150" style="display: block; margin: 0 auto;" />
+              </div>
+              <div style="font-size: 12.5px; font-weight: 900; color: #000; margin-bottom: 3px;">CARDÁPIO DIGITAL</div>
+              <div style="font-size: 10px; color: #555; line-height: 1.3;">
+                Aponte a câmera do celular para ver o cardápio e pedir direto na mesa!
+              </div>
+            </div>
+          `;
+        })
+      );
+
+      printHTML(`
+        <div style="font-family: sans-serif; padding: 10px; text-align: center;">
+          <div style="margin-bottom: 14px; font-size: 12px; color: #555;">
+            <strong>Plaquinhas de Mesa Tô no Sarro!</strong> — Imprima em folha A4, recorte nas linhas pontilhadas e coloque nos displays acrílicos.
+          </div>
+          ${cards.join("")}
+        </div>
+      `);
+    } catch (e) {
+      store.toast("Erro ao gerar plaquinhas: " + e.message);
+    }
+    setBusy(false);
   };
 
   return (
@@ -4273,7 +4458,7 @@ function AdminTables({ store, now }) {
         <KPI icon="💰" label="Consumo no Salão" value={brl(totalConsumption)} accent={C.orange} />
       </div>
 
-      {/* BARRA DE FILTROS */}
+      {/* BARRA DE FILTROS E AÇÕES */}
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex gap-2">
           {["TODAS", "LIVRES", "OCUPADAS"].map((k) => (
@@ -4291,8 +4476,16 @@ function AdminTables({ store, now }) {
             </button>
           ))}
         </div>
-        <div style={{ color: "#7a7a7a", fontSize: 11.5 }}>
-          Atualizado em tempo real · Cozinha recebe comanda automática
+
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setQrAllModal(true)}
+            className="rounded-lg px-3 py-1.5 font-bold text-xs transition flex items-center gap-1.5 text-white active:scale-95"
+            style={{ background: C.gray800, border: `1px solid ${C.gray700}` }}
+          >
+            <span>📲</span>
+            <span>Plaquinhas QR Code</span>
+          </button>
         </div>
       </div>
 
@@ -4320,7 +4513,7 @@ function AdminTables({ store, now }) {
                     border: `1px solid ${t.occupied ? C.yellow : C.green}44`,
                   }}
                 >
-                  {t.occupied ? `Ocupada · #${t.order.code}` : "Livre"}
+                  {t.occupied ? `Ocupada (${t.orders.length} ${t.orders.length > 1 ? "pedidos" : "pedido"})` : "Livre"}
                 </span>
               </div>
 
@@ -4328,72 +4521,100 @@ function AdminTables({ store, now }) {
                 <div className="space-y-2 mt-3 text-xs">
                   <div className="flex justify-between" style={{ color: "#8a8a8a" }}>
                     <span>Permanência:</span>
-                    <span style={{ color: C.white, fontWeight: 700 }}>⏱ {elapsed(t.order.createdAt, now)}</span>
+                    <span style={{ color: C.white, fontWeight: 700 }}>⏱ {elapsed(t.order?.createdAt, now)}</span>
                   </div>
                   <div className="flex justify-between" style={{ color: "#8a8a8a" }}>
-                    <span>Status na cozinha:</span>
-                    <span style={{ color: C.orange, fontWeight: 800 }}>{t.order.status}</span>
+                    <span>Cozinha (KDS):</span>
+                    <span style={{ color: C.orange, fontWeight: 800 }}>{t.order?.status}</span>
                   </div>
 
                   <div className="p-2 rounded-lg space-y-1 mt-2" style={{ background: C.black, border: `1px solid ${C.gray800}` }}>
                     <div style={{ color: "#7a7a7a", fontSize: 10, fontWeight: 700 }}>ITENS CONSUMIDOS:</div>
-                    {(t.order.items || []).slice(0, 4).map((it, idx) => (
+                    {t.items.slice(0, 4).map((it, idx) => (
                       <div key={idx} className="flex justify-between text-white" style={{ fontSize: 11.5 }}>
                         <span className="truncate max-w-[70%]">{it.qty}x {it.name}</span>
                         <span style={{ color: C.yellowLight }}>{brl(it.unit * it.qty)}</span>
                       </div>
                     ))}
-                    {(t.order.items || []).length > 4 && (
-                      <div style={{ color: "#7a7a7a", fontSize: 10 }}>+ {t.order.items.length - 4} outros itens...</div>
+                    {t.items.length > 4 && (
+                      <div style={{ color: "#7a7a7a", fontSize: 10 }}>+ {t.items.length - 4} outros itens...</div>
                     )}
                   </div>
 
                   <div className="flex justify-between items-center pt-2 font-black text-sm" style={{ borderTop: `1px solid ${C.gray800}` }}>
                     <span style={{ color: "#8a8a8a" }}>TOTAL:</span>
-                    <span style={{ color: C.yellowLight, fontSize: 16 }}>{brl(t.order.total)}</span>
+                    <span style={{ color: C.yellowLight, fontSize: 16 }}>{brl(t.total)}</span>
                   </div>
                 </div>
               ) : (
-                <div className="py-6 text-center">
-                  <div style={{ fontSize: 36, opacity: 0.4 }}>🍽️</div>
-                  <div style={{ color: "#777", fontSize: 11.5, marginTop: 6 }}>Mesa disponível para receber clientes</div>
+                <div className="py-5 text-center">
+                  <div style={{ fontSize: 32, opacity: 0.35 }}>🍽️</div>
+                  <div style={{ color: "#777", fontSize: 11, marginTop: 4 }}>Mesa livre para atendimento</div>
                 </div>
               )}
             </div>
 
             <div className="mt-4 pt-2">
               {t.occupied ? (
-                <div className="grid grid-cols-2 gap-1.5">
-                  <button
-                    onClick={() => printTableBill(t)}
-                    className="rounded-lg py-2 font-bold text-xs transition active:scale-95"
-                    style={{ background: C.gray800, color: C.white, border: `1px solid ${C.gray700}` }}
-                  >
-                    🖨️ Pré-Conta
-                  </button>
-                  <button
-                    onClick={() => setCloseModal(t)}
-                    className="rounded-lg py-2 font-bold text-xs transition active:scale-95 text-black"
-                    style={{ background: C.green }}
-                  >
-                    💵 Fechar Mesa
-                  </button>
+                <div className="space-y-1.5">
+                  <div className="grid grid-cols-2 gap-1.5">
+                    <button
+                      onClick={() => { setAddItemModal(t); setCartItems({}); setObs(""); }}
+                      className="rounded-lg py-1.5 font-bold text-xs transition active:scale-95"
+                      style={{ background: `${C.orange}22`, color: C.orange, border: `1px solid ${C.orange}66` }}
+                    >
+                      ➕ Nova Rodada
+                    </button>
+                    <button
+                      onClick={() => { setTransferModal(t); setTargetTable(""); }}
+                      className="rounded-lg py-1.5 font-bold text-xs transition active:scale-95"
+                      style={{ background: C.gray850, color: "#ccc", border: `1px solid ${C.gray700}` }}
+                    >
+                      ↔️ Trocar Mesa
+                    </button>
+                  </div>
+                  <div className="grid grid-cols-2 gap-1.5">
+                    <button
+                      onClick={() => printTableBill(t)}
+                      className="rounded-lg py-1.5 font-bold text-xs transition active:scale-95"
+                      style={{ background: C.gray800, color: C.white, border: `1px solid ${C.gray700}` }}
+                    >
+                      🖨️ Pré-Conta
+                    </button>
+                    <button
+                      onClick={() => setCloseModal(t)}
+                      className="rounded-lg py-1.5 font-bold text-xs transition active:scale-95 text-black"
+                      style={{ background: C.green }}
+                    >
+                      💵 Fechar Mesa
+                    </button>
+                  </div>
                 </div>
               ) : (
-                <button
-                  onClick={() => { setOpenModal({ tableNum: t.num, tableName: t.name }); setCartItems({}); setCustName(""); setObs(""); }}
-                  className="w-full rounded-lg py-2.5 font-bold text-xs transition active:scale-95 text-black"
-                  style={{ background: `linear-gradient(100deg, ${C.orange}, ${C.yellow})` }}
-                >
-                  + Abrir Mesa
-                </button>
+                <div className="grid grid-cols-3 gap-1.5">
+                  <button
+                    onClick={() => { setOpenModal({ tableNum: t.num, tableName: t.name }); setCartItems({}); setCustName(""); setObs(""); }}
+                    className="col-span-2 rounded-lg py-2.5 font-bold text-xs transition active:scale-95 text-black"
+                    style={{ background: `linear-gradient(100deg, ${C.orange}, ${C.yellow})` }}
+                  >
+                    + Abrir Mesa
+                  </button>
+                  <button
+                    onClick={() => setQrSingle(t)}
+                    className="rounded-lg py-2.5 font-bold text-xs transition active:scale-95 text-white"
+                    style={{ background: C.gray800, border: `1px solid ${C.gray700}` }}
+                    title="Ver QR Code desta mesa"
+                  >
+                    📲 QR
+                  </button>
+                </div>
               )}
             </div>
           </Card>
         ))}
       </div>
 
-      {/* MODAL 1: ABRIR MESA & ENVIAR COMANDA */}
+      {/* MODAL 1: ABRIR MESA (PRIMEIRA COMANDA) */}
       {openModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: "rgba(0,0,0,.82)" }}>
           <Card className="w-full max-w-lg p-5 space-y-3.5 max-h-[92vh] overflow-y-auto" style={{ border: `1px solid ${C.orange}`, background: C.gray900 }}>
@@ -4497,8 +4718,239 @@ function AdminTables({ store, now }) {
         </div>
       )}
 
-      {/* MODAL 2: FECHAR MESA & PAGAMENTO */}
-      {closeModal && closeModal.order && (
+      {/* MODAL 2: NOVA RODADA (+ ADICIONAR ITENS À COMANDA EXISTENTE) */}
+      {addItemModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: "rgba(0,0,0,.82)" }}>
+          <Card className="w-full max-w-lg p-5 space-y-3.5 max-h-[92vh] overflow-y-auto" style={{ border: `1px solid ${C.orange}`, background: C.gray900 }}>
+            <div className="flex items-center justify-between">
+              <div>
+                <div style={{ color: C.white, fontFamily: font.display, fontStyle: "italic", fontSize: 22 }}>
+                  ➕ NOVA RODADA — {addItemModal.name}
+                </div>
+                <div style={{ color: "#8a8a8a", fontSize: 11 }}>
+                  Os itens serão somados à comanda atual e enviados direto para a cozinha/KDS.
+                </div>
+              </div>
+              <button onClick={() => setAddItemModal(null)} className="text-gray-400 hover:text-white text-xl">✕</button>
+            </div>
+
+            <div>
+              <label style={{ color: "#8a8a8a", fontSize: 11.5 }}>Observação da nova rodada (opcional)</label>
+              <input
+                value={obs}
+                onChange={(e) => setObs(e.target.value)}
+                placeholder="ex.: Bebida com gelo e limão, porção com molho à parte"
+                className="w-full rounded-lg px-2.5 py-1.5 mt-1 outline-none text-white text-xs"
+                style={{ background: C.black, border: `1px solid ${C.gray800}` }}
+              />
+            </div>
+
+            <div>
+              <div style={{ color: C.white, fontWeight: 800, fontSize: 13, marginBottom: 6 }}>
+                Escolha os produtos para a nova rodada:
+              </div>
+              <div className="space-y-1.5 max-h-56 overflow-y-auto pr-1">
+                {store.products.map((p) => {
+                  const qty = cartItems[p.id] || 0;
+                  return (
+                    <div
+                      key={p.id}
+                      className="flex items-center justify-between p-2 rounded-lg text-xs"
+                      style={{ background: C.black, border: `1px solid ${qty > 0 ? C.orange : C.gray850}` }}
+                    >
+                      <div className="flex items-center gap-2 truncate max-w-[65%]">
+                        <span style={{ fontSize: 16 }}>{p.emoji || "🍔"}</span>
+                        <div>
+                          <div className="text-white font-bold truncate">{p.name}</div>
+                          <div style={{ color: C.yellowLight }}>{brl(p.price)}</div>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-2">
+                        {qty > 0 && (
+                          <button
+                            onClick={() => setCartItems((prev) => ({ ...prev, [p.id]: Math.max(0, qty - 1) }))}
+                            className="w-6 h-6 rounded flex items-center justify-center font-bold"
+                            style={{ background: C.gray800, color: C.white }}
+                          >
+                            −
+                          </button>
+                        )}
+                        {qty > 0 && <span className="font-bold text-white px-1">{qty}</span>}
+                        <button
+                          onClick={() => setCartItems((prev) => ({ ...prev, [p.id]: qty + 1 }))}
+                          className="w-6 h-6 rounded flex items-center justify-center font-bold text-black"
+                          style={{ background: C.orange }}
+                        >
+                          +
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div className="p-3 rounded-xl flex items-center justify-between" style={{ background: C.gray850 }}>
+              <span style={{ color: "#8a8a8a", fontSize: 12 }}>Valor desta nova rodada:</span>
+              <span style={{ color: C.yellowLight, fontWeight: 900, fontSize: 16 }}>
+                {brl(
+                  Object.entries(cartItems).reduce((sum, [pid, qty]) => {
+                    const pr = store.products.find((p) => p.id === pid);
+                    return sum + (pr ? pr.price * qty : 0);
+                  }, 0)
+                )}
+              </span>
+            </div>
+
+            <div className="flex gap-2 pt-2">
+              <Btn full variant="dark" onClick={() => setAddItemModal(null)}>Cancelar</Btn>
+              <Btn full disabled={busy} onClick={handleAppendItems}>
+                {busy ? "Enviando…" : "🔥 Confirmar & Enviar à Cozinha"}
+              </Btn>
+            </div>
+          </Card>
+        </div>
+      )}
+
+      {/* MODAL 3: TROCAR / TRANSFERIR MESA */}
+      {transferModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: "rgba(0,0,0,.82)" }}>
+          <Card className="w-full max-w-md p-5 space-y-4" style={{ border: `1px solid ${C.orange}`, background: C.gray900 }}>
+            <div className="flex items-center justify-between">
+              <div style={{ color: C.white, fontFamily: font.display, fontStyle: "italic", fontSize: 20 }}>
+                ↔️ TRANSFERIR — {transferModal.name}
+              </div>
+              <button onClick={() => setTransferModal(null)} className="text-gray-400 hover:text-white text-xl">✕</button>
+            </div>
+
+            <p style={{ color: "#8a8a8a", fontSize: 12.5 }}>
+              Transfira a comanda e o consumo atual da <strong>{transferModal.name}</strong> para outra mesa livre do salão.
+            </p>
+
+            <div>
+              <label style={{ color: C.white, fontWeight: 700, fontSize: 12 }}>Selecione a mesa de destino:</label>
+              <div className="grid grid-cols-3 gap-2 mt-2">
+                {tables
+                  .filter((t) => !t.occupied && t.name !== transferModal.name)
+                  .map((t) => (
+                    <button
+                      key={t.name}
+                      onClick={() => setTargetTable(t.name)}
+                      className="rounded-lg p-2.5 text-center font-bold text-xs transition"
+                      style={{
+                        background: targetTable === t.name ? C.orange : C.gray850,
+                        color: targetTable === t.name ? C.black : C.white,
+                        border: `1px solid ${targetTable === t.name ? C.orange : C.gray700}`,
+                      }}
+                    >
+                      {t.name}
+                    </button>
+                  ))}
+              </div>
+              {tables.filter((t) => !t.occupied && t.name !== transferModal.name).length === 0 && (
+                <div style={{ color: "#8a8a8a", fontSize: 12, marginTop: 8 }}>
+                  Todas as outras mesas estão ocupadas no momento.
+                </div>
+              )}
+            </div>
+
+            <div className="flex gap-2 pt-2">
+              <Btn full variant="dark" onClick={() => setTransferModal(null)}>Cancelar</Btn>
+              <Btn full disabled={busy || !targetTable} onClick={handleTransferTable}>
+                {busy ? "Transferindo…" : `Transferir para ${targetTable || "..."}`}
+              </Btn>
+            </div>
+          </Card>
+        </div>
+      )}
+
+      {/* MODAL 4: QR CODE INDIVIDUAL DE UMA MESA */}
+      {qrSingle && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: "rgba(0,0,0,.82)" }}>
+          <Card className="w-full max-w-sm p-5 space-y-4 text-center" style={{ border: `1px solid ${C.orange}`, background: C.gray900 }}>
+            <div className="flex items-center justify-between">
+              <div style={{ color: C.white, fontFamily: font.display, fontStyle: "italic", fontSize: 22 }}>
+                📲 QR CODE — {qrSingle.name}
+              </div>
+              <button onClick={() => setQrSingle(null)} className="text-gray-400 hover:text-white text-xl">✕</button>
+            </div>
+
+            <div className="p-4 bg-white rounded-xl inline-block mx-auto shadow-lg">
+              <QRCodeImage value={`${window.location.origin}/?mesa=${qrSingle.num}`} size={180} />
+            </div>
+
+            <div style={{ color: "#8a8a8a", fontSize: 12 }}>
+              Link de acesso direto da mesa:<br />
+              <span style={{ color: C.yellowLight, fontWeight: 700 }}>
+                {window.location.origin}/?mesa={qrSingle.num}
+              </span>
+            </div>
+
+            <div className="flex gap-2">
+              <Btn
+                full
+                variant="dark"
+                onClick={() => {
+                  navigator.clipboard.writeText(`${window.location.origin}/?mesa=${qrSingle.num}`);
+                  store.toast("📋 Link da mesa copiado!");
+                }}
+              >
+                📋 Copiar Link
+              </Btn>
+              <Btn
+                full
+                onClick={() => {
+                  window.open(`/?mesa=${qrSingle.num}`, "_blank");
+                }}
+              >
+                👀 Testar Mesa
+              </Btn>
+            </div>
+          </Card>
+        </div>
+      )}
+
+      {/* MODAL 5: TODAS AS PLAQUINHAS QR CODE */}
+      {qrAllModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: "rgba(0,0,0,.85)" }}>
+          <Card className="w-full max-w-2xl p-5 space-y-4 max-h-[90vh] overflow-y-auto" style={{ border: `1px solid ${C.orange}`, background: C.gray900 }}>
+            <div className="flex items-center justify-between">
+              <div>
+                <div style={{ color: C.white, fontFamily: font.display, fontStyle: "italic", fontSize: 22 }}>
+                  📲 PLAQUINHAS QR CODE DO SALÃO
+                </div>
+                <div style={{ color: "#8a8a8a", fontSize: 11.5 }}>
+                  Imprima as plaquinhas para colocar nas mesas dos clientes.
+                </div>
+              </div>
+              <button onClick={() => setQrAllModal(false)} className="text-gray-400 hover:text-white text-xl">✕</button>
+            </div>
+
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 max-h-96 overflow-y-auto pr-1">
+              {tables.map((t) => (
+                <div key={t.num} className="p-3 rounded-xl bg-black border border-gray-800 text-center space-y-2">
+                  <div className="font-extrabold text-white text-sm">{t.name}</div>
+                  <div className="bg-white p-2 rounded-lg inline-block">
+                    <QRCodeImage value={`${window.location.origin}/?mesa=${t.num}`} size={110} />
+                  </div>
+                  <div style={{ color: "#777", fontSize: 9.5 }}>/?mesa={t.num}</div>
+                </div>
+              ))}
+            </div>
+
+            <div className="pt-2 flex gap-2">
+              <Btn full variant="dark" onClick={() => setQrAllModal(false)}>Fechar</Btn>
+              <Btn full disabled={busy} onClick={printTableQRCodes}>
+                {busy ? "Gerando…" : "🖨️ Imprimir Todas as Plaquinhas (A4)"}
+              </Btn>
+            </div>
+          </Card>
+        </div>
+      )}
+
+      {/* MODAL 6: FECHAR MESA & PAGAMENTO */}
+      {closeModal && closeModal.occupied && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: "rgba(0,0,0,.82)" }}>
           <Card className="w-full max-w-md p-5 space-y-4" style={{ border: `2px solid ${C.green}`, background: C.gray900 }}>
             <div className="flex items-center justify-between">
@@ -4510,16 +4962,18 @@ function AdminTables({ store, now }) {
 
             <div className="p-3.5 rounded-xl space-y-2 text-xs" style={{ background: C.gray850 }}>
               <div className="flex justify-between" style={{ color: "#8a8a8a" }}>
-                <span>Pedido:</span>
-                <span style={{ color: C.white, fontWeight: 700 }}>#{closeModal.order.code}</span>
+                <span>Comanda:</span>
+                <span style={{ color: C.white, fontWeight: 700 }}>
+                  {closeModal.orders.map((o) => `#${o.code}`).join(", ")}
+                </span>
               </div>
               <div className="flex justify-between" style={{ color: "#8a8a8a" }}>
                 <span>Tempo no salão:</span>
-                <span style={{ color: C.white }}>⏱ {elapsed(closeModal.order.createdAt, now)}</span>
+                <span style={{ color: C.white }}>⏱ {elapsed(closeModal.order?.createdAt, now)}</span>
               </div>
 
               <div className="pt-2 pb-1 border-t border-gray-800 space-y-1">
-                {(closeModal.order.items || []).map((it, idx) => (
+                {closeModal.items.map((it, idx) => (
                   <div key={idx} className="flex justify-between text-white">
                     <span>{it.qty}x {it.name}</span>
                     <span style={{ color: C.yellowLight }}>{brl(it.unit * it.qty)}</span>
@@ -4529,7 +4983,7 @@ function AdminTables({ store, now }) {
 
               <div className="pt-2 border-t border-gray-800 flex justify-between">
                 <span style={{ color: "#8a8a8a" }}>Subtotal:</span>
-                <span style={{ color: C.white, fontWeight: 700 }}>{brl(closeModal.order.total)}</span>
+                <span style={{ color: C.white, fontWeight: 700 }}>{brl(closeModal.total)}</span>
               </div>
 
               <div className="flex items-center justify-between py-1">
@@ -4543,14 +4997,14 @@ function AdminTables({ store, now }) {
                   <span>Taxa de serviço 10% (opcional)</span>
                 </label>
                 <span style={{ color: serviceCharge ? C.green : "#555" }}>
-                  {brl(serviceCharge ? closeModal.order.total * 0.1 : 0)}
+                  {brl(serviceCharge ? closeModal.total * 0.1 : 0)}
                 </span>
               </div>
 
               <div className="flex justify-between items-center pt-2 border-t border-gray-800 font-black text-sm">
                 <span style={{ color: C.white }}>TOTAL A COBRAR:</span>
                 <span style={{ color: C.yellowLight, fontSize: 18 }}>
-                  {brl(closeModal.order.total + (serviceCharge ? closeModal.order.total * 0.1 : 0))}
+                  {brl(closeModal.total + (serviceCharge ? closeModal.total * 0.1 : 0))}
                 </span>
               </div>
             </div>
@@ -5634,6 +6088,16 @@ export default function App() {
   const [cart, setCart] = useState(() => {
     try { return JSON.parse(localStorage.getItem("sarro_cart")) || []; } catch { return []; }
   });
+  const [tableParam, setTableParam] = useState(() => {
+    try {
+      const p = new URLSearchParams(window.location.search).get("mesa");
+      if (p) {
+        const clean = p.replace(/\D/g, "");
+        if (clean) return `Mesa ${clean.padStart(2, "0")}`;
+      }
+      return null;
+    } catch { return null; }
+  });
   const [coupon, setCoupon] = useState(null);
   const [myOrderId, setMyOrderId] = useState(() => localStorage.getItem("sarro_my_order") || null);
   const [myOrder, setMyOrder] = useState(null);
@@ -5796,6 +6260,7 @@ export default function App() {
     orders, products, inventory, drivers, customers, coupons, promos, settings,
     optionGroups: catalog.optionGroups, builder: catalog.builder, categories: catalog.categories,
     cart, coupon, setCoupon, myOrderId, myOrder, notifications, toast,
+    tableParam, setTableParam,
     wsOnline, lastSyncAt, refreshAll,
     refreshMyOrder: async () => {
       const id = localStorage.getItem("sarro_my_order");

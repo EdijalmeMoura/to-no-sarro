@@ -248,6 +248,18 @@ console.log("\n4) APIs — cupons, promoções, usuários e refresh de pedidos")
     });
     ok("cria comanda de mesa com taxa zero (dine_in)", orderMesa.status === 201 && orderMesa.data.order?.fee === 0 && orderMesa.data.order?.type === "dine_in");
 
+    // Nova rodada na comanda
+    const addRodada = await req("POST", `/api/orders/${orderMesa.data.order.id}/items`, {
+      items: [{ productId: "p2", qty: 1, optionIds: [], note: "Rodada extra" }],
+    }, admin);
+    ok("adiciona nova rodada de itens à comanda", addRodada.status === 200 && addRodada.data.order?.items?.length === 2);
+
+    // Transferir comanda de mesa
+    const transferMesa = await req("PATCH", `/api/orders/${orderMesa.data.order.id}/table`, {
+      table: "Mesa 07",
+    }, admin);
+    ok("transfere comanda para outra mesa", transferMesa.ok && transferMesa.data.order?.customer?.addr === "Mesa 07");
+
     const closeMesa = await req("PATCH", `/api/orders/${orderMesa.data.order.id}/status`, { status: "ENTREGUE", payment: "PIX" }, admin);
     const bootAfterClose = await boot();
     const closedOrder = bootAfterClose.orders.find((o) => o.id === orderMesa.data.order?.id);

@@ -89,7 +89,7 @@ As senhas são semente de demonstração — o banco guarda apenas hash bcrypt. 
   observações em destaque; cozinha só avança preparo/pronto
 - **Expedição:** fila de prontos, embalar, atribuir entregador, retirada no balcão
 - **Entregador:** mobile-first, cada um vê só as próprias entregas (validado no servidor)
-- **Mesas / Salão (modalidade configurável):** ativação e desativação em *Configurações → Modalidades de Atendimento*; quando ativado, adiciona a opção no menu lateral (*Mesas / Salão*); mapa visual de mesas (livres/ocupadas), abertura de comanda com envio em tempo real para o KDS/cozinha, impressão de pré-conta com conferência e taxa de serviço opcional (10%), fechamento de mesa com liberação e baixa de pagamento (Pix, Cartão, Dinheiro)
+- **Mesas / Salão (modalidade configurável):** ativação e desativação em *Configurações → Modalidades de Atendimento*; quando ativado, adiciona a opção no menu lateral (*Mesas / Salão*); mapa visual de mesas (livres/ocupadas), abertura de comanda, lançamento de rodadas adicionais com envio direto à cozinha, transferência de mesas, impressão de pré-conta com conferência e taxa de serviço opcional (10%), fechamento de mesa com liberação e baixa de pagamento (Pix, Cartão, Dinheiro), cardápio digital por QR Code direto na mesa (`/?mesa=XX`) com checkout isento de frete e envio de plaquinhas A4 prontas para impressão.
 - **Promoções:** cupons com criar, editar, ativar/pausar e excluir + promoções
   programadas com janela de início/fim e selo automático (ativa agora, programada,
   pausada, expirada)

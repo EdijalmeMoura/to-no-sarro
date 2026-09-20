@@ -255,6 +255,63 @@ function priceTable() {
 
 const BUILDER_GROUPS = new Set(["pao", "carne", "queijoB", "molhoB"]);
 
+function parseOrderItems(items) {
+  if (!Array.isArray(items) || items.length < 1 || items.length > 60) {
+    throw new Error("Carrinho vazio ou inválido.");
+  }
+  const prices = priceTable();
+  const products = new Map(getProducts().map((p) => [p.id, p]));
+  let subtotal = 0;
+  const cleanItems = [];
+
+  for (const it of items) {
+    const p = products.get(String(it.productId));
+    if (!p || !p.available) throw new Error(`Produto indisponível: ${it.productId}`);
+    const qty = Math.floor(Number(it.qty));
+    if (!Number.isFinite(qty) || qty < 1 || qty > 20) throw new Error(`Quantidade inválida em ${p?.name || "item"}.`);
+    if (typeof (it.note ?? "") !== "string" || (it.note ?? "").length > 140) {
+      throw new Error(`Observação muito longa em ${p.name}.`);
+    }
+
+    const optIds = Array.isArray(it.optionIds) ? it.optionIds.slice(0, 12).map(String) : [];
+    const opts = [];
+    let extra = 0;
+
+    if (p.builder) {
+      const byGroup = new Map();
+      for (const oid of optIds) {
+        const o = prices.get(oid);
+        if (!o || !o.builder) throw new Error(`Opção inválida (${oid}) em ${p.name}.`);
+        byGroup.set(o.group_id, o);
+      }
+      for (const gid of BUILDER_GROUPS) {
+        const o = byGroup.get(gid);
+        if (!o) throw new Error(`Escolha incompleta em ${p.name}.`);
+        extra += o.price;
+        opts.push({ id: o.id, name: o.name, price: o.price });
+      }
+    } else {
+      const allowed = new Set(p.groups);
+      for (const oid of optIds) {
+        const o = prices.get(oid);
+        if (!o || o.builder || !allowed.has(o.group_id)) {
+          throw new Error(`Adicional inválido (${oid}) em ${p.name}.`);
+        }
+        extra += o.price;
+        opts.push({ id: o.id, name: o.name, price: o.price });
+      }
+    }
+
+    const unit = Math.max(0, (p.promo ?? p.price) + extra);
+    subtotal += unit * qty;
+    cleanItems.push({
+      id: crypto.randomUUID(), productId: p.id, name: p.name, emoji: p.emoji,
+      qty, unit: Math.round(unit * 100) / 100, opts, note: it.note || "",
+    });
+  }
+  return { subtotal, cleanItems };
+}
+
 function shapeOrder(o) {
   return o; // getOrders() já devolve o formato do frontend
 }
@@ -284,61 +341,15 @@ app.post("/api/orders", (req, res) => {
   if (!PM_METHODS.has(payment)) {
     return res.status(400).json({ error: "Forma de pagamento inválida." });
   }
-  if (!Array.isArray(items) || items.length < 1 || items.length > 60) {
-    return res.status(400).json({ error: "Carrinho vazio ou inválido." });
-  }
   if (typeof note !== "string" || note.length > 200) return res.status(400).json({ error: "Observação muito longa." });
 
-  const prices = priceTable();
-  const products = new Map(getProducts().map((p) => [p.id, p]));
-  let subtotal = 0;
-  const cleanItems = [];
-
-  for (const it of items) {
-    const p = products.get(String(it.productId));
-    if (!p || !p.available) return res.status(400).json({ error: `Produto indisponível: ${it.productId}` });
-    const qty = Math.floor(Number(it.qty));
-    if (!Number.isFinite(qty) || qty < 1 || qty > 20) return res.status(400).json({ error: `Quantidade inválida em ${p.name}.` });
-    if (typeof (it.note ?? "") !== "string" || (it.note ?? "").length > 140) {
-      return res.status(400).json({ error: `Observação muito longa em ${p.name}.` });
-    }
-
-    const optIds = Array.isArray(it.optionIds) ? it.optionIds.slice(0, 12).map(String) : [];
-    const opts = [];
-    let extra = 0;
-
-    if (p.builder) {
-      const byGroup = new Map();
-      for (const oid of optIds) {
-        const o = prices.get(oid);
-        if (!o || !o.builder) return res.status(400).json({ error: `Opção inválida (${oid}) em ${p.name}.` });
-        byGroup.set(o.group_id, o);
-      }
-      for (const gid of BUILDER_GROUPS) {
-        const o = byGroup.get(gid);
-        if (!o) return res.status(400).json({ error: `Escolha incompleta em ${p.name}.` });
-        extra += o.price;
-        opts.push({ id: o.id, name: o.name, price: o.price });
-      }
-    } else {
-      const allowed = new Set(p.groups);
-      for (const oid of optIds) {
-        const o = prices.get(oid);
-        if (!o || o.builder || !allowed.has(o.group_id)) {
-          return res.status(400).json({ error: `Adicional inválido (${oid}) em ${p.name}.` });
-        }
-        extra += o.price;
-        opts.push({ id: o.id, name: o.name, price: o.price });
-      }
-    }
-
-    const unit = Math.max(0, (p.promo ?? p.price) + extra);
-    subtotal += unit * qty;
-    cleanItems.push({
-      id: crypto.randomUUID(), productId: p.id, name: p.name, emoji: p.emoji,
-      qty, unit: Math.round(unit * 100) / 100, opts, note: it.note || "",
-    });
+  let parsed;
+  try {
+    parsed = parseOrderItems(items);
+  } catch (err) {
+    return res.status(400).json({ error: err.message });
   }
+  const { subtotal, cleanItems } = parsed;
 
   // Pedido mínimo (só delivery)
   if (type === "delivery" && subtotal < settings.minOrder) {
@@ -515,6 +526,78 @@ app.patch("/api/orders/:id/driver", requireRole("ADMIN", "GERENTE", "EXPEDICAO")
   audit(req.user.username, "pedido_entregador", `#${o.code} → ${d.name}`);
   broadcast();
   res.json({ order: getOrders().find((x) => x.id === o.id) });
+});
+
+app.post("/api/orders/:id/items", requireRole("ADMIN", "GERENTE", "ATENDIMENTO", "COZINHA"), (req, res) => {
+  const o = db.prepare("SELECT * FROM orders WHERE id = ?").get(req.params.id);
+  if (!o) return res.status(404).json({ error: "Pedido não encontrado." });
+  if (["ENTREGUE", "CANCELADO"].includes(o.status)) {
+    return res.status(400).json({ error: "Este pedido já foi finalizado ou cancelado." });
+  }
+
+  let parsed;
+  try {
+    parsed = parseOrderItems(req.body.items);
+  } catch (err) {
+    return res.status(400).json({ error: err.message });
+  }
+
+  const { subtotal: addedSubtotal, cleanItems } = parsed;
+  const insItem = db.prepare(`
+    INSERT INTO order_items (id, order_id, product_id, name, emoji, qty, unit, opts, note)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `);
+  for (const it of cleanItems) {
+    insItem.run(it.id, o.id, it.productId, it.name, it.emoji, it.qty, it.unit, JSON.stringify(it.opts), it.note || "");
+  }
+
+  const newSubtotal = o.subtotal + addedSubtotal;
+  const newTotal = o.total + addedSubtotal;
+  const newStatus = ["PRONTO", "CONFIRMADO"].includes(o.status) ? "PREPARO" : o.status;
+
+  db.prepare(`
+    UPDATE orders
+    SET subtotal = ?, total = ?, status = ?
+    WHERE id = ?
+  `).run(newSubtotal, newTotal, newStatus, o.id);
+
+  audit(req.user.username, "pedido_itens_adicionados", `#${o.code} (+${cleanItems.length} itens, +R$ ${addedSubtotal.toFixed(2)})`);
+
+  const fullOrder = getOrders().find((x) => x.id === o.id);
+  if (fullOrder) {
+    autoPrintKitchen({
+      ...fullOrder,
+      note: `[RODADA ADICIONAL] ${fullOrder.note || ""}`.trim(),
+      items: cleanItems,
+    });
+  }
+
+  broadcast();
+  res.status(200).json({ ok: true, order: fullOrder, addedItems: cleanItems });
+});
+
+app.patch("/api/orders/:id/table", requireRole("ADMIN", "GERENTE", "ATENDIMENTO"), (req, res) => {
+  const o = db.prepare("SELECT * FROM orders WHERE id = ?").get(req.params.id);
+  if (!o) return res.status(404).json({ error: "Pedido não encontrado." });
+  if (["ENTREGUE", "CANCELADO"].includes(o.status)) {
+    return res.status(400).json({ error: "Este pedido já foi finalizado ou cancelado." });
+  }
+
+  const nextTable = String(req.body?.table || "").trim();
+  if (!nextTable) return res.status(400).json({ error: "Mesa de destino inválida." });
+
+  let newName = o.customer_name;
+  if (/^Mesa \d+/i.test(newName)) {
+    newName = newName.replace(/^Mesa \d+/i, nextTable);
+  } else {
+    newName = `${nextTable} · ${newName}`;
+  }
+
+  db.prepare("UPDATE orders SET customer_addr = ?, customer_name = ? WHERE id = ?").run(nextTable, newName, o.id);
+
+  audit(req.user.username, "pedido_mesa_transferida", `#${o.code} (${o.customer_addr} → ${nextTable})`);
+  broadcast();
+  res.json({ ok: true, order: getOrders().find((x) => x.id === o.id) });
 });
 
 // ------------------------------------------------------------
