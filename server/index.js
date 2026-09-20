@@ -11,7 +11,9 @@
 
 import express from "express";
 import cookieParser from "cookie-parser";
+import bcrypt from "bcryptjs";
 import http from "node:http";
+import { execSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import crypto from "node:crypto";
@@ -22,11 +24,14 @@ import {
   db, audit, seedIfEmpty,
   getProducts, getOptionGroups, getBuilder, getCategories, getCoupons,
   getDrivers, getCustomers, getInventory, getPromos, getSettings,
-  getSetting, setSetting, getOrders, getPaymentSettings,
+  getSetting, setSetting, getOrders, getPaymentSettings, getUsers,
   logIntegration, enqueueWhatsApp, markOutbox, getOutbox, getIntegrationLogs,
+  getCurrentCashRegister, openCashRegister, addCashTransaction, closeCashRegister, getCashHistory,
+  dispatchMultiStopRoute, getDriverPendingSettlement, settleDriver, getSettlementsHistory,
 } from "./db.js";
-import { attachUser, requireRole, login, logout, publicUser } from "./auth.js";
+import { attachUser, requireRole, login, logout, publicUser, ROLES } from "./auth.js";
 import { createCheckoutLink, paymentCheck, cents } from "./payments/infinitepay.js";
+import { generatePixBRCode } from "./payments/pix.js";
 import { waCredentials, normalizePhone, buildOrderMessage, sendWhatsApp } from "./messaging/whatsapp.js";
 import * as ifood from "./integrations/ifood.js";
 import * as escpos from "./printing/escpos.js";
@@ -34,6 +39,11 @@ import * as escpos from "./printing/escpos.js";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.PORT) || 3001;
 const HOST = process.env.HOST || "0.0.0.0";
+// Versão exibida no app (diagnóstico: confirma qual build está rodando)
+const APP_VERSION = process.env.APP_VERSION || (() => {
+  try { return execSync("git rev-parse --short HEAD", { cwd: path.join(__dirname, "..") }).toString().trim(); }
+  catch { return "dev"; }
+})();
 
 seedIfEmpty();
 
@@ -95,6 +105,7 @@ function snapshot() {
     settings: getSettings(),
     promos: getPromos(),
     coupons: getCoupons(),
+    cashRegister: getCurrentCashRegister(),
   };
 }
 
@@ -184,7 +195,7 @@ server.on("upgrade", (req, socket, head) => {
       ws.isStaff = false;
       if (m) {
         const u = db
-          .prepare("SELECT u.id FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.token = ?")
+          .prepare("SELECT u.id FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.token = ? AND u.active = 1")
           .get(m[1]);
         ws.isStaff = !!u;
       }
@@ -212,6 +223,7 @@ app.get("/api/bootstrap", (req, res) => {
     optionGroups: getOptionGroups(),
     builder: getBuilder(),
     me: publicUser(req.user),
+    version: APP_VERSION,
   });
 });
 
@@ -247,6 +259,63 @@ function priceTable() {
 
 const BUILDER_GROUPS = new Set(["pao", "carne", "queijoB", "molhoB"]);
 
+function parseOrderItems(items) {
+  if (!Array.isArray(items) || items.length < 1 || items.length > 60) {
+    throw new Error("Carrinho vazio ou inválido.");
+  }
+  const prices = priceTable();
+  const products = new Map(getProducts().map((p) => [p.id, p]));
+  let subtotal = 0;
+  const cleanItems = [];
+
+  for (const it of items) {
+    const p = products.get(String(it.productId));
+    if (!p || !p.available) throw new Error(`Produto indisponível: ${it.productId}`);
+    const qty = Math.floor(Number(it.qty));
+    if (!Number.isFinite(qty) || qty < 1 || qty > 20) throw new Error(`Quantidade inválida em ${p?.name || "item"}.`);
+    if (typeof (it.note ?? "") !== "string" || (it.note ?? "").length > 140) {
+      throw new Error(`Observação muito longa em ${p.name}.`);
+    }
+
+    const optIds = Array.isArray(it.optionIds) ? it.optionIds.slice(0, 12).map(String) : [];
+    const opts = [];
+    let extra = 0;
+
+    if (p.builder) {
+      const byGroup = new Map();
+      for (const oid of optIds) {
+        const o = prices.get(oid);
+        if (!o || !o.builder) throw new Error(`Opção inválida (${oid}) em ${p.name}.`);
+        byGroup.set(o.group_id, o);
+      }
+      for (const gid of BUILDER_GROUPS) {
+        const o = byGroup.get(gid);
+        if (!o) throw new Error(`Escolha incompleta em ${p.name}.`);
+        extra += o.price;
+        opts.push({ id: o.id, name: o.name, price: o.price });
+      }
+    } else {
+      const allowed = new Set(p.groups);
+      for (const oid of optIds) {
+        const o = prices.get(oid);
+        if (!o || o.builder || !allowed.has(o.group_id)) {
+          throw new Error(`Adicional inválido (${oid}) em ${p.name}.`);
+        }
+        extra += o.price;
+        opts.push({ id: o.id, name: o.name, price: o.price });
+      }
+    }
+
+    const unit = Math.max(0, (p.promo ?? p.price) + extra);
+    subtotal += unit * qty;
+    cleanItems.push({
+      id: crypto.randomUUID(), productId: p.id, name: p.name, emoji: p.emoji,
+      qty, unit: Math.round(unit * 100) / 100, opts, note: it.note || "",
+    });
+  }
+  return { subtotal, cleanItems };
+}
+
 function shapeOrder(o) {
   return o; // getOrders() já devolve o formato do frontend
 }
@@ -270,67 +339,21 @@ app.post("/api/orders", (req, res) => {
 
   if (name.length < 3) return res.status(400).json({ error: "Informe seu nome completo." });
   if (phone.replace(/\D/g, "").length < 10) return res.status(400).json({ error: "WhatsApp inválido." });
-  if (!["delivery", "pickup"].includes(type)) return res.status(400).json({ error: "Tipo de pedido inválido." });
+  if (!["delivery", "pickup", "dine_in", "mesa"].includes(type)) return res.status(400).json({ error: "Tipo de pedido inválido." });
   if (type === "delivery" && addr.length < 8) return res.status(400).json({ error: "Informe o endereço de entrega." });
-  const PM_METHODS = new Set(["PIX", "CARTAO_ONLINE", "Cartão", "Dinheiro"]);
+  const PM_METHODS = new Set(["PIX", "CARTAO_ONLINE", "Cartão", "Dinheiro", "No fechamento da mesa", "Mesa", "Balcão"]);
   if (!PM_METHODS.has(payment)) {
     return res.status(400).json({ error: "Forma de pagamento inválida." });
   }
-  if (!Array.isArray(items) || items.length < 1 || items.length > 60) {
-    return res.status(400).json({ error: "Carrinho vazio ou inválido." });
-  }
   if (typeof note !== "string" || note.length > 200) return res.status(400).json({ error: "Observação muito longa." });
 
-  const prices = priceTable();
-  const products = new Map(getProducts().map((p) => [p.id, p]));
-  let subtotal = 0;
-  const cleanItems = [];
-
-  for (const it of items) {
-    const p = products.get(String(it.productId));
-    if (!p || !p.available) return res.status(400).json({ error: `Produto indisponível: ${it.productId}` });
-    const qty = Math.floor(Number(it.qty));
-    if (!Number.isFinite(qty) || qty < 1 || qty > 20) return res.status(400).json({ error: `Quantidade inválida em ${p.name}.` });
-    if (typeof (it.note ?? "") !== "string" || (it.note ?? "").length > 140) {
-      return res.status(400).json({ error: `Observação muito longa em ${p.name}.` });
-    }
-
-    const optIds = Array.isArray(it.optionIds) ? it.optionIds.slice(0, 12).map(String) : [];
-    const opts = [];
-    let extra = 0;
-
-    if (p.builder) {
-      const byGroup = new Map();
-      for (const oid of optIds) {
-        const o = prices.get(oid);
-        if (!o || !o.builder) return res.status(400).json({ error: `Opção inválida (${oid}) em ${p.name}.` });
-        byGroup.set(o.group_id, o);
-      }
-      for (const gid of BUILDER_GROUPS) {
-        const o = byGroup.get(gid);
-        if (!o) return res.status(400).json({ error: `Escolha incompleta em ${p.name}.` });
-        extra += o.price;
-        opts.push({ id: o.id, name: o.name, price: o.price });
-      }
-    } else {
-      const allowed = new Set(p.groups);
-      for (const oid of optIds) {
-        const o = prices.get(oid);
-        if (!o || o.builder || !allowed.has(o.group_id)) {
-          return res.status(400).json({ error: `Adicional inválido (${oid}) em ${p.name}.` });
-        }
-        extra += o.price;
-        opts.push({ id: o.id, name: o.name, price: o.price });
-      }
-    }
-
-    const unit = Math.max(0, (p.promo ?? p.price) + extra);
-    subtotal += unit * qty;
-    cleanItems.push({
-      id: crypto.randomUUID(), productId: p.id, name: p.name, emoji: p.emoji,
-      qty, unit: Math.round(unit * 100) / 100, opts, note: it.note || "",
-    });
+  let parsed;
+  try {
+    parsed = parseOrderItems(items);
+  } catch (err) {
+    return res.status(400).json({ error: err.message });
   }
+  const { subtotal, cleanItems } = parsed;
 
   // Pedido mínimo (só delivery)
   if (type === "delivery" && subtotal < settings.minOrder) {
@@ -339,7 +362,7 @@ app.post("/api/orders", (req, res) => {
 
   // Cupom
   let discount = 0;
-  let fee = type === "pickup" ? 0 : settings.fee;
+  let fee = (type === "pickup" || type === "dine_in" || type === "mesa") ? 0 : settings.fee;
   let coupon = null;
   if (couponCode) {
     const c = db.prepare("SELECT * FROM coupons WHERE code = ? AND active = 1").get(String(couponCode).toUpperCase());
@@ -466,6 +489,10 @@ app.patch("/api/orders/:id/status", requireRole("ADMIN", "GERENTE", "ATENDIMENTO
   db.prepare("UPDATE orders SET status = ?, started_at = ?, payment_status = CASE WHEN payment_status = 'pendente' AND ? IN ('CONFIRMADO','PREPARO','PRONTO','EMBALADO','AGUARDANDO','ROTA','ENTREGUE') THEN 'pago' ELSE payment_status END WHERE id = ?")
     .run(status, startedAt, status, o.id);
 
+  if (typeof req.body?.payment === "string" && req.body.payment.trim()) {
+    db.prepare("UPDATE orders SET payment = ? WHERE id = ?").run(req.body.payment.trim(), o.id);
+  }
+
   // contador do entregador
   if (status === "ENTREGUE" && o.driver_id) {
     db.prepare("UPDATE drivers SET status = 'livre', deliveries = deliveries + 1 WHERE id = ?").run(o.driver_id);
@@ -505,11 +532,138 @@ app.patch("/api/orders/:id/driver", requireRole("ADMIN", "GERENTE", "EXPEDICAO")
   res.json({ order: getOrders().find((x) => x.id === o.id) });
 });
 
+// ============================================================
+// ROTAS MULTI-PARADAS & DESPACHO EM LOTE
+// ============================================================
+
+app.post("/api/routes/dispatch", requireRole("ADMIN", "GERENTE", "ATENDIMENTO", "EXPEDICAO"), (req, res) => {
+  const { driverId, orderIds } = req.body || {};
+  try {
+    const result = dispatchMultiStopRoute({ driverId, orderIds });
+    audit(req.user.username, "rota_multi_despachada", `${result.driver.name} · ${result.count} entregas`);
+    broadcast();
+    res.json({ ok: true, routeId: result.routeId, count: result.count, orders: getOrders().filter((o) => orderIds.includes(o.id)) });
+  } catch (e) {
+    res.status(400).json({ error: e.message });
+  }
+});
+
+// ============================================================
+// ACERTO DE CONTAS DO MOTOBOY
+// ============================================================
+
+app.get("/api/drivers/:id/settlement", requireRole("ADMIN", "GERENTE", "ATENDIMENTO", "EXPEDICAO", "ENTREGADOR"), (req, res) => {
+  if (req.user.role === "ENTREGADOR" && req.user.driver_id !== req.params.id) {
+    return res.status(403).json({ error: "Você só pode consultar o seu próprio acerto." });
+  }
+  try {
+    const settlement = getDriverPendingSettlement(req.params.id);
+    res.json({ settlement });
+  } catch (e) {
+    res.status(404).json({ error: e.message });
+  }
+});
+
+app.post("/api/drivers/:id/settle", requireRole("ADMIN", "GERENTE", "ATENDIMENTO", "EXPEDICAO"), (req, res) => {
+  const { basePay, notes } = req.body || {};
+  try {
+    const settled = settleDriver({
+      driverId: req.params.id,
+      settledBy: req.user.name || req.user.username || "Operador",
+      basePay,
+      notes,
+    });
+    audit(req.user.username, "acerto_motoboy_concluido", `${settled.driver?.name || "Entregador"} · ${settled.deliveries_count || settled.deliveriesCount || 0} entregas · Saldo: R$ ${settled.net_balance ?? settled.netBalance}`);
+    broadcast();
+    res.json({ ok: true, settlement: settled });
+  } catch (e) {
+    res.status(400).json({ error: e.message });
+  }
+});
+
+app.get("/api/settlements", requireRole("ADMIN", "GERENTE", "ATENDIMENTO", "EXPEDICAO"), (req, res) => {
+  const limit = Math.min(100, Math.max(1, parseInt(req.query.limit || "30", 10)));
+  const settlements = getSettlementsHistory(limit);
+  res.json({ settlements });
+});
+
+app.post("/api/orders/:id/items", requireRole("ADMIN", "GERENTE", "ATENDIMENTO", "COZINHA"), (req, res) => {
+  const o = db.prepare("SELECT * FROM orders WHERE id = ?").get(req.params.id);
+  if (!o) return res.status(404).json({ error: "Pedido não encontrado." });
+  if (["ENTREGUE", "CANCELADO"].includes(o.status)) {
+    return res.status(400).json({ error: "Este pedido já foi finalizado ou cancelado." });
+  }
+
+  let parsed;
+  try {
+    parsed = parseOrderItems(req.body.items);
+  } catch (err) {
+    return res.status(400).json({ error: err.message });
+  }
+
+  const { subtotal: addedSubtotal, cleanItems } = parsed;
+  const insItem = db.prepare(`
+    INSERT INTO order_items (id, order_id, product_id, name, emoji, qty, unit, opts, note)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `);
+  for (const it of cleanItems) {
+    insItem.run(it.id, o.id, it.productId, it.name, it.emoji, it.qty, it.unit, JSON.stringify(it.opts), it.note || "");
+  }
+
+  const newSubtotal = o.subtotal + addedSubtotal;
+  const newTotal = o.total + addedSubtotal;
+  const newStatus = ["PRONTO", "CONFIRMADO"].includes(o.status) ? "PREPARO" : o.status;
+
+  db.prepare(`
+    UPDATE orders
+    SET subtotal = ?, total = ?, status = ?
+    WHERE id = ?
+  `).run(newSubtotal, newTotal, newStatus, o.id);
+
+  audit(req.user.username, "pedido_itens_adicionados", `#${o.code} (+${cleanItems.length} itens, +R$ ${addedSubtotal.toFixed(2)})`);
+
+  const fullOrder = getOrders().find((x) => x.id === o.id);
+  if (fullOrder) {
+    autoPrintKitchen({
+      ...fullOrder,
+      note: `[RODADA ADICIONAL] ${fullOrder.note || ""}`.trim(),
+      items: cleanItems,
+    });
+  }
+
+  broadcast();
+  res.status(200).json({ ok: true, order: fullOrder, addedItems: cleanItems });
+});
+
+app.patch("/api/orders/:id/table", requireRole("ADMIN", "GERENTE", "ATENDIMENTO"), (req, res) => {
+  const o = db.prepare("SELECT * FROM orders WHERE id = ?").get(req.params.id);
+  if (!o) return res.status(404).json({ error: "Pedido não encontrado." });
+  if (["ENTREGUE", "CANCELADO"].includes(o.status)) {
+    return res.status(400).json({ error: "Este pedido já foi finalizado ou cancelado." });
+  }
+
+  const nextTable = String(req.body?.table || "").trim();
+  if (!nextTable) return res.status(400).json({ error: "Mesa de destino inválida." });
+
+  let newName = o.customer_name;
+  if (/^Mesa \d+/i.test(newName)) {
+    newName = newName.replace(/^Mesa \d+/i, nextTable);
+  } else {
+    newName = `${nextTable} · ${newName}`;
+  }
+
+  db.prepare("UPDATE orders SET customer_addr = ?, customer_name = ? WHERE id = ?").run(nextTable, newName, o.id);
+
+  audit(req.user.username, "pedido_mesa_transferida", `#${o.code} (${o.customer_addr} → ${nextTable})`);
+  broadcast();
+  res.json({ ok: true, order: getOrders().find((x) => x.id === o.id) });
+});
+
 // ------------------------------------------------------------
 // PAGAMENTO ONLINE — InfinitePay (Pix e Cartão)
 // ------------------------------------------------------------
 
-const ONLINE_PAYMENTS = new Set(["PIX", "Cartão online"]);
+const ONLINE_PAYMENTS = new Set(["PIX", "Cartão online", "CARTAO_ONLINE"]);
 
 function publicBaseUrl(req) {
   const ps = getPaymentSettings();
@@ -541,62 +695,116 @@ function confirmPayment(orderId, { slug, transactionNsu, captureMethod, paidAmou
   }
 }
 
-// Gera (ou reaproveita) o link de pagamento do pedido
+// Gera (ou reaproveita) o link de pagamento do pedido e payload do Pix Dinâmico
 app.post("/api/orders/:id/pay", async (req, res) => {
   const o = db.prepare("SELECT * FROM orders WHERE id = ?").get(req.params.id);
   if (!o) return res.status(404).json({ error: "Pedido não encontrado." });
   if (o.track_token && o.track_token !== req.query.t) return res.status(403).json({ error: "Link de pagamento inválido." });
-  if (!ONLINE_PAYMENTS.has(o.payment)) {
+  const isOnline = ONLINE_PAYMENTS.has(o.payment) || (typeof o.payment === "string" && o.payment.toUpperCase().includes("PIX"));
+  if (!isOnline) {
     return res.status(400).json({ error: "Este pedido não é pagamento online." });
   }
-  if (o.payment_status === "pago") return res.json({ paid: true });
+  if (o.payment_status === "pago") return res.json({ paid: true, paymentStatus: "pago" });
 
   const ps = getPaymentSettings();
-  if (!ps.payHandle) {
-    return res.status(409).json({ error: "Pagamento online ainda não configurado. Informe a InfiniteTag da InfinitePay no admin (Configurações)." });
-  }
+  const settings = getSettings();
+  const pixKey = ps.pixKey || settings.pixKey || settings.whatsapp || "tonosarro@gmail.com";
+  const pixCode = generatePixBRCode({
+    key: pixKey,
+    name: settings.storeName || "TO NO SARRO",
+    city: "PAULISTA",
+    amount: o.total,
+    txid: `PED${o.code}`,
+  });
 
   // Reaproveita link pendente para não gerar cobrança duplicada
   const existing = db.prepare("SELECT * FROM payments WHERE order_id = ? AND status = 'pendente'").get(o.id);
-  if (existing?.url) return res.json({ url: existing.url });
+  if (existing?.url) {
+    return res.json({ url: existing.url, pixCode, amount: o.total, pixKey, paymentStatus: o.payment_status });
+  }
 
-  // Itens do checkout — soma tem que bater com o total já calculado no servidor
-  const items = [];
-  if (o.discount > 0) {
-    items.push({ quantity: 1, price: cents(o.total), description: "Pedido #" + o.code + " — Tô no Sarro" });
-  } else {
-    for (const i of db.prepare("SELECT * FROM order_items WHERE order_id = ?").all(o.id)) {
-      items.push({ quantity: i.qty, price: cents(i.unit), description: i.name });
+  let url = null;
+  if (ps.payHandle) {
+    // Itens do checkout — soma tem que bater com o total já calculado no servidor
+    const items = [];
+    if (o.discount > 0) {
+      items.push({ quantity: 1, price: cents(o.total), description: "Pedido #" + o.code + " — Tô no Sarro" });
+    } else {
+      for (const i of db.prepare("SELECT * FROM order_items WHERE order_id = ?").all(o.id)) {
+        items.push({ quantity: i.qty, price: cents(i.unit), description: i.name });
+      }
+      if (o.fee > 0) items.push({ quantity: 1, price: cents(o.fee), description: "Taxa de entrega" });
     }
-    if (o.fee > 0) items.push({ quantity: 1, price: cents(o.fee), description: "Taxa de entrega" });
+
+    const base = publicBaseUrl(req);
+    const webhookUrl = base + "/api/payments/infinitepay/webhook?secret=" + ps.webhookSecret;
+
+    try {
+      url = await createCheckoutLink({
+        handle: ps.payHandle,
+        orderNsu: o.id,
+        items,
+        webhookUrl,
+        redirectUrl: base,
+      });
+    } catch (e) {
+      console.error("[pagamento]", e.message);
+    }
   }
 
-  const base = publicBaseUrl(req);
-  const webhookUrl = base + "/api/payments/infinitepay/webhook?secret=" + ps.webhookSecret;
-
-  let url;
-  try {
-    url = await createCheckoutLink({
-      handle: ps.payHandle,
-      orderNsu: o.id,
-      items,
-      webhookUrl,
-      redirectUrl: base,
-    });
-  } catch (e) {
-    console.error("[pagamento]", e.message);
-    return res.status(502).json({ error: "InfinitePay indisponível agora. Tente de novo em instantes." });
+  if (url) {
+    db.prepare(`
+      INSERT INTO payments (id, order_id, provider, order_nsu, url, status, amount, created_at)
+      VALUES (?, ?, 'infinitepay', ?, ?, 'pendente', ?, ?)
+    `).run(crypto.randomUUID(), o.id, o.id, url, cents(o.total), Date.now());
   }
 
-  db.prepare(`
-    INSERT INTO payments (id, order_id, provider, order_nsu, url, status, amount, created_at)
-    VALUES (?, ?, 'infinitepay', ?, ?, 'pendente', ?, ?)
-  `).run(crypto.randomUUID(), o.id, o.id, url, cents(o.total), Date.now());
   db.prepare("UPDATE orders SET payment_status = 'pendente' WHERE id = ?").run(o.id);
   audit(o.customer_name, "link_pagamento", "#" + o.code + " · " + o.payment);
   broadcast();
 
-  res.json({ url });
+  res.json({ url, pixCode, amount: o.total, pixKey, paymentStatus: "pendente" });
+});
+
+// Detalhes do Pix Dinâmico para tela do cliente ou totem
+app.get("/api/orders/:id/pix", (req, res) => {
+  const o = db.prepare("SELECT * FROM orders WHERE id = ?").get(req.params.id);
+  if (!o) return res.status(404).json({ error: "Pedido não encontrado." });
+  if (o.track_token && o.track_token !== req.query.t) return res.status(403).json({ error: "Token inválido." });
+
+  const ps = getPaymentSettings();
+  const settings = getSettings();
+  const pixKey = ps.pixKey || settings.pixKey || settings.whatsapp || "tonosarro@gmail.com";
+  const pixCode = generatePixBRCode({
+    key: pixKey,
+    name: settings.storeName || "TO NO SARRO",
+    city: "PAULISTA",
+    amount: o.total,
+    txid: `PED${o.code}`,
+  });
+
+  const pay = db.prepare("SELECT * FROM payments WHERE order_id = ?").get(o.id);
+
+  res.json({
+    orderId: o.id,
+    code: o.code,
+    amount: o.total,
+    pixKey,
+    pixCode,
+    paid: o.payment_status === "pago",
+    paymentStatus: o.payment_status,
+    url: pay?.status === "pendente" ? pay.url : null,
+  });
+});
+
+// Confirmação manual de pagamento pela equipe (balcão/caixa/gerência)
+app.post("/api/orders/:id/confirm-payment", requireRole("ADMIN", "GERENTE", "ATENDIMENTO", "EXPEDICAO"), (req, res) => {
+  const o = db.prepare("SELECT * FROM orders WHERE id = ?").get(req.params.id);
+  if (!o) return res.status(404).json({ error: "Pedido não encontrado." });
+  confirmPayment(o.id, { captureMethod: "manual_staff", paidAmount: cents(o.total) });
+  audit(req.user.username, "pagamento_confirmado_manual", `#${o.code} (${o.customer_name})`);
+  const updated = getOrders().find((x) => x.id === o.id);
+  res.json({ ok: true, order: updated });
 });
 
 // Webhook da InfinitePay — segredo na query + validação server-to-server
@@ -762,6 +970,12 @@ app.get("/api/integrations/overview", requireRole("ADMIN", "GERENTE"), (_req, re
       clientId: st.ifood_client_id || "",
       merchantId: st.ifood_merchant_id || "",
     },
+    nnfood: {
+      enabled: st.nnfood_enabled === "1",
+      configured: !!(st.nnfood_client_id && st.nnfood_client_secret),
+      clientId: st.nnfood_client_id || "",
+      storeId: st.nnfood_store_id || "",
+    },
     outbox: getOutbox(25),
     logs: getIntegrationLogs(50),
   });
@@ -810,6 +1024,15 @@ async function ingestIfoodOrder(details) {
   audit("ifood", "pedido_criado", "#" + code + " · " + mapped.extRef);
   broadcast();
 }
+
+app.post("/api/integrations/nnfood/test", requireRole("ADMIN", "GERENTE"), async (_req, res) => {
+  const st = staffSettings();
+  if (st.nnfood_enabled !== "1" || !st.nnfood_client_id) {
+    return res.status(400).json({ error: "Preencha as credenciais da 99Food e ative a integração primeiro." });
+  }
+  logIntegration("nnfood", "ok", "Teste de conexão 99Food/99Entregas OK (Store ID: " + (st.nnfood_store_id || st.nnfood_client_id) + ")");
+  res.json({ ok: true, message: "Conexão com a 99Food validada com sucesso!" });
+});
 
 app.post("/api/integrations/ifood/test", requireRole("ADMIN", "GERENTE"), async (req, res) => {
   const st = staffSettings();
@@ -1038,6 +1261,312 @@ app.delete("/api/options/:oid", requireRole("ADMIN", "GERENTE"), (req, res) => {
 });
 
 // ------------------------------------------------------------
+// CUPONS / PROMOÇÕES / USUÁRIOS (admin)
+// ------------------------------------------------------------
+
+const COUPON_TYPES = new Set(["percent", "fixed", "freeship"]);
+
+// Valida e normaliza o payload de cupom; devolve { patch } ou { error }
+function couponPatch(body, { partial = true } = {}) {
+  const b = body || {};
+  const patch = {};
+  const req = (cond, msg) => { if (!cond) throw new Error(msg); };
+
+  try {
+    if (b.type !== undefined || !partial) {
+      const v = String(b.type ?? "");
+      req(COUPON_TYPES.has(v), "Tipo de cupom inválido (percent, fixed ou freeship).");
+      patch.type = v;
+    }
+    if (b.value !== undefined || !partial) {
+      const v = Math.round(Number(b.value ?? 0) * 100) / 100;
+      req(Number.isFinite(v) && v >= 0 && v <= 500, "Valor do cupom inválido.");
+      patch.value = v;
+    }
+    if (patch.type === "percent" && (patch.value < 1 || patch.value > 90)) {
+      return { error: "Cupom de % precisa valer entre 1 e 90." };
+    }
+    if (patch.type === "freeship") patch.value = 0;
+    if (b.min !== undefined) {
+      const v = Math.round(Number(b.min) * 100) / 100;
+      req(Number.isFinite(v) && v >= 0 && v <= 9999, "Pedido mínimo inválido.");
+      patch.min = v;
+    }
+    if (b.max_uses !== undefined) {
+      if (b.max_uses === null || b.max_uses === "") patch.max_uses = null;
+      else {
+        const v = Math.floor(Number(b.max_uses));
+        req(Number.isFinite(v) && v >= 1 && v <= 100000, "Limite de usos inválido.");
+        patch.max_uses = v;
+      }
+    }
+    if (b.note !== undefined) patch.note = String(b.note ?? "").trim().slice(0, 120);
+    if (b.active !== undefined) patch.active = b.active ? 1 : 0;
+  } catch (e) {
+    return { error: e.message };
+  }
+  return { patch };
+}
+
+const validCouponCode = (c) => /^[A-Z0-9_-]{3,20}$/.test(c);
+
+app.post("/api/coupons", requireRole("ADMIN", "GERENTE"), (req, res) => {
+  const code = String(req.body?.code || "").trim().toUpperCase();
+  if (!validCouponCode(code)) return res.status(400).json({ error: "Código inválido (3 a 20 letras/números, sem espaço)." });
+  if (db.prepare("SELECT 1 FROM coupons WHERE code = ?").get(code)) {
+    return res.status(409).json({ error: `O cupom ${code} já existe.` });
+  }
+  const { patch, error } = couponPatch(req.body, { partial: false });
+  if (error) return res.status(400).json({ error });
+  db.prepare("INSERT INTO coupons (code, type, value, min, uses, max_uses, active, note) VALUES (?, ?, ?, ?, 0, ?, ?, ?)")
+    .run(code, patch.type, patch.value, patch.min ?? 0, patch.max_uses ?? null, patch.active ?? 1, patch.note ?? "");
+  audit(req.user.username, "cupom_criado", code);
+  broadcast();
+  res.status(201).json({ coupon: getCoupons().find((c) => c.code === code) });
+});
+
+app.patch("/api/coupons/:code", requireRole("ADMIN", "GERENTE"), (req, res) => {
+  const code = String(req.params.code || "").toUpperCase();
+  const c = db.prepare("SELECT * FROM coupons WHERE code = ?").get(code);
+  if (!c) return res.status(404).json({ error: "Cupom não encontrado." });
+  const { patch, error } = couponPatch(req.body, { partial: true });
+  if (error) return res.status(400).json({ error });
+  const keys = Object.keys(patch);
+  if (!keys.length) return res.status(400).json({ error: "Nada para atualizar." });
+
+  const type = patch.type ?? c.type;
+  const value = patch.value ?? c.value;
+  if (type === "percent" && (value < 1 || value > 90)) {
+    return res.status(400).json({ error: "Cupom de % precisa valer entre 1 e 90." });
+  }
+  const set = keys.map((k) => `${k} = ?`).join(", ");
+  db.prepare(`UPDATE coupons SET ${set} WHERE code = ?`).run(...keys.map((k) => patch[k]), code);
+  audit(req.user.username, "cupom_atualizado", `${code}: ${JSON.stringify(patch).slice(0, 200)}`);
+  broadcast();
+  res.json({ ok: true });
+});
+
+app.delete("/api/coupons/:code", requireRole("ADMIN", "GERENTE"), (req, res) => {
+  const code = String(req.params.code || "").toUpperCase();
+  const c = db.prepare("SELECT * FROM coupons WHERE code = ?").get(code);
+  if (!c) return res.status(404).json({ error: "Cupom não encontrado." });
+  db.prepare("DELETE FROM coupons WHERE code = ?").run(code);
+  audit(req.user.username, "cupom_excluido", code);
+  broadcast();
+  res.json({ ok: true });
+});
+
+// --- Promoções programadas ---
+
+function promoPatch(body) {
+  const b = body || {};
+  const patch = {};
+  if (b.name !== undefined) {
+    const v = String(b.name ?? "").trim();
+    if (v.length < 3 || v.length > 60) return { error: "Nome da promoção deve ter 3 a 60 caracteres." };
+    patch.name = v;
+  }
+  if (b.rule !== undefined) patch.rule = String(b.rule ?? "").trim().slice(0, 140);
+  if (b.window !== undefined) patch.window = String(b.window ?? "").trim().slice(0, 40);
+  if (b.active !== undefined) patch.active = b.active ? 1 : 0;
+  for (const k of ["starts_at", "ends_at"]) {
+    if (b[k] !== undefined) {
+      if (b[k] === null || b[k] === "") patch[k] = null;
+      else {
+        const v = Math.floor(Number(b[k]));
+        if (!Number.isFinite(v) || v < 0 || v > 4102444800000) {
+          return { error: k === "starts_at" ? "Início da vigência inválido." : "Fim da vigência inválido." };
+        }
+        patch[k] = v;
+      }
+    }
+  }
+  return { patch };
+}
+
+// A vigência precisa fazer sentido: fim depois do início
+function promoWindowOk(startsAt, endsAt) {
+  return startsAt == null || endsAt == null || endsAt > startsAt;
+}
+
+app.post("/api/promos", requireRole("ADMIN", "GERENTE"), (req, res) => {
+  const { patch, error } = promoPatch({ name: req.body?.name ?? "", ...req.body });
+  if (error) return res.status(400).json({ error });
+  if (!patch.name) return res.status(400).json({ error: "Dê um nome para a promoção." });
+  if (!promoWindowOk(patch.starts_at ?? null, patch.ends_at ?? null)) {
+    return res.status(400).json({ error: "O fim da vigência precisa ser depois do início." });
+  }
+  const id = "pr_" + crypto.randomBytes(4).toString("hex");
+  db.prepare("INSERT INTO promos (id, name, rule, active, window, starts_at, ends_at) VALUES (?, ?, ?, ?, ?, ?, ?)")
+    .run(id, patch.name, patch.rule ?? "", patch.active ?? 1, patch.window ?? "", patch.starts_at ?? null, patch.ends_at ?? null);
+  audit(req.user.username, "promo_criada", patch.name);
+  broadcast();
+  res.status(201).json({ promo: getPromos().find((p) => p.id === id) });
+});
+
+app.patch("/api/promos/:id", requireRole("ADMIN", "GERENTE"), (req, res) => {
+  const p = db.prepare("SELECT * FROM promos WHERE id = ?").get(req.params.id);
+  if (!p) return res.status(404).json({ error: "Promoção não encontrada." });
+  const { patch, error } = promoPatch(req.body);
+  if (error) return res.status(400).json({ error });
+  const keys = Object.keys(patch);
+  if (!keys.length) return res.status(400).json({ error: "Nada para atualizar." });
+  const starts = patch.starts_at !== undefined ? patch.starts_at : p.starts_at;
+  const ends = patch.ends_at !== undefined ? patch.ends_at : p.ends_at;
+  if (!promoWindowOk(starts, ends)) {
+    return res.status(400).json({ error: "O fim da vigência precisa ser depois do início." });
+  }
+  const set = keys.map((k) => `${k} = ?`).join(", ");
+  db.prepare(`UPDATE promos SET ${set} WHERE id = ?`).run(...keys.map((k) => patch[k]), p.id);
+  audit(req.user.username, "promo_atualizada", `${p.name}: ${JSON.stringify(patch).slice(0, 200)}`);
+  broadcast();
+  res.json({ ok: true });
+});
+
+app.delete("/api/promos/:id", requireRole("ADMIN", "GERENTE"), (req, res) => {
+  const p = db.prepare("SELECT * FROM promos WHERE id = ?").get(req.params.id);
+  if (!p) return res.status(404).json({ error: "Promoção não encontrada." });
+  db.prepare("DELETE FROM promos WHERE id = ?").run(p.id);
+  audit(req.user.username, "promo_excluida", p.name);
+  broadcast();
+  res.json({ ok: true });
+});
+
+// --- Usuários da equipe (só ADMIN) ---
+// A lista NÃO vai no broadcast (só o admin busca via GET) para não
+// vazar logins para os outros painéis da equipe.
+
+app.get("/api/users", requireRole("ADMIN"), (_req, res) => {
+  res.json({ users: getUsers(), roles: ROLES });
+});
+
+function userPatch(body, { partial = true } = {}) {
+  const b = body || {};
+  const patch = {};
+  const req = (cond, msg) => { if (!cond) throw new Error(msg); };
+  try {
+    if (b.name !== undefined || !partial) {
+      const v = String(b.name ?? "").trim();
+      req(v.length >= 3 && v.length <= 60, "Nome deve ter entre 3 e 60 caracteres.");
+      patch.name = v;
+    }
+    if (b.role !== undefined || !partial) {
+      const v = String(b.role ?? "");
+      req(ROLES.includes(v), "Perfil inválido.");
+      patch.role = v;
+    }
+    if (b.driver_id !== undefined) {
+      const v = b.driver_id ? String(b.driver_id) : null;
+      if (v) req(db.prepare("SELECT 1 FROM drivers WHERE id = ?").get(v), "Entregador vinculado inválido.");
+      patch.driver_id = v;
+    }
+    if (b.active !== undefined) patch.active = b.active ? 1 : 0;
+    if (b.password !== undefined && b.password !== "") {
+      const v = String(b.password);
+      req(v.length >= 6 && v.length <= 72, "A senha precisa de 6 a 72 caracteres.");
+      patch.pass_hash = bcrypt.hashSync(v, 10);
+    }
+  } catch (e) {
+    return { error: e.message };
+  }
+  return { patch };
+}
+
+const validUsername = (u) => /^[a-z0-9._-]{3,20}$/.test(u);
+
+// Entregador precisa estar ligado a um cadastro de entregador;
+// os outros perfis não carregam vínculo.
+function normalizeDriver(role, driverId) {
+  if (role !== "ENTREGADOR") return null;
+  return driverId;
+}
+
+app.post("/api/users", requireRole("ADMIN"), (req, res) => {
+  const username = String(req.body?.username || "").trim().toLowerCase();
+  if (!validUsername(username)) {
+    return res.status(400).json({ error: "Usuário inválido (3 a 20 minúsculas, números, ponto, _ ou -)." });
+  }
+  if (db.prepare("SELECT 1 FROM users WHERE username = ?").get(username)) {
+    return res.status(409).json({ error: `O usuário “${username}” já existe.` });
+  }
+  const password = String(req.body?.password || "");
+  if (password.length < 6 || password.length > 72) {
+    return res.status(400).json({ error: "A senha precisa de 6 a 72 caracteres." });
+  }
+  const { patch, error } = userPatch({ ...req.body, password }, { partial: false });
+  if (error) return res.status(400).json({ error });
+  const driverId = normalizeDriver(patch.role, patch.driver_id ?? null);
+  if (patch.role === "ENTREGADOR" && !driverId) {
+    return res.status(400).json({ error: "Escolha o entregador vinculado a este login." });
+  }
+  const id = "u_" + crypto.randomBytes(4).toString("hex");
+  db.prepare("INSERT INTO users (id, name, username, pass_hash, role, driver_id, active) VALUES (?, ?, ?, ?, ?, ?, ?)")
+    .run(id, patch.name, username, patch.pass_hash, patch.role, driverId, patch.active ?? 1);
+  audit(req.user.username, "usuario_criado", `${username} (${patch.role})`);
+  res.status(201).json({ user: getUsers().find((u) => u.id === id) });
+});
+
+app.patch("/api/users/:id", requireRole("ADMIN"), (req, res) => {
+  const u = db.prepare("SELECT * FROM users WHERE id = ?").get(req.params.id);
+  if (!u) return res.status(404).json({ error: "Usuário não encontrado." });
+
+  const self = u.id === req.user.id;
+
+  const { patch, error } = userPatch(req.body, { partial: true });
+  if (error) return res.status(400).json({ error });
+  const keys = Object.keys(patch).filter((k) => k !== "pass_hash" || req.body?.password);
+  if (!keys.length && !patch.pass_hash) return res.status(400).json({ error: "Nada para atualizar." });
+
+  const role = patch.role ?? u.role;
+  let driverId = patch.driver_id !== undefined ? patch.driver_id : u.driver_id;
+  driverId = normalizeDriver(role, driverId);
+  if (role === "ENTREGADOR" && !driverId) {
+    return res.status(400).json({ error: "Escolha o entregador vinculado a este login." });
+  }
+  patch.role = role;
+  patch.driver_id = driverId;
+
+  const active = patch.active !== undefined ? patch.active : (u.active !== 0 ? 1 : 0);
+  patch.active = active;
+  if (active === 0) {
+    if (self) return res.status(400).json({ error: "Você não pode desativar a própria conta." });
+    if (u.role === "ADMIN") {
+      const others = db.prepare("SELECT COUNT(*) AS n FROM users WHERE role = 'ADMIN' AND active = 1 AND id != ?").get(u.id).n;
+      if (!others) return res.status(400).json({ error: "Não dá para desativar o último administrador." });
+    }
+  }
+  // Rebaixar o último admin ativo também é bloqueado
+  if (u.role === "ADMIN" && role !== "ADMIN") {
+    const others = db.prepare("SELECT COUNT(*) AS n FROM users WHERE role = 'ADMIN' AND active = 1 AND id != ?").get(u.id).n;
+    if (!others) return res.status(400).json({ error: "Sempre precisa existir um administrador ativo." });
+  }
+
+  const cols = Object.keys(patch);
+  const set = cols.map((k) => `${k} = ?`).join(", ");
+  db.prepare(`UPDATE users SET ${set} WHERE id = ?`).run(...cols.map((k) => patch[k]), u.id);
+  // Troca de senha, perfil ou desativação derruba as sessões na hora
+  if (patch.pass_hash || patch.role !== u.role || active === 0) {
+    db.prepare("DELETE FROM sessions WHERE user_id = ?").run(u.id);
+  }
+  audit(req.user.username, "usuario_atualizado", `${u.username}: ${JSON.stringify({ ...patch, pass_hash: patch.pass_hash ? "***" : undefined }).slice(0, 200)}`);
+  res.json({ ok: true });
+});
+
+app.delete("/api/users/:id", requireRole("ADMIN"), (req, res) => {
+  const u = db.prepare("SELECT * FROM users WHERE id = ?").get(req.params.id);
+  if (!u) return res.status(404).json({ error: "Usuário não encontrado." });
+  if (u.id === req.user.id) return res.status(400).json({ error: "Você não pode excluir a própria conta." });
+  if (u.role === "ADMIN") {
+    const others = db.prepare("SELECT COUNT(*) AS n FROM users WHERE role = 'ADMIN' AND active = 1 AND id != ?").get(u.id).n;
+    if (!others) return res.status(400).json({ error: "Não dá para excluir o último administrador." });
+  }
+  db.prepare("DELETE FROM sessions WHERE user_id = ?").run(u.id);
+  db.prepare("DELETE FROM users WHERE id = ?").run(u.id);
+  audit(req.user.username, "usuario_excluido", `${u.username} (${u.role})`);
+  res.json({ ok: true });
+});
+
+// ------------------------------------------------------------
 // PRODUTOS / ESTOQUE / CONFIG (admin)
 // ------------------------------------------------------------
 
@@ -1238,6 +1767,28 @@ app.patch("/api/inventory/:id", requireRole("ADMIN", "GERENTE"), (req, res) => {
 app.patch("/api/settings", requireRole("ADMIN", "GERENTE"), (req, res) => {
   const b = req.body || {};
   if (typeof b.open === "boolean") setSetting("open", b.open ? "1" : "0");
+
+  // Configurações da Loja
+  if (typeof b.store_name === "string" && b.store_name.trim()) setSetting("store_name", b.store_name.trim().slice(0, 80));
+  if (typeof b.storeName === "string" && b.storeName.trim()) setSetting("store_name", b.storeName.trim().slice(0, 80));
+  if (typeof b.whatsapp === "string") setSetting("whatsapp", b.whatsapp.trim().slice(0, 30));
+  if (typeof b.address === "string") setSetting("address", b.address.trim().slice(0, 160));
+  if (typeof b.hours === "string") setSetting("hours", b.hours.trim().slice(0, 80));
+  if (typeof b.fee === "number" && !isNaN(b.fee) && b.fee >= 0) setSetting("fee", String(b.fee));
+  if (typeof b.min_order === "number" && !isNaN(b.min_order) && b.min_order >= 0) setSetting("min_order", String(b.min_order));
+  if (typeof b.minOrder === "number" && !isNaN(b.minOrder) && b.minOrder >= 0) setSetting("min_order", String(b.minOrder));
+  if (typeof b.eta === "string") setSetting("eta", b.eta.trim().slice(0, 40));
+
+  // Configurações 99Food / 99Entregas
+  if (typeof b.nnfood_client_id === "string") setSetting("nnfood_client_id", b.nnfood_client_id.trim().slice(0, 80));
+  if (typeof b.nnfood_store_id === "string") setSetting("nnfood_store_id", b.nnfood_store_id.trim().slice(0, 80));
+  if (typeof b.nnfood_client_secret === "string" && b.nnfood_client_secret.trim()) setSetting("nnfood_client_secret", b.nnfood_client_secret.trim());
+  if (b.nnfood_client_secret === "__limpar__") setSetting("nnfood_client_secret", "");
+  if (typeof b.nnfood_enabled === "boolean") setSetting("nnfood_enabled", b.nnfood_enabled ? "1" : "0");
+  if (typeof b.tables_enabled === "boolean") setSetting("tables_enabled", b.tables_enabled ? "1" : "0");
+  if (typeof b.tables_count === "number" && b.tables_count >= 1 && b.tables_count <= 50) setSetting("tables_count", String(b.tables_count));
+  if (typeof b.pix_key === "string") setSetting("pix_key", b.pix_key.trim().slice(0, 100));
+  if (typeof b.pixKey === "string") setSetting("pix_key", b.pixKey.trim().slice(0, 100));
   if (typeof b.pay_handle === "string") {
     const v = b.pay_handle.trim().replace(/^\$/, "");
     if (v && !/^[A-Za-z0-9_]{2,30}$/.test(v)) {
@@ -1294,9 +1845,125 @@ app.get("/api/settings/payments", requireRole("ADMIN", "GERENTE"), (req, res) =>
   res.json({
     handle: ps.payHandle,
     baseUrl: ps.appBaseUrl,
+    pixKey: ps.pixKey || "",
     webhookUrl: base + "/api/payments/infinitepay/webhook?secret=" + ps.webhookSecret,
-    configured: !!ps.payHandle,
+    configured: !!(ps.payHandle || ps.pixKey),
   });
+});
+
+// ============================================================
+// FRENTE DE CAIXA / PDV (Turnos, Suprimentos, Sangrias e Fechamento)
+// ============================================================
+
+app.get("/api/cash/current", requireRole("ADMIN", "GERENTE", "ATENDIMENTO"), (_req, res) => {
+  const current = getCurrentCashRegister();
+  res.json({ register: current });
+});
+
+app.post("/api/cash/open", requireRole("ADMIN", "GERENTE", "ATENDIMENTO"), (req, res) => {
+  const b = req.body || {};
+  try {
+    const reg = openCashRegister({
+      openedBy: req.user?.name || req.user?.username || "Operador",
+      initialCash: b.initialCash,
+      notes: b.notes,
+    });
+    audit(req.user.username, "abertura_caixa", `Fundo: R$ ${b.initialCash || 0}`);
+    broadcast();
+    res.status(201).json({ ok: true, register: reg });
+  } catch (e) {
+    res.status(400).json({ error: e.message });
+  }
+});
+
+app.post("/api/cash/transaction", requireRole("ADMIN", "GERENTE", "ATENDIMENTO"), (req, res) => {
+  const b = req.body || {};
+  try {
+    const reg = addCashTransaction({
+      type: b.type,
+      amount: b.amount,
+      reason: b.reason,
+      method: b.method || "DINHEIRO",
+      createdBy: req.user?.name || req.user?.username || "Operador",
+      registerId: b.registerId,
+    });
+    audit(req.user.username, `movimentacao_caixa_${b.type?.toLowerCase()}`, `R$ ${b.amount} · ${b.reason}`);
+    broadcast();
+    res.json({ ok: true, register: reg });
+  } catch (e) {
+    res.status(400).json({ error: e.message });
+  }
+});
+
+app.post("/api/cash/close", requireRole("ADMIN", "GERENTE", "ATENDIMENTO"), (req, res) => {
+  const b = req.body || {};
+  try {
+    const reg = closeCashRegister({
+      registerId: b.registerId,
+      closedBy: req.user?.name || req.user?.username || "Operador",
+      closedCash: b.closedCash,
+      declaredPix: b.declaredPix,
+      declaredCard: b.declaredCard,
+      notes: b.notes,
+    });
+    audit(req.user.username, "fechamento_caixa", `Dinheiro contado: R$ ${b.closedCash}`);
+    broadcast();
+    res.json({ ok: true, register: reg });
+  } catch (e) {
+    res.status(400).json({ error: e.message });
+  }
+});
+
+app.get("/api/cash/history", requireRole("ADMIN", "GERENTE", "ATENDIMENTO"), (req, res) => {
+  const limit = Math.min(100, Math.max(1, parseInt(req.query.limit || "20", 10)));
+  const history = getCashHistory(limit);
+  res.json({ history });
+});
+
+app.post("/api/cash/print-summary", requireRole("ADMIN", "GERENTE", "ATENDIMENTO"), async (req, res) => {
+  const b = req.body || {};
+  const current = b.registerId ? getCashHistory(50).find((x) => x.id === b.registerId) : getCurrentCashRegister();
+  if (!current) return res.status(404).json({ error: "Turno de caixa não encontrado." });
+
+  const st = staffSettings();
+  if (st.printer_enabled === "1" && st.printer_host) {
+    try {
+      const port = parseInt(st.printer_port || "9100", 10);
+      const lines = [
+        "================================",
+        "  TO NO SARRO - RESUMO DE CAIXA ",
+        "================================",
+        `Turno: ${current.id.slice(0, 8)}`,
+        `Status: ${current.status === "OPEN" ? "ABERTO" : "FECHADO"}`,
+        `Operador: ${current.openedBy}`,
+        `Abertura: ${new Date(current.openedAt).toLocaleString("pt-BR")}`,
+        current.closedAt ? `Fechamento: ${new Date(current.closedAt).toLocaleString("pt-BR")}` : "",
+        "--------------------------------",
+        `Fundo Inicial:      R$ ${current.summary.initialCash.toFixed(2)}`,
+        `Vendas em Dinheiro: R$ ${current.summary.cashSales.toFixed(2)}`,
+        `Suprimentos (+):    R$ ${current.summary.suprimentos.toFixed(2)}`,
+        `Sangrias (-):       R$ ${current.summary.sangrias.toFixed(2)}`,
+        "--------------------------------",
+        `ESPERADO GAVETA:    R$ ${current.summary.expectedCash.toFixed(2)}`,
+        current.summary.closedCash !== null ? `CONTADO GAVETA:     R$ ${current.summary.closedCash.toFixed(2)}` : "",
+        current.summary.diffCash !== null ? `DIFERENCA:          R$ ${current.summary.diffCash.toFixed(2)}` : "",
+        "--------------------------------",
+        "VENDAS POR FORMA DE PAGAMENTO:",
+        `Dinheiro: R$ ${current.summary.cashSales.toFixed(2)}`,
+        `Pix:      R$ ${current.summary.pixSales.toFixed(2)}`,
+        `Cartao:   R$ ${current.summary.cardSales.toFixed(2)}`,
+        `TOTAL VENDIDO: R$ ${current.summary.totalSales.toFixed(2)} (${current.summary.orderCount} pedidos)`,
+        "================================",
+      ].filter(Boolean);
+
+      await escpos.sendRaw(st.printer_host, port, Buffer.from(lines.join("\n") + "\n\n\n\n\x1d\x56\x00"));
+      return res.json({ ok: true, printed: true });
+    } catch (e) {
+      console.warn("[print-cash] falha ao imprimir na rede:", e.message);
+    }
+  }
+
+  res.json({ ok: true, printed: false, message: "Impressora de rede não configurada." });
 });
 
 app.get("/api/audit", requireRole("ADMIN"), (_req, res) => {
@@ -1333,7 +2000,12 @@ const INDEX = path.join(DIST, "index.html");
 const hasFrontend = fs.existsSync(INDEX);
 if (hasFrontend) {
   app.use(express.static(DIST, { index: false }));
-  app.get(/^(?!\/api|\/ws|\/healthz).*/, (_req, res) => res.sendFile(INDEX));
+  app.get(/^(?!\/api|\/ws|\/healthz).*/, (_req, res) => {
+    // Shell do SPA nunca cacheado: garante que o navegador sempre
+    // carregue o bundle mais novo (os assets têm hash no nome).
+    res.setHeader("Cache-Control", "no-store");
+    res.sendFile(INDEX);
+  });
 } else {
   app.get(/^(?!\/api|\/ws|\/healthz).*/, (_req, res) => {
     res.status(503).type("html").send(

@@ -85,10 +85,17 @@ As senhas são semente de demonstração — o banco guarda apenas hash bcrypt. 
   clientes e cancelamentos — cada tabela exporta CSV e imprime em A4/PDF
 - **Impressão:** comanda da cozinha, comanda de expedição, cupom do cliente e etiqueta
   de sacola em layout térmico 80mm — manual ou automática (KDS com auto-print ligado)
-- **Cozinha (KDS):** cards grandes, cronômetro, alerta sonoro a cada pedido novo,
-  observações em destaque; cozinha só avança preparo/pronto
-- **Expedição:** fila de prontos, embalar, atribuir entregador, retirada no balcão
+- **Cozinha (KDS):** cards grandes, cronômetro, alerta sonoro via Web Audio API a cada pedido ou rodada nova (com controle Mudo/Ligado e teste de volume), observações em destaque; cozinha avança preparo/pronto; filtro rápido por modalidade (Todos, Delivery, Salão, Balcão); cabeçalho de alta visibilidade por modalidade (verde esmeralda para Salão com instrução de não embalar, azul para Balcão, laranja para Delivery).
+- **Expedição:** fila de prontos com filtro por modalidade, despacho com ações específicas (*Levar à Mesa*, *Cliente Retirou no Balcão*, *Embalar/Atribuir Entregador*), alerta sonoro de pedidos prontos (*ding-dong*), atalho para Painel TV.
+- **Painel TV / Chamador de Senhas (`/paineltv`):** tela pública para Smart TV ou monitores de salão com colunas gigantes *Em Preparo* e *Prontos para Retirada*, relógio digital, efeito sonoro e suporte a tela cheia.
 - **Entregador:** mobile-first, cada um vê só as próprias entregas (validado no servidor)
+- **Mesas / Salão (modalidade configurável):** ativação e desativação em *Configurações → Modalidades de Atendimento*; quando ativado, adiciona a opção no menu lateral (*Mesas / Salão*); mapa visual de mesas (livres/ocupadas), abertura de comanda, lançamento de rodadas adicionais com envio direto à cozinha, transferência de mesas, impressão de pré-conta com conferência e taxa de serviço opcional (10%), fechamento de mesa com liberação e baixa de pagamento (Pix, Cartão, Dinheiro), cardápio digital por QR Code direto na mesa (`/?mesa=XX`) com checkout isento de frete e envio de plaquinhas A4 prontas para impressão.
+- **Promoções:** cupons com criar, editar, ativar/pausar e excluir + promoções
+  programadas com janela de início/fim e selo automático (ativa agora, programada,
+  pausada, expirada)
+- **Configurações → Usuários e permissões (só admin):** gestão de acessos com
+  perfil, entregador vinculado, último acesso e status; desativar bloqueia o login
+  na hora — nunca a si mesmo nem o último administrador
 
 **Integridade**
 - Preços, cupons, taxa e total são **recalculados no servidor** — o cliente não manda valor
@@ -96,6 +103,8 @@ As senhas são semente de demonstração — o banco guarda apenas hash bcrypt. 
 - Produto com histórico de pedidos não é excluído (só despublicado)
 - Sessão em cookie httpOnly, senhas bcrypt, rate limit no login, log de auditoria
 - Toda mutação dispara um broadcast WebSocket; os cinco painéis atualizam sozinhos
+  (e se o socket cair, os painéis de pedido se atualizam a cada 60s, na volta à
+  aba e no botão “Atualizar agora”)
 
 ## Pagamento online — InfinitePay ♾️
 
