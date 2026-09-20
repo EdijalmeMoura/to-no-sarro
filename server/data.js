@@ -306,4 +306,5 @@ export const SETTINGS = {
   printer_auto: 1,
   tables_enabled: 0,
   tables_count: 10,
+  pix_key: "tonosarro@gmail.com",
 };

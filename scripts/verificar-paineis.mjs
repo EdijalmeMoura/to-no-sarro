@@ -275,6 +275,31 @@ console.log("\n4) APIs — cupons, promoções, usuários e refresh de pedidos")
     const setMesasOff = await req("PATCH", "/api/settings", { tables_enabled: false }, admin);
     const bootMesasOff = await boot();
     ok("desativa módulo de mesas via settings", setMesasOff.ok && bootMesasOff.settings?.tablesEnabled === false);
+
+    // Pix Dinâmico e Confirmação em Tempo Real (Part 3)
+    const setPixKey = await req("PATCH", "/api/settings", { pix_key: "financeiro@tonosarro.com.br" }, admin);
+    const getPixSettings = await req("GET", "/api/settings/payments", undefined, admin);
+    ok("configura chave pix oficial nas settings", setPixKey.ok && getPixSettings.data.pixKey === "financeiro@tonosarro.com.br");
+
+    const pixOrder = await req("POST", "/api/orders", {
+      customer: { name: "Cliente Pix", phone: "(81) 98888-7777", addr: "Rua do Sol, 45 — Janga" },
+      items: [{ productId: "p1", qty: 2, optionIds: [], note: "" }],
+      type: "delivery", payment: "PIX",
+    });
+    const pOrder = pixOrder.data.order;
+    const isPixPending = pixOrder.status === 201 && pOrder.paymentStatus === "pendente";
+    const hasPixBRCode = typeof pOrder.pixCode === "string" && pOrder.pixCode.startsWith("000201") && pOrder.pixCode.includes("6304");
+    ok("cria pedido Pix com status pendente e BR Code oficial", isPixPending && hasPixBRCode, JSON.stringify(pOrder).slice(0, 80));
+
+    const getPixDetails = await req("GET", `/api/orders/${pOrder.id}/pix?t=${pOrder.trackToken}`);
+    ok("consulta detalhes do Pix por token", getPixDetails.ok && getPixDetails.data.pixCode === pOrder.pixCode && getPixDetails.data.pixKey === "financeiro@tonosarro.com.br");
+
+    const payEndpoint = await req("POST", `/api/orders/${pOrder.id}/pay?t=${pOrder.trackToken}`);
+    ok("endpoint de pagamento retorna Copia e Cola e total", payEndpoint.ok && payEndpoint.data.pixCode === pOrder.pixCode && payEndpoint.data.amount === pOrder.total);
+
+    const confirmManual = await req("POST", `/api/orders/${pOrder.id}/confirm-payment`, undefined, admin);
+    const trackAfterPaid = await req("GET", `/api/track/${pOrder.id}?t=${pOrder.trackToken}`);
+    ok("equipe confirma pagamento Pix manualmente e reflete no rastreio", confirmManual.ok && trackAfterPaid.data.order?.paymentStatus === "pago" && trackAfterPaid.data.order?.status === "CONFIRMADO");
   }
 
 console.log(fails === 0 ? `\n🎉 tudo verde — ${total} checagens\n` : `\n💥 ${fails} falha(s) em ${total}\n`);

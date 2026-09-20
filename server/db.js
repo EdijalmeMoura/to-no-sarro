@@ -13,6 +13,7 @@ import {
   CATEGORIES, OPTION_GROUPS, BUILDER, PRODUCTS, COUPONS,
   DRIVERS, CUSTOMERS, INVENTORY, PROMOS, USERS, SETTINGS,
 } from "./data.js";
+import { generatePixBRCode } from "./payments/pix.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // Em produção (ex.: Render Disk), aponte DATA_DIR para o volume persistente
@@ -280,6 +281,9 @@ if (getSettingRaw("tables_enabled") === undefined) {
 if (getSettingRaw("tables_count") === undefined) {
   setSettingRaw("tables_count", "10");
 }
+if (getSettingRaw("pix_key") === undefined) {
+  setSettingRaw("pix_key", "tonosarro@gmail.com");
+}
 
 export function audit(user, action, detail = "") {
   db.prepare("INSERT INTO audit_logs (at, user, action, detail) VALUES (?, ?, ?, ?)")
@@ -499,6 +503,7 @@ export function getSettings() {
     hours: s.hours,
     payHandle: s.pay_handle || "",
     appBaseUrl: s.app_base_url || "",
+    pixKey: s.pix_key || "",
     tablesEnabled: s.tables_enabled === "1",
     tablesCount: parseInt(s.tables_count || "10", 10),
   };
@@ -511,6 +516,7 @@ export function getPaymentSettings() {
   return {
     payHandle: s.pay_handle || "",
     appBaseUrl: s.app_base_url || "",
+    pixKey: s.pix_key || "",
     webhookSecret: s.pay_webhook_secret || "",
   };
 }
@@ -539,8 +545,21 @@ export function getOrders() {
   const pays = new Map();
   for (const p of db.prepare("SELECT * FROM payments").all()) pays.set(p.order_id, p);
 
+  const pixKeyRow = db.prepare("SELECT value FROM settings WHERE key = 'pix_key'").get();
+  const storeNameRow = db.prepare("SELECT value FROM settings WHERE key = 'store_name'").get();
+  const pixKey = pixKeyRow?.value || "tonosarro@gmail.com";
+  const storeName = storeNameRow?.value || "TO NO SARRO";
+
   return rows.map((o) => {
     const pay = pays.get(o.id);
+    const isPix = o.payment === "PIX" || (typeof o.payment === "string" && o.payment.toUpperCase().includes("PIX"));
+    const pixCode = isPix ? generatePixBRCode({
+      key: pixKey,
+      name: storeName,
+      city: "PAULISTA",
+      amount: o.total,
+      txid: `PED${o.code}`,
+    }) : null;
     return {
       id: o.id, code: o.code, channel: o.channel, status: o.status,
       createdAt: o.created_at, startedAt: o.started_at, driverId: o.driver_id,
@@ -550,6 +569,9 @@ export function getOrders() {
       paymentStatus: o.payment_status || "indefinido",
       payUrl: pay?.status === "pendente" ? pay.url : null,
       receiptUrl: pay?.receipt_url || null,
+      paidAt: pay?.paid_at || null,
+      pixCode,
+      pixKey: isPix ? pixKey : null,
       items: byOrder.get(o.id) || [],
     };
   });

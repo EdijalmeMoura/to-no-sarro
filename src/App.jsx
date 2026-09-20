@@ -1498,6 +1498,49 @@ function Checkout({ store, totals, onBack, onDone }) {
 // ACOMPANHAMENTO
 // ============================================================
 
+function QRCodeImage({ value, size = 160, className = "" }) {
+  const [src, setSrc] = useState("");
+  useEffect(() => {
+    let alive = true;
+    if (!value) { setSrc(""); return; }
+    QRCode.toDataURL(value, { width: size * 2, margin: 1, color: { dark: "#000000", light: "#ffffff" } })
+      .then((url) => { if (alive) setSrc(url); })
+      .catch(() => {});
+    return () => { alive = false; };
+  }, [value, size]);
+
+  if (!src) {
+    return (
+      <div style={{ width: size, height: size, background: "#fff" }} className={`flex items-center justify-center rounded-lg ${className}`}>
+        <span style={{ color: "#888", fontSize: 11 }}>Carregando QR...</span>
+      </div>
+    );
+  }
+  return <img src={src} alt={value} style={{ width: size, height: size }} className={`rounded-lg ${className}`} />;
+}
+
+function playSuccessChime() {
+  try {
+    const Ctx = window.AudioContext || window.webkitAudioContext;
+    if (!Ctx) return;
+    const ctx = new Ctx();
+    const notes = [523.25, 659.25, 783.99, 1046.5]; // C5, E5, G5, C6
+    notes.forEach((freq, idx) => {
+      const o = ctx.createOscillator();
+      const g = ctx.createGain();
+      o.connect(g);
+      g.connect(ctx.destination);
+      o.type = "sine";
+      o.frequency.value = freq;
+      const start = ctx.currentTime + idx * 0.09;
+      g.gain.setValueAtTime(0.14, start);
+      g.gain.exponentialRampToValueAtTime(0.0001, start + 0.25);
+      o.start(start);
+      o.stop(start + 0.25);
+    });
+  } catch {}
+}
+
 const TRACK_STEPS = [
   { key: "NOVO", label: "Pedido recebido", icon: "✓" },
   { key: "CONFIRMADO", label: "Pagamento confirmado", icon: "✓" },
@@ -1509,20 +1552,73 @@ const TRACK_STEPS = [
 ];
 
 function TrackScreen({ order, store, now }) {
+  const [copied, setCopied] = useState(false);
+  const [showRaw, setShowRaw] = useState(false);
+  const [pixInfo, setPixInfo] = useState(null);
+  const [justApproved, setJustApproved] = useState(false);
+  const prevPaymentStatus = useRef(order?.paymentStatus);
+
   // Atualização do próprio pedido: polling autenticado por token
   // (o canal público não carrega pedidos de outros clientes).
   useEffect(() => {
     if (!order) return;
     store.refreshMyOrder?.().catch(() => {});
-    const t = setInterval(() => store.refreshMyOrder?.().catch(() => {}), 6000);
+    const t = setInterval(() => store.refreshMyOrder?.().catch(() => {}), 5000);
     return () => clearInterval(t);
   }, [order?.id]);
-  // Enquanto o Pix/cartão não cai, o servidor consulta a InfinitePay a cada 6s
+
+  // Polling de verificação instantânea enquanto o pagamento estiver pendente
   useEffect(() => {
     if (order?.paymentStatus !== "pendente") return;
-    const t = setInterval(() => store.checkPayment(order.id).catch(() => {}), 6000);
+    const t = setInterval(() => {
+      store.checkPayment(order.id).then((res) => {
+        if (res?.paid) {
+          store.refreshMyOrder?.().catch(() => {});
+        }
+      }).catch(() => {});
+    }, 3500);
     return () => clearInterval(t);
   }, [order?.id, order?.paymentStatus]);
+
+  // Carrega dados dinâmicos do Pix caso necessário
+  useEffect(() => {
+    if (!order) return;
+    if (order.pixCode) {
+      setPixInfo({ pixCode: order.pixCode, amount: order.total, pixKey: order.pixKey, url: order.payUrl });
+      return;
+    }
+    const t = encodeURIComponent(order.trackToken || localStorage.getItem("sarro_my_token") || "");
+    api(`/api/orders/${order.id}/pix?t=${t}`)
+      .then((data) => setPixInfo(data))
+      .catch(() => {});
+  }, [order?.id, order?.pixCode]);
+
+  // Transição de status de pagamento: pendente -> pago
+  useEffect(() => {
+    if (prevPaymentStatus.current === "pendente" && order?.paymentStatus === "pago") {
+      playSuccessChime();
+      store.triggerConfetti?.();
+      setJustApproved(true);
+      store.toast("✅ Pagamento Aprovado com Sucesso!");
+    }
+    prevPaymentStatus.current = order?.paymentStatus;
+  }, [order?.paymentStatus]);
+
+  // Contagem regressiva dinâmica de 15 minutos (900s)
+  const [secondsLeft, setSecondsLeft] = useState(() => {
+    if (!order?.createdAt) return 900;
+    const elapsedSec = Math.floor((Date.now() - order.createdAt) / 1000);
+    return Math.max(0, 900 - elapsedSec);
+  });
+
+  useEffect(() => {
+    if (order?.paymentStatus !== "pendente") return;
+    const interval = setInterval(() => {
+      const elapsedSec = Math.floor((Date.now() - (order?.createdAt || Date.now())) / 1000);
+      setSecondsLeft(Math.max(0, 900 - elapsedSec));
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [order?.createdAt, order?.paymentStatus]);
 
   if (!order) {
     return (
@@ -1542,6 +1638,42 @@ function TrackScreen({ order, store, now }) {
   const done = order.status === "ENTREGUE";
   const driver = store.drivers.find((d) => d.id === order.driverId);
 
+  const isPixOrder = order.payment === "PIX" || (typeof order.payment === "string" && order.payment.toUpperCase().includes("PIX"));
+  const currentPixCode = order.pixCode || pixInfo?.pixCode;
+  const mins = Math.floor(secondsLeft / 60);
+  const secs = secondsLeft % 60;
+  const timeFormatted = `${String(mins).padStart(2, "0")}:${String(secs).padStart(2, "0")}`;
+
+  const handleCopyPix = () => {
+    if (!currentPixCode) return;
+    if (navigator.clipboard?.writeText) {
+      navigator.clipboard.writeText(currentPixCode).then(
+        () => {
+          setCopied(true);
+          store.toast("✓ Código Pix copiado! Cole no seu banco");
+          beep(880, 0.12);
+          setTimeout(() => setCopied(false), 3500);
+        },
+        () => {
+          setCopied(true);
+          store.toast("Código selecionado abaixo");
+          setShowRaw(true);
+        }
+      );
+    } else {
+      setCopied(true);
+      setShowRaw(true);
+    }
+  };
+
+  const handleSendReceipt = () => {
+    const phone = (store.settings.whatsapp || "81999990000").replace(/\D/g, "");
+    const text = encodeURIComponent(
+      `Olá Tô no Sarro! Fiz o pagamento Pix do pedido #${order.code} no valor de ${brl(order.total)}.\nSegue comprovante!`
+    );
+    window.open(`https://wa.me/55${phone}?text=${text}`, "_blank");
+  };
+
   return (
     <div className="px-4 py-5 pb-6">
       <div
@@ -1557,27 +1689,172 @@ function TrackScreen({ order, store, now }) {
         </div>
       </div>
 
-      {order.paymentStatus === "pendente" && (
+      {/* CARD DO PIX DINÂMICO QUANDO PENDENTE */}
+      {order.paymentStatus === "pendente" && isPixOrder && (
+        <Card className="p-4 mb-4" style={{ borderColor: `${C.orange}88`, background: "linear-gradient(180deg, #181411 0%, #0d0b0a 100%)" }}>
+          {/* Topo do Card Pix */}
+          <div className="flex items-center justify-between pb-3" style={{ borderBottom: `1px solid ${C.gray800}` }}>
+            <div className="flex items-center gap-2">
+              <span className="text-xl">💠</span>
+              <div>
+                <div style={{ color: C.white, fontWeight: 900, fontSize: 14 }}>PIX COPIA E COLA</div>
+                <div style={{ color: "#a0a0a0", fontSize: 11 }}>Pagamento Instantâneo Oficial</div>
+              </div>
+            </div>
+            <div className="text-right">
+              <div style={{ color: C.yellowLight, fontWeight: 900, fontSize: 18 }}>{brl(order.total)}</div>
+              <div
+                className="font-mono text-xs font-bold px-2 py-0.5 rounded-full inline-block mt-0.5"
+                style={{
+                  background: secondsLeft < 120 ? "#ef444422" : "#eab30822",
+                  color: secondsLeft < 120 ? "#ef4444" : "#eab308",
+                  border: `1px solid ${secondsLeft < 120 ? "#ef444444" : "#eab30844"}`,
+                }}
+              >
+                ⏱️ {timeFormatted}
+              </div>
+            </div>
+          </div>
+
+          {/* QR Code centralizado */}
+          <div className="py-4 text-center">
+            <div className="inline-block bg-white p-3.5 rounded-2xl shadow-2xl transition transform hover:scale-105" style={{ border: "3px solid #f58200" }}>
+              <QRCodeImage value={currentPixCode} size={190} />
+            </div>
+            <div style={{ color: "#e2e8f0", fontSize: 12, fontWeight: 700, marginTop: 8 }}>
+              Abra o app do seu banco ➔ Pix ➔ Ler QR Code
+            </div>
+            <div style={{ color: "#7a7a7a", fontSize: 11, marginTop: 2 }}>
+              Chave cadastrada: <strong style={{ color: "#c0c0c0" }}>{pixInfo?.pixKey || order.pixKey || store.settings.pixKey || "tonosarro@gmail.com"}</strong>
+            </div>
+          </div>
+
+          {/* Botão Copia e Cola */}
+          <div className="space-y-2">
+            <button
+              onClick={handleCopyPix}
+              className="w-full py-3 px-4 rounded-xl font-black text-sm flex items-center justify-center gap-2 shadow-lg transition active:scale-95"
+              style={{
+                background: copied ? "#22c55e" : `linear-gradient(135deg, ${C.orange}, ${C.yellow})`,
+                color: "#000",
+              }}
+            >
+              <span>{copied ? "✓" : "📋"}</span>
+              <span>{copied ? "CÓDIGO PIX COPIADO! COLE NO SEU BANCO" : "COPIAR CÓDIGO PIX (COPIA E COLA)"}</span>
+            </button>
+
+            {/* Alternar exibição do código bruto */}
+            <div className="text-center pt-1">
+              <button
+                type="button"
+                onClick={() => setShowRaw(!showRaw)}
+                style={{ color: "#8a8a8a", fontSize: 11, textDecoration: "underline" }}
+              >
+                {showRaw ? "Ocultar código em texto" : "Não conseguiu escanear? Ver código em texto"}
+              </button>
+            </div>
+
+            {showRaw && (
+              <div className="p-2.5 rounded-lg text-left" style={{ background: C.black, border: `1px solid ${C.gray800}` }}>
+                <div style={{ color: "#7a7a7a", fontSize: 10, marginBottom: 4 }}>Código Copia e Cola (toque para selecionar):</div>
+                <textarea
+                  readOnly
+                  value={currentPixCode}
+                  onFocus={(e) => e.target.select()}
+                  rows={3}
+                  className="w-full bg-transparent font-mono text-[11px] outline-none resize-none"
+                  style={{ color: "#cbd5e1" }}
+                />
+              </div>
+            )}
+          </div>
+
+          {/* Status em tempo real */}
+          <div
+            className="mt-3.5 p-2.5 rounded-xl flex items-center justify-between text-xs font-semibold"
+            style={{ background: "#00000080", border: `1px solid ${C.gray800}` }}
+          >
+            <div className="flex items-center gap-2">
+              <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse" />
+              <span style={{ color: "#94a3b8" }}>Aguardando confirmação bancária...</span>
+            </div>
+            <span style={{ color: C.yellowLight, fontSize: 11 }}>Atualiza sozinho</span>
+          </div>
+
+          {/* Opções adicionais: Cartão InfinitePay e WhatsApp */}
+          <div className="mt-3 pt-3 flex flex-col sm:flex-row gap-2" style={{ borderTop: `1px solid ${C.gray850}` }}>
+            {order.payUrl && (
+              <button
+                onClick={() => window.open(order.payUrl, "_blank")}
+                className="flex-1 py-2 px-3 rounded-lg text-xs font-bold flex items-center justify-center gap-1.5"
+                style={{ background: C.gray800, color: C.white, border: `1px solid ${C.gray700}` }}
+              >
+                <span>💳</span>
+                <span>Pagar via InfinitePay</span>
+              </button>
+            )}
+            <button
+              onClick={handleSendReceipt}
+              className="flex-1 py-2 px-3 rounded-lg text-xs font-bold flex items-center justify-center gap-1.5"
+              style={{ background: "#25D36622", color: "#25D366", border: "1px solid #25D36655" }}
+            >
+              <WaIcon size={14} color="#25D366" />
+              <span>Enviar comprovante no WhatsApp</span>
+            </button>
+          </div>
+        </Card>
+      )}
+
+      {/* CARD DE CARTÃO ONLINE QUANDO PENDENTE */}
+      {order.paymentStatus === "pendente" && !isPixOrder && (
         <Card className="p-4 mb-3" style={{ borderColor: `${C.yellow}66`, background: `${C.yellow}12` }}>
           <div style={{ color: C.yellowLight, fontWeight: 900, fontSize: 14 }}>
-            ⏳ Aguardando pagamento {order.payment === "Cartão online" ? "do cartão" : "Pix"}
+            ⏳ Aguardando confirmação do Cartão Online
           </div>
           <div style={{ color: "#c9c9c9", fontSize: 12, marginTop: 4, lineHeight: 1.5 }}>
-            Assim que a InfinitePay confirmar ♾️, seu pedido entra na fila da cozinha automaticamente.
+            Assim que a administradora confirmar ♾️, seu pedido entra na fila da cozinha automaticamente.
           </div>
           {order.payUrl && (
             <div className="mt-3">
               <Btn full onClick={() => window.open(order.payUrl, "_blank")}>
-                PAGAR AGORA · {order.payment === "Cartão online" ? "CARTÃO ♾️" : "PIX ♾️"}
+                PAGAR AGORA · CARTÃO ONLINE ♾️
               </Btn>
             </div>
           )}
         </Card>
       )}
 
+      {/* CARD DE SUCESSO DO PAGAMENTO */}
+      {(order.paymentStatus === "pago" || justApproved) && (
+        <Card
+          className="p-4 mb-4 transition duration-500"
+          style={{
+            background: "linear-gradient(135deg, rgba(34, 197, 94, 0.16) 0%, rgba(16, 185, 129, 0.08) 100%)",
+            borderColor: "#22c55e",
+          }}
+        >
+          <div className="flex items-center gap-3">
+            <div
+              className="flex items-center justify-center rounded-2xl shrink-0"
+              style={{ width: 44, height: 44, background: "#22c55e", color: "#000", fontSize: 22, fontWeight: 900 }}
+            >
+              ✓
+            </div>
+            <div className="flex-1">
+              <div style={{ color: "#22c55e", fontWeight: 900, fontSize: 15 }}>
+                PAGAMENTO CONFIRMADO!
+              </div>
+              <div style={{ color: "#cbd5e1", fontSize: 12, marginTop: 2 }}>
+                Recebemos {brl(order.total)} via {order.payment || "Pix"}. Seu pedido já está na chapa!
+              </div>
+            </div>
+          </div>
+        </Card>
+      )}
+
       <Card className="p-5">
         {TRACK_STEPS.map((s, i) => {
-          const isDone = i <= pos;
+          const isDone = i <= pos || (s.key === "CONFIRMADO" && order.paymentStatus === "pago");
           const isNow = i === pos && !done;
           return (
             <div key={s.key} className="flex gap-3">
@@ -2058,6 +2335,17 @@ function OrderCard({ o, store, now, compact }) {
           {o.payment} · {o.type === "pickup" ? "Retirada" : "Delivery"}
         </span>
       </div>
+
+      {o.paymentStatus === "pendente" && (
+        <button
+          onClick={() => store.confirmPaymentManual(o.id)}
+          className="w-full mt-2.5 py-1.5 px-2 rounded-lg font-bold flex items-center justify-center gap-1.5 transition active:scale-95 text-xs"
+          style={{ background: "#22c55e22", color: "#22c55e", border: "1px solid #22c55e55" }}
+        >
+          ✓ Confirmar Pix / Pagamento
+        </button>
+      )}
+
       {next && o.status !== "ENTREGUE" && (
         <div className="flex gap-2 mt-3">
           <Btn small full onClick={() => store.advance(o.id)}>Avançar → {STATUS[next].label}</Btn>
@@ -3814,19 +4102,27 @@ function Input({ v, w = 220 }) {
 function AdminPaymentsCard({ store }) {
   const [handle, setHandle] = useState(store.settings.payHandle || "");
   const [base, setBase] = useState(store.settings.appBaseUrl || "");
+  const [pixKey, setPixKey] = useState(store.settings.pixKey || "");
   const [info, setInfo] = useState(null);
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
-    api("/api/settings/payments").then(setInfo).catch(() => {});
+    api("/api/settings/payments").then((data) => {
+      setInfo(data);
+      if (data?.pixKey && !pixKey) setPixKey(data.pixKey);
+    }).catch(() => {});
   }, []);
 
   const save = async () => {
     setBusy(true);
     try {
-      await api("/api/settings", { method: "PATCH", body: { pay_handle: handle, app_base_url: base } });
+      await api("/api/settings", {
+        method: "PATCH",
+        body: { pay_handle: handle, app_base_url: base, pix_key: pixKey },
+      });
+      await store.refreshSettings();
       setInfo(await api("/api/settings/payments"));
-      store.toast("InfinitePay configurada ✓");
+      store.toast("Configurações de pagamento salvas ✓");
     } catch (e) {
       store.toast(e.message);
     }
@@ -3845,26 +4141,43 @@ function AdminPaymentsCard({ store }) {
   return (
     <Card className="p-4" style={{ borderColor: `${C.orange}44` }}>
       <div className="flex items-center justify-between">
-        <div style={{ color: C.white, fontWeight: 900, fontSize: 14 }}>♾️ Pagamentos — InfinitePay</div>
+        <div style={{ color: C.white, fontWeight: 900, fontSize: 14 }}>💠 Pix Dinâmico & InfinitePay</div>
         <span
           className="rounded-full px-2.5 py-1 font-bold"
           style={{
             fontSize: 10,
-            background: store.settings.payHandle ? `${C.green}1f` : `${C.yellow}1f`,
-            color: store.settings.payHandle ? C.green : C.yellow,
-            border: `1px solid ${store.settings.payHandle ? C.green : C.yellow}44`,
+            background: (store.settings.pixKey || store.settings.payHandle) ? `${C.green}1f` : `${C.yellow}1f`,
+            color: (store.settings.pixKey || store.settings.payHandle) ? C.green : C.yellow,
+            border: `1px solid ${(store.settings.pixKey || store.settings.payHandle) ? C.green : C.yellow}44`,
           }}
         >
-          {store.settings.payHandle ? "CONFIGURADO" : "FALTA CONFIGURAR"}
+          {(store.settings.pixKey || store.settings.payHandle) ? "ATIVO" : "CONFIGURAR"}
         </span>
       </div>
       <div style={{ color: "#8a8a8a", fontSize: 11.5, marginTop: 6, lineHeight: 1.5 }}>
-        Pix e cartão (até 12x) no checkout seguro da InfinitePay. Confirmação automática por webhook.
+        Gere QR Code Pix com padrão oficial BACEN (Copia e Cola com valor exato) e checkout InfinitePay (Pix e cartão até 12x).
       </div>
 
       <div className="mt-3 space-y-2.5">
         <label className="block">
-          <span style={{ color: "#9a9a9a", fontSize: 11, fontWeight: 700 }}>Sua InfiniteTag (handle, sem o $)</span>
+          <div className="flex items-center justify-between">
+            <span style={{ color: "#9a9a9a", fontSize: 11, fontWeight: 700 }}>Chave Pix Direta da Hamburgueria</span>
+            <span style={{ color: C.yellowLight, fontSize: 10 }}>Padrão Banco Central</span>
+          </div>
+          <input
+            value={pixKey}
+            onChange={(e) => setPixKey(e.target.value)}
+            placeholder="ex.: 81999990000 ou tonosarro@gmail.com ou CNPJ"
+            className="w-full rounded-lg px-2.5 py-2 mt-1 outline-none font-mono"
+            style={inField}
+          />
+          <span style={{ color: "#6a6a6a", fontSize: 10 }}>
+            Usada para gerar o QR Code dinâmico e o código Copia e Cola com o valor exato de cada pedido.
+          </span>
+        </label>
+
+        <label className="block pt-1" style={{ borderTop: `1px solid ${C.gray850}` }}>
+          <span style={{ color: "#9a9a9a", fontSize: 11, fontWeight: 700 }}>InfiniteTag (opcional, sem o $)</span>
           <input
             value={handle}
             onChange={(e) => setHandle(e.target.value)}
@@ -4314,27 +4627,6 @@ function AdminSettings({ store, now }) {
 // ============================================================
 // MESAS / SALÃO — Gestão de comandas presenciais
 // ============================================================
-
-function QRCodeImage({ value, size = 160, className = "" }) {
-  const [src, setSrc] = useState("");
-  useEffect(() => {
-    let alive = true;
-    if (!value) { setSrc(""); return; }
-    QRCode.toDataURL(value, { width: size * 2, margin: 1, color: { dark: "#000000", light: "#ffffff" } })
-      .then((url) => { if (alive) setSrc(url); })
-      .catch(() => {});
-    return () => { alive = false; };
-  }, [value, size]);
-
-  if (!src) {
-    return (
-      <div style={{ width: size, height: size, background: "#fff" }} className={`flex items-center justify-center rounded-lg ${className}`}>
-        <span style={{ color: "#888", fontSize: 11 }}>Carregando QR...</span>
-      </div>
-    );
-  }
-  return <img src={src} alt={value} style={{ width: size, height: size }} className={`rounded-lg ${className}`} />;
-}
 
 function AdminTables({ store, now }) {
   const [filter, setFilter] = useState("TODAS"); // TODAS | LIVRES | OCUPADAS
@@ -5696,6 +5988,27 @@ function ExpeditionApp({ store, now }) {
                     {mod.isMesa ? `🍽️ ${mod.badge} · Consumo no local` : mod.isPickup ? "🏪 Retirada na loja" : `🛵 ${o.customer.addr}`}
                   </div>
 
+                  {o.paymentStatus === "pendente" ? (
+                    <div className="mt-2.5 p-2 rounded-lg flex items-center justify-between" style={{ background: "#eab30818", border: "1px solid #eab30844" }}>
+                      <div className="flex items-center gap-1.5">
+                        <span>⏳</span>
+                        <span style={{ color: "#fef08a", fontSize: 11, fontWeight: 700 }}>Pgto Pendente ({o.payment})</span>
+                      </div>
+                      <button
+                        onClick={() => store.confirmPaymentManual(o.id)}
+                        className="px-2 py-1 rounded-md font-bold text-[11px] text-black transition active:scale-95"
+                        style={{ background: "#22c55e" }}
+                      >
+                        ✓ Confirmar Pgto
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="mt-2 flex items-center gap-1.5" style={{ color: "#22c55e", fontSize: 11, fontWeight: 700 }}>
+                      <span>✓ Pagamento Confirmado</span>
+                      <span style={{ color: "#8a8a8a", fontWeight: 400 }}>({o.payment})</span>
+                    </div>
+                  )}
+
                   <div className="mt-3">
                     <Btn small full variant="dark" onClick={async () => {
                       try {
@@ -6780,6 +7093,25 @@ export default function App() {
       return d;
     },
 
+    triggerConfetti: () => {
+      setConfetti(true);
+      setTimeout(() => setConfetti(false), 3000);
+    },
+
+    confirmPaymentManual: async (orderId) => {
+      try {
+        await api(`/api/orders/${orderId}/confirm-payment`, { method: "POST" });
+        await refreshAll();
+        toast("Pagamento confirmado manualmente ✓");
+      } catch (e) {
+        toast(e.message);
+      }
+    },
+
+    refreshSettings: async () => {
+      await refreshAll();
+    },
+
     validateCoupon: async (code, subtotal) => {
       const d = await api("/api/coupons/validate", { method: "POST", body: { code, subtotal } });
       return d.coupon;
@@ -6804,15 +7136,16 @@ export default function App() {
         beep(1040);
         toast(`Pedido #${order.code} confirmado! 🍔`);
 
-        // Pagamento online (Pix/cartão): abre o checkout seguro da InfinitePay.
-        // A confirmação volta por webhook e o status atualiza sozinho.
+        // Pagamento online (Pix/cartão): gera código Pix ou abre checkout InfinitePay
         if (["PIX", "CARTAO_ONLINE"].includes(payload.payment)) {
           try {
             const pd = await api(`/api/orders/${order.id}/pay?t=${encodeURIComponent(order.trackToken || "")}`, { method: "POST" });
-            if (pd.url) {
-              setOrders((os) => os.map((x) => (x.id === order.id ? { ...x, payUrl: pd.url } : x)));
-              setMyOrder((m) => (m && m.id === order.id ? { ...m, payUrl: pd.url } : m));
-              window.open(pd.url, "_blank");
+            if (pd.url || pd.pixCode) {
+              setOrders((os) => os.map((x) => (x.id === order.id ? { ...x, payUrl: pd.url, pixCode: pd.pixCode } : x)));
+              setMyOrder((m) => (m && m.id === order.id ? { ...m, payUrl: pd.url, pixCode: pd.pixCode } : m));
+              if (pd.url && payload.payment === "CARTAO_ONLINE") {
+                window.open(pd.url, "_blank");
+              }
             }
           } catch (pe) {
             toast(pe.message);
