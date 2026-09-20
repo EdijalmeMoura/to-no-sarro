@@ -119,6 +119,13 @@ console.log("\n1) Cliente na raiz — sem login da equipe");
   window.close();
 }
 
+{
+  const { window, text, errs, pathname } = await render("/paineltv");
+  ok("/paineltv abre o painel de TV sem pedir login", text().includes("PAINEL DE PEDIDOS") && !text().includes("ÁREA DA EQUIPE"));
+  ok("/paineltv sem erro de JS", errs.length === 0, errs[0]);
+  window.close();
+}
+
 console.log("\n2) Painéis por URL — login certo em cada um");
 await novoPainel("/admin", "Admin");
 await novoPainel("/cozinha", "Cozinha");

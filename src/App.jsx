@@ -88,6 +88,123 @@ const brl = (n) =>
 
 const uid = () => Math.random().toString(36).slice(2, 9);
 
+let audioCtx = null;
+function getAudioContext() {
+  if (typeof window === "undefined") return null;
+  if (!audioCtx) {
+    const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+    if (AudioContextClass) audioCtx = new AudioContextClass();
+  }
+  if (audioCtx && audioCtx.state === "suspended") {
+    audioCtx.resume().catch(() => {});
+  }
+  return audioCtx;
+}
+
+function playKitchenChime() {
+  try {
+    const ctx = getAudioContext();
+    if (!ctx) return;
+    const now = ctx.currentTime;
+    const tones = [
+      { freq: 880, start: 0, dur: 0.15 },
+      { freq: 1174, start: 0.18, dur: 0.35 },
+    ];
+    for (const t of tones) {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = "sine";
+      osc.frequency.setValueAtTime(t.freq, now + t.start);
+
+      gain.gain.setValueAtTime(0.001, now + t.start);
+      gain.gain.exponentialRampToValueAtTime(0.35, now + t.start + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + t.start + t.dur);
+
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+
+      osc.start(now + t.start);
+      osc.stop(now + t.start + t.dur + 0.05);
+    }
+  } catch (e) {}
+}
+
+function playReadyChime() {
+  try {
+    const ctx = getAudioContext();
+    if (!ctx) return;
+    const now = ctx.currentTime;
+    const tones = [
+      { freq: 987.77, start: 0, dur: 0.3 },
+      { freq: 659.25, start: 0.28, dur: 0.5 },
+    ];
+    for (const t of tones) {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = "triangle";
+      osc.frequency.setValueAtTime(t.freq, now + t.start);
+
+      gain.gain.setValueAtTime(0.001, now + t.start);
+      gain.gain.exponentialRampToValueAtTime(0.4, now + t.start + 0.03);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + t.start + t.dur);
+
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+
+      osc.start(now + t.start);
+      osc.stop(now + t.start + t.dur + 0.05);
+    }
+  } catch (e) {}
+}
+
+function getOrderModality(o) {
+  if (!o) return { id: "delivery", label: "DELIVERY", badge: "DELIVERY", color: "#f58200", bg: "#ea580c22", border: "#f58200", icon: "🛵", isMesa: false, isPickup: false, instruction: "EMBALAGEM DE VIAGEM" };
+  const isMesa = o.type === "dine_in" || o.type === "mesa" || /^Mesa \d+/i.test(o.customer?.addr || "") || /^Mesa \d+/i.test(o.customer?.name || "");
+  if (isMesa) {
+    const match = (o.customer?.addr || o.customer?.name || "").match(/Mesa \d+/i);
+    const mesaTag = match ? match[0].toUpperCase() : "SALÃO";
+    return {
+      id: "mesa",
+      label: `SALÃO · ${mesaTag}`,
+      badge: mesaTag,
+      color: "#10b981",
+      bg: "#064e3b33",
+      border: "#10b981",
+      icon: "🍽️",
+      isMesa: true,
+      isPickup: false,
+      instruction: "SERVIÇO NO SALÃO (NÃO EMBALAR)",
+    };
+  }
+  const isPickup = o.type === "pickup" || /Retirada/i.test(o.customer?.addr || "");
+  if (isPickup) {
+    return {
+      id: "pickup",
+      label: "BALCÃO · RETIRADA",
+      badge: "BALCÃO",
+      color: "#3b82f6",
+      bg: "#1d4ed833",
+      border: "#3b82f6",
+      icon: "🏪",
+      isMesa: false,
+      isPickup: true,
+      instruction: "RETIRADA NO BALCÃO",
+    };
+  }
+  return {
+    id: "delivery",
+    label: "DELIVERY",
+    badge: "DELIVERY",
+    color: "#f58200",
+    bg: "#ea580c22",
+    border: "#f58200",
+    icon: "🛵",
+    isMesa: false,
+    isPickup: false,
+    instruction: "EMBALAGEM DE VIAGEM",
+  };
+}
+
 
 // Fotos dos produtos (servidas de /public/img). A foto do produto usa o id
 // (ex.: p1.jpg). Enquanto uma foto não existir, o SmartImg cai para o emoji.
@@ -5193,22 +5310,43 @@ function AdminApp({ store, now }) {
 // ============================================================
 
 function KitchenApp({ store, now }) {
+  const [filterMod, setFilterMod] = useState("TODOS"); // TODOS | delivery | mesa | pickup
+  const [soundOn, setSoundOn] = useState(() => localStorage.getItem("sarro_sound_kitchen") !== "0");
   const [autoPrint, setAutoPrint] = useState(() => localStorage.getItem("sarro_autoprint") === "1");
+  const lastQueueSig = useRef("");
+
   const toggleAutoPrint = () => {
     const v = autoPrint ? "0" : "1";
     localStorage.setItem("sarro_autoprint", v);
     setAutoPrint(!autoPrint);
     store.toast(v === "1" ? "Impressão automática ligada 🖨" : "Impressão automática desligada");
   };
+
   const queue = store.orders
     .filter((o) => ["NOVO", "CONFIRMADO", "PREPARO"].includes(o.status))
     .sort((a, b) => a.createdAt - b.createdAt);
+
+  // Alerta sonoro automático de novo pedido ou nova rodada de itens
+  useEffect(() => {
+    const sig = queue.map((o) => `${o.id}:${o.status}:${o.items.length}`).join("|");
+    if (lastQueueSig.current && lastQueueSig.current !== sig) {
+      if (soundOn && sig.length > lastQueueSig.current.length) {
+        playKitchenChime();
+      }
+    }
+    lastQueueSig.current = sig;
+  }, [queue, soundOn]);
+
+  const filteredQueue = queue.filter((o) => {
+    if (filterMod === "TODOS") return true;
+    return getOrderModality(o).id === filterMod;
+  });
 
   const mins = (o) => (now - o.createdAt) / 60000;
 
   return (
     <div style={{ background: C.black, minHeight: "100%" }} className="p-4 md:p-6">
-      <div className="flex items-center justify-between mb-5">
+      <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
         <div className="flex items-center gap-3">
           <Logo size={40} withText={false} />
           <div>
@@ -5219,6 +5357,36 @@ function KitchenApp({ store, now }) {
           </div>
         </div>
         <div className="flex items-center gap-2">
+          {/* Botão de som */}
+          <button
+            onClick={() => {
+              const next = !soundOn;
+              setSoundOn(next);
+              localStorage.setItem("sarro_sound_kitchen", next ? "1" : "0");
+              if (next) playKitchenChime();
+              store.toast(next ? "🔔 Som da cozinha ATIVADO!" : "🔕 Som da cozinha MUTADO");
+            }}
+            className="rounded-lg px-2.5 py-1.5 font-bold transition active:scale-95 flex items-center gap-1.5"
+            style={{
+              background: soundOn ? "#16653433" : C.gray850,
+              border: `1px solid ${soundOn ? C.green : C.gray800}`,
+              color: soundOn ? C.green : "#8a8a8a",
+              fontSize: 11,
+              whiteSpace: "nowrap",
+            }}
+          >
+            <span>{soundOn ? "🔔" : "🔕"}</span>
+            <span>Som {soundOn ? "ON" : "OFF"}</span>
+          </button>
+          <button
+            onClick={() => { playKitchenChime(); store.toast("🔊 Bip de teste emitido!"); }}
+            className="rounded-lg px-2 py-1.5 font-bold text-xs text-gray-400 hover:text-white transition"
+            style={{ background: C.gray850, border: `1px solid ${C.gray800}` }}
+            title="Testar volume do bip"
+          >
+            Bip
+          </button>
+
           <button
             onClick={toggleAutoPrint}
             className="rounded-lg px-2.5 py-1.5 font-bold"
@@ -5231,7 +5399,7 @@ function KitchenApp({ store, now }) {
             🖨 Auto-print {autoPrint ? "ON" : "OFF"}
           </button>
           <SyncBadge store={store} now={now} />
-          <span style={{ color: "#7a7a7a", fontSize: 11.5 }}>Prontos hoje</span>
+          <span style={{ color: "#7a7a7a", fontSize: 11.5 }}>Prontos</span>
           <span style={{ color: C.green, fontWeight: 900, fontSize: 20 }}>
             {store.orders.filter((o) => ["PRONTO", "EMBALADO", "AGUARDANDO", "ROTA", "ENTREGUE"].includes(o.status)).length}
           </span>
@@ -5247,80 +5415,130 @@ function KitchenApp({ store, now }) {
         </div>
       </div>
 
-      {queue.length === 0 && (
+      {/* FILTROS POR MODALIDADE */}
+      <div className="flex flex-wrap gap-2 mb-4">
+        {[
+          { id: "TODOS", label: `Todos (${queue.length})` },
+          { id: "delivery", label: `🛵 Delivery (${queue.filter((o) => getOrderModality(o).id === "delivery").length})` },
+          { id: "mesa", label: `🍽️ Salão (${queue.filter((o) => getOrderModality(o).id === "mesa").length})` },
+          { id: "pickup", label: `🏪 Balcão (${queue.filter((o) => getOrderModality(o).id === "pickup").length})` },
+        ].map((tab) => (
+          <button
+            key={tab.id}
+            onClick={() => setFilterMod(tab.id)}
+            className="rounded-lg px-3 py-1.5 font-bold text-xs transition"
+            style={{
+              background: filterMod === tab.id ? C.orange : C.gray850,
+              color: filterMod === tab.id ? C.black : "#8a8a8a",
+              border: `1px solid ${filterMod === tab.id ? C.orange : C.gray800}`,
+            }}
+          >
+            {tab.label}
+          </button>
+        ))}
+      </div>
+
+      {filteredQueue.length === 0 && (
         <Card className="p-10 text-center">
           <div style={{ fontSize: 44 }}>🔥</div>
           <div style={{ color: C.white, fontWeight: 900, fontSize: 18, marginTop: 10 }}>Chapa livre</div>
-          <div style={{ color: "#8a8a8a", fontSize: 13, marginTop: 4 }}>Nenhum pedido esperando. Bom momento para repor a mise en place.</div>
+          <div style={{ color: "#8a8a8a", fontSize: 13, marginTop: 4 }}>
+            {filterMod === "TODOS" ? "Nenhum pedido esperando na cozinha." : `Nenhum pedido nesta modalidade (${filterMod}).`}
+          </div>
         </Card>
       )}
 
       <div className="grid sm:grid-cols-2 xl:grid-cols-3 gap-4">
-        {queue.map((o) => {
+        {filteredQueue.map((o) => {
+          const mod = getOrderModality(o);
           const late = mins(o) > 20;
           const warn = mins(o) > 12;
-          const border = late ? C.red : warn ? C.yellow : C.gray800;
+          const border = late ? C.red : warn ? C.yellow : mod.color;
           return (
             <div
               key={o.id}
-              className="rounded-2xl overflow-hidden"
-              style={{ background: C.gray850, border: `2px solid ${border}`, animation: o.status === "NOVO" ? "sarropulse 1.8s ease-in-out infinite" : "none" }}
+              className="rounded-2xl overflow-hidden flex flex-col justify-between"
+              style={{
+                background: C.gray850,
+                border: `2px solid ${border}`,
+                boxShadow: `0 4px 20px ${mod.color}15`,
+                animation: o.status === "NOVO" ? "sarropulse 1.8s ease-in-out infinite" : "none",
+              }}
             >
-              <div className="flex items-center justify-between px-4 py-3" style={{ background: late ? `${C.red}1f` : C.gray800 }}>
-                <div className="flex items-center gap-2">
-                  <span style={{ color: C.white, fontFamily: font.display, fontStyle: "italic", fontSize: 22 }}>#{o.code}</span>
-                  <ChannelPill channel={o.channel} />
-                  {o.paymentStatus === "pendente" && (
-                    <span
-                      className="rounded-md px-1.5 py-0.5 font-bold"
-                      style={{ background: `${C.yellow}1f`, color: C.yellow, fontSize: 9.5, border: `1px solid ${C.yellow}44` }}
-                    >
-                      ⏳ PGTO PENDENTE
-                    </span>
-                  )}
-                  {late && <Badge color={C.red} text={C.white}>ATRASADO</Badge>}
+              <div>
+                {/* HEADER DE MODALIDADE COM ALTA VISIBILIDADE */}
+                <div
+                  className="px-3.5 py-2 flex items-center justify-between font-black text-xs"
+                  style={{ background: mod.bg, borderBottom: `2px solid ${mod.border}66` }}
+                >
+                  <div className="flex items-center gap-1.5" style={{ color: mod.color }}>
+                    <span className="text-base">{mod.icon}</span>
+                    <span style={{ fontSize: 13, letterSpacing: 0.5 }}>{mod.label}</span>
+                  </div>
+                  <span
+                    className="rounded-md px-2 py-0.5 text-[10px] font-black uppercase tracking-wider"
+                    style={{ background: `${mod.border}33`, color: mod.color, border: `1px solid ${mod.border}66` }}
+                  >
+                    {mod.instruction}
+                  </span>
                 </div>
-                <span style={{ color: late ? C.red : C.yellowLight, fontWeight: 900, fontSize: 20, fontVariantNumeric: "tabular-nums" }}>
-                  {elapsed(o.createdAt, now)}
-                </span>
+
+                <div className="flex items-center justify-between px-4 py-3" style={{ background: late ? `${C.red}1f` : C.gray800 }}>
+                  <div className="flex items-center gap-2">
+                    <span style={{ color: C.white, fontFamily: font.display, fontStyle: "italic", fontSize: 22 }}>#{o.code}</span>
+                    <ChannelPill channel={o.channel} />
+                    {o.paymentStatus === "pendente" && (
+                      <span
+                        className="rounded-md px-1.5 py-0.5 font-bold"
+                        style={{ background: `${C.yellow}1f`, color: C.yellow, fontSize: 9.5, border: `1px solid ${C.yellow}44` }}
+                      >
+                        ⏳ PGTO PENDENTE
+                      </span>
+                    )}
+                    {late && <Badge color={C.red} text={C.white}>ATRASADO</Badge>}
+                  </div>
+                  <span style={{ color: late ? C.red : C.yellowLight, fontWeight: 900, fontSize: 20, fontVariantNumeric: "tabular-nums" }}>
+                    {elapsed(o.createdAt, now)}
+                  </span>
+                </div>
+
+                <div className="p-4">
+                  {o.items.map((i) => (
+                    <div key={i.id} className="mb-3">
+                      <div style={{ color: C.white, fontWeight: 900, fontSize: 18 }}>
+                        {i.qty}x {i.name}
+                      </div>
+                      {i.opts.map((op) => (
+                        <div key={op.id + op.name} style={{ color: C.yellowLight, fontSize: 13, marginLeft: 4 }}>+ {op.name}</div>
+                      ))}
+                      {i.note && (
+                        <div className="rounded-lg px-2.5 py-1.5 mt-1.5" style={{ background: `${C.yellow}1c`, color: C.yellow, fontSize: 13, fontWeight: 700 }}>
+                          📝 {i.note}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+
+                  <div style={{ color: "#aaa", fontSize: 12, marginTop: 10, fontWeight: 700 }}>
+                    {o.customer.name} · {mod.isMesa ? `🍽️ ${mod.badge}` : mod.isPickup ? "🏪 Retirada no balcão" : `🛵 ${o.customer.addr}`}
+                  </div>
+                </div>
               </div>
 
-              <div className="p-4">
-                {o.items.map((i) => (
-                  <div key={i.id} className="mb-3">
-                    <div style={{ color: C.white, fontWeight: 900, fontSize: 18 }}>
-                      {i.qty}x {i.name}
-                    </div>
-                    {i.opts.map((op) => (
-                      <div key={op.id + op.name} style={{ color: C.yellowLight, fontSize: 13, marginLeft: 4 }}>+ {op.name}</div>
-                    ))}
-                    {i.note && (
-                      <div className="rounded-lg px-2.5 py-1.5 mt-1.5" style={{ background: `${C.yellow}1c`, color: C.yellow, fontSize: 13, fontWeight: 700 }}>
-                        📝 {i.note}
-                      </div>
-                    )}
-                  </div>
-                ))}
-
-                <div style={{ color: "#7a7a7a", fontSize: 11.5, marginTop: 10 }}>
-                  {o.customer.name} · {o.type === "pickup" ? "🏪 retirada" : "🛵 delivery"}
-                </div>
-
-                <div className="mt-3 space-y-2">
-                  <Btn small full variant="dark" onClick={async () => {
-                    try {
-                      await api(`/api/print/kitchen/${o.id}`, { method: "POST" });
-                      store.toast("Comanda enviada à impressora ✓");
-                    } catch {
-                      printKitchen(o); // sem impressora: diálogo do navegador
-                    }
-                  }}>🖨 IMPRIMIR COMANDA</Btn>
-                  {o.status !== "PREPARO" ? (
-                    <Btn full onClick={() => store.setStatus(o.id, "PREPARO")}>INICIAR PREPARO</Btn>
-                  ) : (
-                    <Btn full variant="green" onClick={() => store.setStatus(o.id, "PRONTO")}>PEDIDO PRONTO</Btn>
-                  )}
-                </div>
+              <div className="p-4 pt-0 space-y-2">
+                <Btn small full variant="dark" onClick={async () => {
+                  try {
+                    await api(`/api/print/kitchen/${o.id}`, { method: "POST" });
+                    store.toast("Comanda enviada à impressora ✓");
+                  } catch {
+                    printKitchen(o);
+                  }
+                }}>🖨 IMPRIMIR COMANDA</Btn>
+                {o.status !== "PREPARO" ? (
+                  <Btn full onClick={() => store.setStatus(o.id, "PREPARO")}>INICIAR PREPARO</Btn>
+                ) : (
+                  <Btn full variant="green" onClick={() => store.setStatus(o.id, "PRONTO")}>PEDIDO PRONTO</Btn>
+                )}
               </div>
             </div>
           );
@@ -5335,12 +5553,29 @@ function KitchenApp({ store, now }) {
 // ============================================================
 
 function ExpeditionApp({ store, now }) {
+  const [filterMod, setFilterMod] = useState("TODOS");
+  const [soundOn, setSoundOn] = useState(() => localStorage.getItem("sarro_sound_expedition") !== "0");
+  const lastReadyCount = useRef(0);
+
   const ready = store.orders.filter((o) => ["PRONTO", "EMBALADO", "AGUARDANDO"].includes(o.status));
   const rota = store.orders.filter((o) => o.status === "ROTA");
 
+  // Alerta sonoro quando um pedido sai pronto da cozinha para a expedição
+  useEffect(() => {
+    if (lastReadyCount.current > 0 && ready.length > lastReadyCount.current) {
+      if (soundOn) playReadyChime();
+    }
+    lastReadyCount.current = ready.length;
+  }, [ready.length, soundOn]);
+
+  const filteredReady = ready.filter((o) => {
+    if (filterMod === "TODOS") return true;
+    return getOrderModality(o).id === filterMod;
+  });
+
   return (
     <div style={{ background: C.black, minHeight: "100%" }} className="p-4 md:p-6">
-      <div className="flex items-center justify-between gap-3 mb-5">
+      <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
         <div className="flex items-center gap-3">
           <Logo size={40} withText={false} />
           <div>
@@ -5351,6 +5586,38 @@ function ExpeditionApp({ store, now }) {
           </div>
         </div>
         <div className="flex items-center gap-2">
+          {/* Som da expedição */}
+          <button
+            onClick={() => {
+              const next = !soundOn;
+              setSoundOn(next);
+              localStorage.setItem("sarro_sound_expedition", next ? "1" : "0");
+              if (next) playReadyChime();
+              store.toast(next ? "🔔 Alerta sonoro da expedição ATIVADO!" : "🔕 Som da expedição MUTADO");
+            }}
+            className="rounded-lg px-2.5 py-1.5 font-bold transition active:scale-95 flex items-center gap-1.5"
+            style={{
+              background: soundOn ? "#16653433" : C.gray850,
+              border: `1px solid ${soundOn ? C.green : C.gray800}`,
+              color: soundOn ? C.green : "#8a8a8a",
+              fontSize: 11,
+              whiteSpace: "nowrap",
+            }}
+          >
+            <span>{soundOn ? "🔔" : "🔕"}</span>
+            <span>Som {soundOn ? "ON" : "OFF"}</span>
+          </button>
+
+          {/* Botão para abrir Painel TV */}
+          <button
+            onClick={() => window.open("/paineltv", "_blank")}
+            className="rounded-lg px-2.5 py-1.5 font-bold text-xs flex items-center gap-1.5 text-white active:scale-95"
+            style={{ background: C.gray800, border: `1px solid ${C.gray700}` }}
+          >
+            <span>📺</span>
+            <span>Abrir Painel TV</span>
+          </button>
+
           <SyncBadge store={store} now={now} />
           {store.me && (
             <button
@@ -5364,61 +5631,116 @@ function ExpeditionApp({ store, now }) {
         </div>
       </div>
 
+      {/* FILTROS POR MODALIDADE */}
+      <div className="flex flex-wrap gap-2 mb-4">
+        {[
+          { id: "TODOS", label: `Todos (${ready.length})` },
+          { id: "delivery", label: `🛵 Delivery (${ready.filter((o) => getOrderModality(o).id === "delivery").length})` },
+          { id: "mesa", label: `🍽️ Salão (${ready.filter((o) => getOrderModality(o).id === "mesa").length})` },
+          { id: "pickup", label: `🏪 Balcão (${ready.filter((o) => getOrderModality(o).id === "pickup").length})` },
+        ].map((tab) => (
+          <button
+            key={tab.id}
+            onClick={() => setFilterMod(tab.id)}
+            className="rounded-lg px-3 py-1.5 font-bold text-xs transition"
+            style={{
+              background: filterMod === tab.id ? C.orange : C.gray850,
+              color: filterMod === tab.id ? C.black : "#8a8a8a",
+              border: `1px solid ${filterMod === tab.id ? C.orange : C.gray800}`,
+            }}
+          >
+            {tab.label}
+          </button>
+        ))}
+      </div>
+
       <div className="grid lg:grid-cols-3 gap-4">
         <div className="lg:col-span-2 space-y-3">
-          <div style={{ color: C.white, fontWeight: 900, fontSize: 14 }}>Pedidos prontos</div>
-          {ready.length === 0 && (
-            <Card className="p-6 text-center"><span style={{ color: "#8a8a8a", fontSize: 13 }}>Nada pronto no balcão agora.</span></Card>
+          <div style={{ color: C.white, fontWeight: 900, fontSize: 14 }}>Pedidos prontos ({filteredReady.length})</div>
+          {filteredReady.length === 0 && (
+            <Card className="p-6 text-center">
+              <span style={{ color: "#8a8a8a", fontSize: 13 }}>
+                {filterMod === "TODOS" ? "Nada pronto no balcão agora." : `Nenhum pedido pronto em ${filterMod}.`}
+              </span>
+            </Card>
           )}
-          {ready.map((o) => (
-            <Card key={o.id} className="p-4">
-              <div className="flex items-center justify-between mb-2">
-                <div className="flex items-center gap-2">
-                  <span style={{ color: C.white, fontWeight: 900, fontSize: 17 }}>#{o.code}</span>
-                  <ChannelPill channel={o.channel} />
-                  <StatusPill status={o.status} small />
+          {filteredReady.map((o) => {
+            const mod = getOrderModality(o);
+            return (
+              <Card key={o.id} className="p-0 overflow-hidden" style={{ border: `2px solid ${mod.border}66` }}>
+                {/* Banner de Modalidade */}
+                <div
+                  className="px-3.5 py-1.5 flex items-center justify-between font-black text-xs"
+                  style={{ background: mod.bg, borderBottom: `1px solid ${mod.border}44` }}
+                >
+                  <div className="flex items-center gap-1.5" style={{ color: mod.color }}>
+                    <span>{mod.icon}</span>
+                    <span>{mod.label}</span>
+                  </div>
+                  <span className="text-[10px] font-extrabold uppercase" style={{ color: mod.color }}>
+                    {mod.instruction}
+                  </span>
                 </div>
-                <span style={{ color: "#7a7a7a", fontSize: 11 }}>pronto há {elapsed(o.createdAt, now)}</span>
-              </div>
-              <div style={{ color: "#c9c9c9", fontSize: 13, fontWeight: 700 }}>{o.customer.name}</div>
-              <div style={{ color: "#7a7a7a", fontSize: 11.5 }}>
-                {o.type === "pickup" ? "🏪 Retirada na loja" : `🛵 ${o.customer.addr}`}
-              </div>
 
-              <div className="mt-3">
-                <Btn small full variant="dark" onClick={async () => {
-                  try {
-                    await api(`/api/print/expedition/${o.id}`, { method: "POST" });
-                    store.toast("Comanda enviada à impressora ✓");
-                  } catch {
-                    printExpedition(o);
-                  }
-                }}>🖨 IMPRIMIR EXPEDIÇÃO</Btn>
-              </div>
-              {o.type === "pickup" ? (
-                <div className="mt-2">
-                  <Btn full variant="green" onClick={() => store.setStatus(o.id, "ENTREGUE")}>CLIENTE RETIROU</Btn>
-                </div>
-              ) : (
-                <div className="mt-3">
-                  {o.status === "PRONTO" && <Btn full onClick={() => store.setStatus(o.id, "EMBALADO")}>EMBALAR PEDIDO</Btn>}
-                  {o.status === "EMBALADO" && <Btn full onClick={() => store.setStatus(o.id, "AGUARDANDO")}>CHAMAR ENTREGADOR</Btn>}
-                  {o.status === "AGUARDANDO" && (
-                    <div>
-                      <div style={{ color: "#8a8a8a", fontSize: 11.5, marginBottom: 7 }}>Atribuir entregador</div>
-                      <div className="flex flex-wrap gap-2">
-                        {store.drivers.map((d) => (
-                          <Btn key={d.id} small variant="dark" onClick={() => store.assignDriver(o.id, d.id)}>
-                            🛵 {d.name.split(" ")[0]}
-                          </Btn>
-                        ))}
-                      </div>
+                <div className="p-4">
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="flex items-center gap-2">
+                      <span style={{ color: C.white, fontWeight: 900, fontSize: 18 }}>#{o.code}</span>
+                      <ChannelPill channel={o.channel} />
+                      <StatusPill status={o.status} small />
+                    </div>
+                    <span style={{ color: "#7a7a7a", fontSize: 11 }}>pronto há {elapsed(o.createdAt, now)}</span>
+                  </div>
+                  <div style={{ color: "#c9c9c9", fontSize: 13, fontWeight: 700 }}>{o.customer.name}</div>
+                  <div style={{ color: "#7a7a7a", fontSize: 11.5 }}>
+                    {mod.isMesa ? `🍽️ ${mod.badge} · Consumo no local` : mod.isPickup ? "🏪 Retirada na loja" : `🛵 ${o.customer.addr}`}
+                  </div>
+
+                  <div className="mt-3">
+                    <Btn small full variant="dark" onClick={async () => {
+                      try {
+                        await api(`/api/print/expedition/${o.id}`, { method: "POST" });
+                        store.toast("Comanda enviada à impressora ✓");
+                      } catch {
+                        printExpedition(o);
+                      }
+                    }}>🖨 IMPRIMIR EXPEDIÇÃO</Btn>
+                  </div>
+
+                  {mod.isMesa ? (
+                    <div className="mt-2">
+                      <Btn full variant="green" onClick={() => store.setStatus(o.id, "ENTREGUE")}>
+                        🍽️ LEVAR À {mod.badge} & CONCLUIR
+                      </Btn>
+                    </div>
+                  ) : mod.isPickup ? (
+                    <div className="mt-2">
+                      <Btn full variant="green" onClick={() => store.setStatus(o.id, "ENTREGUE")}>
+                        🏪 CLIENTE RETIROU NO BALCÃO
+                      </Btn>
+                    </div>
+                  ) : (
+                    <div className="mt-3">
+                      {o.status === "PRONTO" && <Btn full onClick={() => store.setStatus(o.id, "EMBALADO")}>EMBALAR PEDIDO</Btn>}
+                      {o.status === "EMBALADO" && <Btn full onClick={() => store.setStatus(o.id, "AGUARDANDO")}>CHAMAR ENTREGADOR</Btn>}
+                      {o.status === "AGUARDANDO" && (
+                        <div>
+                          <div style={{ color: "#8a8a8a", fontSize: 11.5, marginBottom: 7 }}>Atribuir entregador</div>
+                          <div className="flex flex-wrap gap-2">
+                            {store.drivers.map((d) => (
+                              <Btn key={d.id} small variant="dark" onClick={() => store.assignDriver(o.id, d.id)}>
+                                🛵 {d.name.split(" ")[0]}
+                              </Btn>
+                            ))}
+                          </div>
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>
-              )}
-            </Card>
-          ))}
+              </Card>
+            );
+          })}
         </div>
 
         <div className="space-y-3">
@@ -5438,6 +5760,179 @@ function ExpeditionApp({ store, now }) {
               </Card>
             );
           })}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ============================================================
+// PAINEL TV — CHAMADOR DE SENHAS & STATUS DO SALÃO
+// ============================================================
+
+function TVPanelApp({ store, now }) {
+  const [fullscreen, setFullscreen] = useState(false);
+  const [soundOn, setSoundOn] = useState(() => localStorage.getItem("sarro_sound_tv") !== "0");
+  const lastReadyRef = useRef("");
+
+  const inPrep = store.orders.filter((o) => ["NOVO", "CONFIRMADO", "PREPARO"].includes(o.status));
+  const isReady = store.orders.filter((o) => ["PRONTO", "EMBALADO", "AGUARDANDO"].includes(o.status));
+
+  useEffect(() => {
+    const readyCodes = isReady.map((o) => o.code).join(",");
+    if (lastReadyRef.current && lastReadyRef.current !== readyCodes) {
+      if (soundOn && isReady.length > 0) {
+        playReadyChime();
+      }
+    }
+    lastReadyRef.current = readyCodes;
+  }, [isReady, soundOn]);
+
+  const toggleFs = () => {
+    if (!document.fullscreenElement) {
+      document.documentElement.requestFullscreen?.().then(() => setFullscreen(true)).catch(() => {});
+    } else {
+      document.exitFullscreen?.().then(() => setFullscreen(false)).catch(() => {});
+    }
+  };
+
+  return (
+    <div style={{ background: "#050505", minHeight: "100vh", color: C.white }} className="p-4 md:p-6 flex flex-col select-none">
+      {/* Top Header */}
+      <div className="flex items-center justify-between border-b border-gray-800 pb-4 mb-4">
+        <div className="flex items-center gap-3">
+          <Logo size={44} withText={false} />
+          <div>
+            <div style={{ fontFamily: font.display, fontStyle: "italic", fontSize: 26, color: C.orange, letterSpacing: "-0.02em" }}>
+              TÔ NO SARRO!
+            </div>
+            <div style={{ color: "#8a8a8a", fontSize: 11, fontWeight: 800, textTransform: "uppercase", letterSpacing: 1 }}>
+              PAINEL DE PEDIDOS & SENHAS
+            </div>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-3">
+          <div style={{ fontFamily: font.display, fontSize: 30, color: C.yellowLight, fontVariantNumeric: "tabular-nums" }}>
+            {new Date(now).toLocaleTimeString("pt-BR")}
+          </div>
+
+          <button
+            onClick={() => {
+              const next = !soundOn;
+              setSoundOn(next);
+              localStorage.setItem("sarro_sound_tv", next ? "1" : "0");
+              if (next) playReadyChime();
+            }}
+            className="rounded-xl px-3 py-1.5 font-bold text-xs flex items-center gap-1.5 transition active:scale-95"
+            style={{
+              background: soundOn ? "#16653444" : C.gray850,
+              border: `1px solid ${soundOn ? C.green : C.gray800}`,
+              color: soundOn ? C.green : "#888",
+            }}
+          >
+            <span>{soundOn ? "🔔 Som TV Ativo" : "🔕 Mudo"}</span>
+          </button>
+
+          <button
+            onClick={toggleFs}
+            className="rounded-xl px-3 py-1.5 font-bold text-xs transition active:scale-95"
+            style={{ background: C.gray800, border: `1px solid ${C.gray700}`, color: C.white }}
+          >
+            {fullscreen ? "⤢ Sair da Tela Cheia" : "⤢ Tela Cheia"}
+          </button>
+        </div>
+      </div>
+
+      {/* Grid com 2 colunas gigantes de TV */}
+      <div className="grid md:grid-cols-2 gap-5 flex-1">
+        {/* Coluna 1: EM PREPARO */}
+        <div className="rounded-2xl p-4 md:p-5 flex flex-col" style={{ background: "#0d0d0d", border: `2px solid ${C.yellow}44` }}>
+          <div className="flex items-center justify-between border-b border-gray-800 pb-3 mb-4">
+            <div className="flex items-center gap-2">
+              <span className="text-2xl">🔥</span>
+              <span style={{ fontFamily: font.display, fontStyle: "italic", fontSize: 24, color: C.yellowLight }}>
+                EM PREPARO ({inPrep.length})
+              </span>
+            </div>
+            <span style={{ color: "#777", fontSize: 12, fontWeight: 700 }}>Na chapa</span>
+          </div>
+
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 overflow-y-auto max-h-[72vh] pr-1">
+            {inPrep.length === 0 && (
+              <div className="col-span-full py-16 text-center text-gray-500 font-bold">
+                Nenhum pedido na fila no momento.
+              </div>
+            )}
+            {inPrep.map((o) => {
+              const mod = getOrderModality(o);
+              return (
+                <div
+                  key={o.id}
+                  className="rounded-xl p-3 text-center border transition"
+                  style={{ background: C.gray850, borderColor: `${C.yellow}33` }}
+                >
+                  <div style={{ color: C.yellowLight, fontFamily: font.display, fontStyle: "italic", fontSize: 30 }}>
+                    #{o.code}
+                  </div>
+                  <div className="truncate font-bold text-white text-xs mt-1">
+                    {o.customer?.name?.split(" ")[0] || "Cliente"}
+                  </div>
+                  <div
+                    className="rounded-md px-2 py-0.5 font-black text-[10px] mt-1.5 inline-block"
+                    style={{ background: mod.bg, color: mod.color, border: `1px solid ${mod.border}44` }}
+                  >
+                    {mod.icon} {mod.badge}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Coluna 2: PRONTOS */}
+        <div className="rounded-2xl p-4 md:p-5 flex flex-col" style={{ background: "#0d0d0d", border: `2px solid ${C.green}` }}>
+          <div className="flex items-center justify-between border-b border-gray-800 pb-3 mb-4">
+            <div className="flex items-center gap-2">
+              <span className="text-2xl">✅</span>
+              <span style={{ fontFamily: font.display, fontStyle: "italic", fontSize: 24, color: C.green }}>
+                PRONTOS PARA RETIRADA ({isReady.length})
+              </span>
+            </div>
+            <span style={{ color: C.green, fontSize: 12, fontWeight: 800 }}>Retire no balcão</span>
+          </div>
+
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 overflow-y-auto max-h-[72vh] pr-1">
+            {isReady.length === 0 && (
+              <div className="col-span-full py-16 text-center text-gray-500 font-bold">
+                Aguardando próximos pedidos prontos...
+              </div>
+            )}
+            {isReady.map((o) => {
+              const mod = getOrderModality(o);
+              return (
+                <div
+                  key={o.id}
+                  className="rounded-xl p-3.5 text-center transition animate-pulse"
+                  style={{
+                    background: "linear-gradient(135deg, #064e3b, #022c22)",
+                    border: `2px solid ${C.green}`,
+                    boxShadow: "0 0 16px rgba(16,185,129,.2)",
+                  }}
+                >
+                  <div style={{ color: C.white, fontFamily: font.display, fontStyle: "italic", fontSize: 34 }}>
+                    #{o.code}
+                  </div>
+                  <div className="truncate font-black text-white text-sm mt-1">
+                    {o.customer?.name?.split(" ")[0] || "Cliente"}
+                  </div>
+                  <div className="rounded-md px-2 py-0.5 font-black text-xs mt-2 inline-block bg-black/40 text-emerald-300">
+                    {mod.icon} {mod.badge}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
         </div>
       </div>
     </div>
@@ -5907,6 +6402,7 @@ const ROLES = [
   { id: "cozinha", label: "Cozinha", icon: "🔥", path: "/cozinha" },
   { id: "expedicao", label: "Expedição", icon: "📦", path: "/expedicao" },
   { id: "entregador", label: "Entregador", icon: "🛵", path: "/entregador" },
+  { id: "paineltv", label: "Painel TV", icon: "📺", path: "/paineltv" },
 ];
 
 // Papéis autorizados em cada painel (o servidor valida de novo em cada rota)
@@ -6508,8 +7004,9 @@ export default function App() {
           {role === "cliente" && <ClientApp store={store} now={now} goRole={goRole} />}
           {role === "admin" && <AdminApp store={store} now={now} />}
           {role === "cozinha" && <KitchenApp store={store} now={now} />}
-          {role === "expedicao" && <ExpeditionApp store={store} now={now} />}
+          {role === "expedicao" && <ExpeditionApp store={store} now={now} goRole={goRole} />}
           {role === "entregador" && <DriverApp store={store} now={now} />}
+          {role === "paineltv" && <TVPanelApp store={store} now={now} goRole={goRole} />}
         </>
       )}
 
