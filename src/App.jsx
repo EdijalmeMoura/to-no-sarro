@@ -642,6 +642,80 @@ function printCashSummaryReceipt(reg, settings = {}) {
   `);
 }
 
+function printDriverSettlementReceipt(settlement, settings = {}) {
+  if (!settlement) return;
+  const s = settlement.summary || {
+    deliveriesCount: settlement.deliveries_count ?? settlement.deliveriesCount ?? settlement.orders?.length ?? 0,
+    totalFees: settlement.total_fees ?? settlement.totalFees ?? 0,
+    basePay: settlement.base_pay ?? settlement.basePay ?? 0,
+    totalDueToDriver: (settlement.total_fees ?? settlement.totalFees ?? 0) + (settlement.base_pay ?? settlement.basePay ?? 0),
+    totalCashCollected: settlement.total_cash_collected ?? settlement.totalCashCollected ?? 0,
+    netBalance: settlement.net_balance ?? settlement.netBalance ?? 0,
+  };
+  const d = settlement.driver || { name: settlement.driver_name, vehicle: settlement.driver_vehicle };
+  const orders = settlement.orders || [];
+
+  const orderRows = orders.map((o) => `
+    <div class="row">
+      <span>#${o.code} - ${esc(o.customer?.name?.slice(0, 16) || "Cliente")}</span>
+      <span>Taxa: ${brl(o.fee || 0)} | ${esc(o.payment || "")}: ${brl(o.total || 0)}</span>
+    </div>
+  `).join("");
+
+  printHTML(`
+    <h1>TÔ NO SARRO!</h1>
+    <div class="sub">ACERTO DE CONTAS · ENTREGADOR</div>
+    <hr />
+    <div class="kv">Entregador: <strong>${esc(d.name || "Entregador")}</strong> (${esc(d.vehicle || "Moto")})</div>
+    <div class="kv">Data/Hora: ${fmtDT(settlement.createdAt || settlement.created_at || Date.now())}</div>
+    <div class="kv">Operador: ${esc(settlement.settledBy || settlement.settled_by || "Operador")}</div>
+    <hr />
+    <div class="row"><span>Entregas Realizadas:</span><strong>${s.deliveriesCount}</strong></div>
+    <div class="row"><span>Total de Taxas Devidas:</span><strong>+${brl(s.totalFees)}</strong></div>
+    ${s.basePay > 0 ? `<div class="row"><span>Diária Fixa:</span><strong>+${brl(s.basePay)}</strong></div>` : ""}
+    <div class="row"><span>TOTAL A RECEBER (MOTOBOY):</span><strong>${brl(s.totalDueToDriver)}</strong></div>
+    <hr />
+    <div class="row"><span>Dinheiro Recolhido de Clientes:</span><strong style="color:red;">-${brl(s.totalCashCollected)}</strong></div>
+    <hr />
+    <div class="row total" style="font-size: 13px;">
+      <span>SALDO FINAL DO ACERTO:</span>
+      <strong>${s.netBalance > 0 ? `MOTOBOY PAGA À LOJA: ${brl(s.netBalance)}` : s.netBalance < 0 ? `LOJA PAGA AO MOTOBOY: ${brl(Math.abs(s.netBalance))}` : "R$ 0,00 (QUITADO)"}</strong>
+    </div>
+    ${orders.length > 0 ? `
+      <hr />
+      <div class="kv"><strong>PEDIDOS ENTREGUES (${orders.length}):</strong></div>
+      ${orderRows}
+    ` : ""}
+    <hr />
+    <div style="margin-top: 25px; text-align: center; font-size: 11px;">
+      ____________________________________<br />
+      Assinatura do Entregador
+    </div>
+    <div style="margin-top: 25px; text-align: center; font-size: 11px;">
+      ____________________________________<br />
+      Assinatura da Hamburgueria
+    </div>
+    <hr />
+    <div class="c">Tô no Sarro · Controle de Entregas</div>
+  `);
+}
+
+function buildGoogleMapsMultiStopUrl(orders, storeAddress = "Rua do Sol, Janga, Paulista - PE") {
+  if (!orders || orders.length === 0) return "";
+  const origin = encodeURIComponent(storeAddress);
+  const destOrder = orders[orders.length - 1];
+  const destination = encodeURIComponent(destOrder.customer.addr);
+  const waypointOrders = orders.slice(0, -1);
+  const waypoints = waypointOrders.map((o) => encodeURIComponent(o.customer.addr)).join("|");
+
+  let url = `https://www.google.com/maps/dir/?api=1&origin=${origin}&destination=${destination}`;
+  if (waypoints) {
+    url += `&waypoints=${waypoints}`;
+  }
+  url += "&travelmode=driving";
+  return url;
+}
+
 // ============================================================
 // EXPORTAÇÃO CSV (abre no Excel — BOM + separador ;)
 // ============================================================
@@ -6699,12 +6773,418 @@ function KitchenApp({ store, now }) {
 }
 
 // ============================================================
+// MODAL DE ACERTO / FECHAMENTO DE ENTREGADOR
+// ============================================================
+
+function DriverSettlementModal({ driver, store, onClose, readOnly = false }) {
+  const [loading, setLoading] = useState(true);
+  const [settlementData, setSettlementData] = useState(null);
+  const [basePay, setBasePay] = useState(0);
+  const [notes, setNotes] = useState("");
+  const [settling, setSettling] = useState(false);
+
+  useEffect(() => {
+    let mounted = true;
+    (async () => {
+      try {
+        setLoading(true);
+        const data = await store.getDriverSettlement(driver.id);
+        if (mounted) setSettlementData(data);
+      } catch (err) {
+        store.toast(err.message || "Erro ao carregar acerto do entregador");
+      } finally {
+        if (mounted) setLoading(false);
+      }
+    })();
+    return () => { mounted = false; };
+  }, [driver.id]);
+
+  if (loading) {
+    return (
+      <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: "rgba(0,0,0,.82)" }}>
+        <Card className="p-8 text-center" style={{ background: C.gray900 }}>
+          <div className="animate-spin text-3xl mb-2">🔄</div>
+          <div style={{ color: C.white, fontWeight: 700 }}>Calculando acerto de {driver.name}...</div>
+        </Card>
+      </div>
+    );
+  }
+
+  const orders = settlementData?.orders || [];
+  const s = settlementData?.summary || {};
+  const totalOrders = orders.length;
+  const totalFees = s.totalFees || 0;
+  const cashCollected = s.totalCashCollected || 0;
+  const numBasePay = Math.max(0, parseFloat(basePay) || 0);
+  const totalToDriver = totalFees + numBasePay;
+  const netDiff = Math.round((cashCollected - totalToDriver) * 100) / 100;
+
+  const currentPreviewSettlement = {
+    createdAt: Date.now(),
+    settledBy: store.me?.name || "Operador",
+    driver,
+    orders,
+    summary: {
+      deliveriesCount: totalOrders,
+      totalFees,
+      basePay: numBasePay,
+      totalCashCollected: cashCollected,
+      totalDueToDriver: totalToDriver,
+      netBalance: netDiff,
+    },
+  };
+
+  const handlePrint = () => {
+    printDriverSettlementReceipt(currentPreviewSettlement, store.settings);
+  };
+
+  const handleSettle = async () => {
+    if (orders.length === 0) {
+      store.toast("Não há entregas pendentes para fechar com este entregador.");
+      return;
+    }
+    const msgConfirm = netDiff > 0
+      ? `Confirmar fechamento com ${driver.name}?\n${totalOrders} entregas realizadas.\nO motoboy deve DEVOLVER ${brl(netDiff)} ao caixa da loja.`
+      : netDiff < 0
+      ? `Confirmar fechamento com ${driver.name}?\n${totalOrders} entregas realizadas.\nA loja deve PAGAR ${brl(Math.abs(netDiff))} ao motoboy.`
+      : `Confirmar fechamento com ${driver.name}?\n${totalOrders} entregas realizadas.\nSaldo zerado (contas batidas!).`;
+
+    if (!confirm(msgConfirm)) return;
+
+    try {
+      setSettling(true);
+      const res = await store.settleDriver(driver.id, {
+        basePay: numBasePay,
+        notes: notes || "",
+      });
+      printDriverSettlementReceipt(res, store.settings);
+      onClose();
+    } catch (err) {
+      store.toast(err.message || "Erro ao registrar fechamento");
+    } finally {
+      setSettling(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 overflow-y-auto" style={{ background: "rgba(0,0,0,.82)" }}>
+      <Card className="w-full max-w-xl max-h-[92vh] flex flex-col p-0 overflow-hidden" style={{ border: `1px solid ${C.orange}66`, background: C.gray900 }}>
+        {/* Header */}
+        <div className="p-4 flex items-center justify-between" style={{ background: C.gray850, borderBottom: `1px solid ${C.gray800}` }}>
+          <div>
+            <div className="flex items-center gap-2">
+              <span className="text-xl">🤝</span>
+              <h3 style={{ fontFamily: font.display, fontStyle: "italic", fontSize: 20, color: C.white }}>
+                ACERTO DE ENTREGADOR
+              </h3>
+            </div>
+            <div style={{ color: C.orange, fontSize: 13, fontWeight: 700, marginTop: 2 }}>
+              {driver.name} {driver.vehicle ? `· ${driver.vehicle}` : ""}
+            </div>
+          </div>
+          <button onClick={onClose} className="text-gray-400 hover:text-white text-2xl font-bold px-2">✕</button>
+        </div>
+
+        {/* Content */}
+        <div className="p-4 overflow-y-auto space-y-4 flex-1">
+          {/* Métricas do Turno */}
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+            <div className="p-2.5 rounded-xl text-center" style={{ background: C.gray850, border: `1px solid ${C.gray800}` }}>
+              <div style={{ color: "#8a8a8a", fontSize: 10, fontWeight: 700 }}>ENTREGAS</div>
+              <div style={{ color: C.white, fontSize: 18, fontWeight: 900 }}>{totalOrders}</div>
+            </div>
+            <div className="p-2.5 rounded-xl text-center" style={{ background: C.gray850, border: `1px solid ${C.gray800}` }}>
+              <div style={{ color: "#8a8a8a", fontSize: 10, fontWeight: 700 }}>TAXAS MOTOBOY</div>
+              <div style={{ color: C.green, fontSize: 18, fontWeight: 900 }}>{brl(totalFees)}</div>
+            </div>
+            <div className="p-2.5 rounded-xl text-center" style={{ background: C.gray850, border: `1px solid ${C.gray800}` }}>
+              <div style={{ color: "#8a8a8a", fontSize: 10, fontWeight: 700 }}>DINHEIRO RECOLHIDO</div>
+              <div style={{ color: C.yellowLight, fontSize: 18, fontWeight: 900 }}>{brl(cashCollected)}</div>
+            </div>
+            <div className="p-2.5 rounded-xl text-center" style={{ background: C.gray850, border: `1px solid ${C.gray800}` }}>
+              <div style={{ color: "#8a8a8a", fontSize: 10, fontWeight: 700 }}>TOTAL CORRIDAS</div>
+              <div style={{ color: "#38bdf8", fontSize: 18, fontWeight: 900 }}>
+                {brl(orders.reduce((sum, o) => sum + (o.total || 0), 0))}
+              </div>
+            </div>
+          </div>
+
+          {/* Ajuste de Remuneração Base / Diária */}
+          <div className="p-3.5 rounded-xl space-y-3" style={{ background: C.gray850, border: `1px solid ${C.gray800}` }}>
+            <div style={{ color: C.white, fontWeight: 800, fontSize: 13 }}>⚙️ Parâmetros do Fechamento</div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <label style={{ color: "#a0a0a0", fontSize: 11, fontWeight: 700 }} className="block mb-1">
+                  Diária Fixa / Ajuda de Custo (R$)
+                </label>
+                <input
+                  type="number"
+                  step="0.50"
+                  min="0"
+                  value={basePay}
+                  disabled={readOnly}
+                  onChange={(e) => setBasePay(e.target.value)}
+                  placeholder="0.00"
+                  className="w-full px-3 py-2 rounded-lg font-bold text-sm text-white"
+                  style={{ background: C.gray900, border: `1px solid ${C.gray700}` }}
+                />
+              </div>
+              <div>
+                <label style={{ color: "#a0a0a0", fontSize: 11, fontWeight: 700 }} className="block mb-1">
+                  Observações / Turno
+                </label>
+                <input
+                  type="text"
+                  value={notes}
+                  disabled={readOnly}
+                  onChange={(e) => setNotes(e.target.value)}
+                  placeholder="Ex: Turno almoço / chuva"
+                  className="w-full px-3 py-2 rounded-lg font-normal text-sm text-white"
+                  style={{ background: C.gray900, border: `1px solid ${C.gray700}` }}
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* Resumo Financeiro / Saldo Líquido */}
+          <div
+            className="p-4 rounded-xl space-y-2.5"
+            style={{
+              background: netDiff > 0 ? "#16653422" : netDiff < 0 ? "#1e3a5f33" : "#1e1e1e",
+              border: `2px solid ${netDiff > 0 ? C.green : netDiff < 0 ? "#38bdf8" : C.gray700}`
+            }}
+          >
+            <div className="flex justify-between text-xs">
+              <span style={{ color: "#a0a0a0" }}>Total ganho pelo motoboy (Taxas + Diária):</span>
+              <span style={{ color: C.white, fontWeight: 800 }}>{brl(totalToDriver)}</span>
+            </div>
+            <div className="flex justify-between text-xs">
+              <span style={{ color: "#a0a0a0" }}>Total em dinheiro recolhido dos clientes:</span>
+              <span style={{ color: C.white, fontWeight: 800 }}>{brl(cashCollected)}</span>
+            </div>
+            <div className="pt-2 flex items-center justify-between" style={{ borderTop: `1px solid ${C.gray800}` }}>
+              <div>
+                <div style={{ color: C.white, fontWeight: 900, fontSize: 14 }}>
+                  {netDiff > 0
+                    ? "💰 Motoboy Devolve ao Caixa:"
+                    : netDiff < 0
+                    ? "💵 Caixa Paga ao Motoboy:"
+                    : "🤝 Acerto 100% Equilibrado:"}
+                </div>
+                <div style={{ color: "#a0a0a0", fontSize: 11 }}>
+                  {netDiff > 0
+                    ? "Dinheiro recebido em mãos supera o valor das taxas"
+                    : netDiff < 0
+                    ? "Taxas ganhas superam o dinheiro recolhido"
+                    : "Nenhum repasse adicional pendente"}
+                </div>
+              </div>
+              <div style={{ color: netDiff > 0 ? C.green : netDiff < 0 ? "#38bdf8" : C.white, fontWeight: 900, fontSize: 22 }}>
+                {brl(Math.abs(netDiff))}
+              </div>
+            </div>
+          </div>
+
+          {/* Lista de Pedidos Entregues */}
+          <div>
+            <div className="flex items-center justify-between mb-2">
+              <span style={{ color: C.white, fontWeight: 800, fontSize: 12 }}>
+                Entregas Realizadas no Turno ({orders.length})
+              </span>
+              <span style={{ color: "#8a8a8a", fontSize: 11 }}>
+                Faturamento: {brl(orders.reduce((sum, o) => sum + (o.total || 0), 0))}
+              </span>
+            </div>
+            {orders.length === 0 ? (
+              <div className="p-4 rounded-xl text-center" style={{ background: C.gray850, color: "#8a8a8a", fontSize: 12 }}>
+                Nenhuma entrega pendente de acerto para este entregador.
+              </div>
+            ) : (
+              <div className="space-y-1.5 max-h-48 overflow-y-auto pr-1">
+                {orders.map((o) => (
+                  <div
+                    key={o.id}
+                    className="p-2.5 rounded-lg flex items-center justify-between text-xs"
+                    style={{ background: C.gray850, border: `1px solid ${C.gray800}` }}
+                  >
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <span style={{ color: C.white, fontWeight: 800 }}>#{o.code}</span>
+                        <span style={{ color: "#c0c0c0" }}>{o.customer?.name}</span>
+                        {o.routeId && (
+                          <span className="px-1.5 py-0.2 rounded text-[10px] font-bold" style={{ background: `${C.orange}33`, color: C.orange }}>
+                            Rota #{o.routeId.slice(-4)} {o.routeSeq ? `(P${o.routeSeq})` : ""}
+                          </span>
+                        )}
+                      </div>
+                      <div style={{ color: "#8a8a8a", fontSize: 11 }}>
+                        Forma: <b style={{ color: String(o.payment).toUpperCase().includes("DINHEIRO") ? C.yellowLight : "#a0a0a0" }}>{o.payment}</b> · Total: {brl(o.total)}
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <div style={{ color: C.green, fontWeight: 800 }}>+{brl(o.fee || 0)}</div>
+                      <div style={{ color: "#7a7a7a", fontSize: 10 }}>taxa entrega</div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Footer Actions */}
+        <div className="p-3 sm:p-4 flex flex-wrap gap-2 items-center justify-between" style={{ background: C.gray850, borderTop: `1px solid ${C.gray800}` }}>
+          <button
+            onClick={handlePrint}
+            className="px-3 py-2 rounded-xl font-bold text-xs flex items-center gap-1.5 text-white active:scale-95"
+            style={{ background: C.gray800, border: `1px solid ${C.gray700}` }}
+          >
+            <span>🖨</span>
+            <span>Imprimir Extrato</span>
+          </button>
+
+          <div className="flex items-center gap-2">
+            <button
+              onClick={onClose}
+              className="px-3 py-2 rounded-xl font-bold text-xs text-gray-400 hover:text-white"
+            >
+              Fechar
+            </button>
+            {!readOnly && orders.length > 0 && (
+              <button
+                disabled={settling}
+                onClick={handleSettle}
+                className="px-4 py-2.5 rounded-xl font-black text-xs text-black active:scale-95 transition flex items-center gap-2"
+                style={{ background: C.green }}
+              >
+                <span>{settling ? "⏳" : "🤝"}</span>
+                <span>{settling ? "Registrando..." : "QUITAR & FECHAR ACERTO"}</span>
+              </button>
+            )}
+          </div>
+        </div>
+      </Card>
+    </div>
+  );
+}
+
+// ============================================================
+// MODAL DE HISTÓRICO DE ACERTOS DE ENTREGADORES
+// ============================================================
+
+function SettlementsHistoryModal({ store, onClose }) {
+  const [loading, setLoading] = useState(true);
+  const [settlements, setSettlements] = useState([]);
+
+  useEffect(() => {
+    let mounted = true;
+    (async () => {
+      try {
+        setLoading(true);
+        const data = await api("/api/settlements?limit=30");
+        if (mounted) setSettlements(data.settlements || (Array.isArray(data) ? data : []));
+      } catch (err) {
+        store.toast("Erro ao carregar histórico de acertos");
+      } finally {
+        if (mounted) setLoading(false);
+      }
+    })();
+    return () => { mounted = false; };
+  }, []);
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4" style={{ background: "rgba(0,0,0,.82)" }}>
+      <Card className="w-full max-w-2xl max-h-[90vh] flex flex-col p-0 overflow-hidden" style={{ border: `1px solid ${C.orange}66`, background: C.gray900 }}>
+        <div className="p-4 flex items-center justify-between" style={{ background: C.gray850, borderBottom: `1px solid ${C.gray800}` }}>
+          <div className="flex items-center gap-2">
+            <span className="text-xl">📋</span>
+            <h3 style={{ fontFamily: font.display, fontStyle: "italic", fontSize: 20, color: C.white }}>
+              HISTÓRICO DE ACERTOS DE ENTREGADORES
+            </h3>
+          </div>
+          <button onClick={onClose} className="text-gray-400 hover:text-white text-2xl font-bold px-2">✕</button>
+        </div>
+
+        <div className="p-4 overflow-y-auto flex-1 space-y-3">
+          {loading ? (
+            <div className="p-8 text-center text-gray-400">Carregando acertos...</div>
+          ) : settlements.length === 0 ? (
+            <div className="p-8 text-center text-gray-400">Nenhum acerto registrado ainda.</div>
+          ) : (
+            settlements.map((s) => (
+              <div
+                key={s.id}
+                className="p-3.5 rounded-xl space-y-2 text-xs"
+                style={{ background: C.gray850, border: `1px solid ${C.gray800}` }}
+              >
+                <div className="flex items-center justify-between">
+                  <div>
+                    <span style={{ color: C.white, fontWeight: 900, fontSize: 14 }}>{s.driver_name}</span>
+                    <span style={{ color: "#7a7a7a", marginLeft: 8 }}>
+                      {new Date(s.created_at).toLocaleString("pt-BR")}
+                    </span>
+                  </div>
+                  <button
+                    onClick={() => printDriverSettlementReceipt(s, store.settings)}
+                    className="px-2.5 py-1 rounded-lg font-bold text-xs text-white flex items-center gap-1 active:scale-95"
+                    style={{ background: C.gray800, border: `1px solid ${C.gray700}` }}
+                  >
+                    <span>🖨</span>
+                    <span>2ª Via</span>
+                  </button>
+                </div>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-1 text-center">
+                  <div className="p-1.5 rounded" style={{ background: C.gray900 }}>
+                    <div style={{ color: "#7a7a7a", fontSize: 9 }}>ENTREGAS</div>
+                    <div style={{ color: C.white, fontWeight: 800 }}>{s.deliveries_count}</div>
+                  </div>
+                  <div className="p-1.5 rounded" style={{ background: C.gray900 }}>
+                    <div style={{ color: "#7a7a7a", fontSize: 9 }}>TAXAS MOTOBY</div>
+                    <div style={{ color: C.green, fontWeight: 800 }}>{brl(s.total_fees)}</div>
+                  </div>
+                  <div className="p-1.5 rounded" style={{ background: C.gray900 }}>
+                    <div style={{ color: "#7a7a7a", fontSize: 9 }}>DINHEIRO RECOLHIDO</div>
+                    <div style={{ color: C.yellowLight, fontWeight: 800 }}>{brl(s.total_cash_collected)}</div>
+                  </div>
+                  <div className="p-1.5 rounded" style={{ background: C.gray900 }}>
+                    <div style={{ color: "#7a7a7a", fontSize: 9 }}>SALDO FINAL</div>
+                    <div style={{ color: s.net_balance >= 0 ? C.green : "#38bdf8", fontWeight: 800 }}>
+                      {s.net_balance >= 0 ? `+${brl(s.net_balance)}` : brl(s.net_balance)}
+                    </div>
+                  </div>
+                </div>
+                {s.notes && (
+                  <div style={{ color: "#8a8a8a", fontSize: 11, fontStyle: "italic" }}>
+                    Obs: {s.notes} · Fechado por {s.settled_by}
+                  </div>
+                )}
+              </div>
+            ))
+          )}
+        </div>
+
+        <div className="p-3 bg-gray-850 flex justify-end" style={{ borderTop: `1px solid ${C.gray800}` }}>
+          <button onClick={onClose} className="px-4 py-2 rounded-xl font-bold text-xs text-white bg-gray-800 hover:bg-gray-700">
+            Fechar
+          </button>
+        </div>
+      </Card>
+    </div>
+  );
+}
+
+// ============================================================
 // EXPEDIÇÃO
 // ============================================================
 
 function ExpeditionApp({ store, now }) {
   const [filterMod, setFilterMod] = useState("TODOS");
   const [soundOn, setSoundOn] = useState(() => localStorage.getItem("sarro_sound_expedition") !== "0");
+  const [selectedOrderIds, setSelectedOrderIds] = useState([]);
+  const [batchDriverId, setBatchDriverId] = useState("");
+  const [dispatchingRoute, setDispatchingRoute] = useState(false);
+  const [settlementDriver, setSettlementDriver] = useState(null);
+  const [showHistoryModal, setShowHistoryModal] = useState(false);
   const lastReadyCount = useRef(0);
 
   const ready = store.orders.filter((o) => ["PRONTO", "EMBALADO", "AGUARDANDO"].includes(o.status));
@@ -6723,8 +7203,33 @@ function ExpeditionApp({ store, now }) {
     return getOrderModality(o).id === filterMod;
   });
 
+  const toggleOrderSelection = (id) => {
+    setSelectedOrderIds((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
+    );
+  };
+
+  const handleBatchDispatch = async () => {
+    if (selectedOrderIds.length === 0) return;
+    if (!batchDriverId) {
+      store.toast("Selecione um entregador para a rota!");
+      return;
+    }
+    try {
+      setDispatchingRoute(true);
+      await store.dispatchRoute({ driverId: batchDriverId, orderIds: selectedOrderIds });
+      store.toast(`🚀 Rota com ${selectedOrderIds.length} paradas despachada com sucesso!`);
+      setSelectedOrderIds([]);
+      setBatchDriverId("");
+    } catch (err) {
+      store.toast(err.message || "Erro ao despachar rota multi-paradas");
+    } finally {
+      setDispatchingRoute(false);
+    }
+  };
+
   return (
-    <div style={{ background: C.black, minHeight: "100%" }} className="p-4 md:p-6">
+    <div style={{ background: C.black, minHeight: "100%" }} className="p-4 md:p-6 pb-24">
       <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
         <div className="flex items-center gap-3">
           <Logo size={40} withText={false} />
@@ -6756,6 +7261,16 @@ function ExpeditionApp({ store, now }) {
           >
             <span>{soundOn ? "🔔" : "🔕"}</span>
             <span>Som {soundOn ? "ON" : "OFF"}</span>
+          </button>
+
+          {/* Botão para abrir Histórico de Acertos */}
+          <button
+            onClick={() => setShowHistoryModal(true)}
+            className="rounded-lg px-2.5 py-1.5 font-bold text-xs flex items-center gap-1.5 text-white active:scale-95"
+            style={{ background: C.gray800, border: `1px solid ${C.gray700}` }}
+          >
+            <span>🤝</span>
+            <span>Histórico de Acertos</span>
           </button>
 
           {/* Botão para abrir Painel TV */}
@@ -6816,8 +7331,12 @@ function ExpeditionApp({ store, now }) {
           )}
           {filteredReady.map((o) => {
             const mod = getOrderModality(o);
+            const isDelivery = !mod.isMesa && !mod.isPickup;
+            const isSelected = selectedOrderIds.includes(o.id);
+            const selectedSeq = isSelected ? selectedOrderIds.indexOf(o.id) + 1 : 0;
+
             return (
-              <Card key={o.id} className="p-0 overflow-hidden" style={{ border: `2px solid ${mod.border}66` }}>
+              <Card key={o.id} className="p-0 overflow-hidden" style={{ border: `2px solid ${isSelected ? C.orange : mod.border + "66"}` }}>
                 {/* Banner de Modalidade */}
                 <div
                   className="px-3.5 py-1.5 flex items-center justify-between font-black text-xs"
@@ -6833,6 +7352,35 @@ function ExpeditionApp({ store, now }) {
                 </div>
 
                 <div className="p-4">
+                  {/* Seletor de Rota Composta (apenas entregas) */}
+                  {isDelivery && (
+                    <div
+                      className="mb-2 flex items-center justify-between p-2 rounded-lg cursor-pointer transition"
+                      style={{
+                        background: isSelected ? `${C.orange}22` : C.gray850,
+                        border: `1px solid ${isSelected ? C.orange : C.gray800}`,
+                      }}
+                      onClick={() => toggleOrderSelection(o.id)}
+                    >
+                      <label className="flex items-center gap-2 cursor-pointer text-xs font-bold" style={{ color: isSelected ? C.orange : C.white }}>
+                        <input
+                          type="checkbox"
+                          checked={isSelected}
+                          onChange={() => {}}
+                          className="w-4 h-4 rounded text-orange-500 cursor-pointer pointer-events-none"
+                        />
+                        <span>Agrupar nesta Rota Composta</span>
+                      </label>
+                      {isSelected ? (
+                        <span className="px-2 py-0.5 rounded-full font-black text-[10px]" style={{ background: C.orange, color: C.black }}>
+                          PARADA #{selectedSeq}
+                        </span>
+                      ) : (
+                        <span style={{ color: "#7a7a7a", fontSize: 10 }}>Clique para incluir na rota</span>
+                      )}
+                    </div>
+                  )}
+
                   <div className="flex items-center justify-between mb-2">
                     <div className="flex items-center gap-2">
                       <span style={{ color: C.white, fontWeight: 900, fontSize: 18 }}>#{o.code}</span>
@@ -6841,6 +7389,15 @@ function ExpeditionApp({ store, now }) {
                     </div>
                     <span style={{ color: "#7a7a7a", fontSize: 11 }}>pronto há {elapsed(o.createdAt, now)}</span>
                   </div>
+
+                  {o.routeId && (
+                    <div className="mb-2 flex items-center gap-1.5 text-xs font-extrabold" style={{ color: C.orange }}>
+                      <span>🛵 ROTA COMPOSTA:</span>
+                      <span>Parada #{o.routeSeq || 1}</span>
+                      <span style={{ color: "#7a7a7a", fontWeight: 400 }}>({o.routeId.slice(-6).toUpperCase()})</span>
+                    </div>
+                  )}
+
                   <div style={{ color: "#c9c9c9", fontSize: 13, fontWeight: 700 }}>{o.customer.name}</div>
                   <div style={{ color: "#7a7a7a", fontSize: 11.5 }}>
                     {mod.isMesa ? `🍽️ ${mod.badge} · Consumo no local` : mod.isPickup ? "🏪 Retirada na loja" : `🛵 ${o.customer.addr}`}
@@ -6896,7 +7453,7 @@ function ExpeditionApp({ store, now }) {
                       {o.status === "EMBALADO" && <Btn full onClick={() => store.setStatus(o.id, "AGUARDANDO")}>CHAMAR ENTREGADOR</Btn>}
                       {o.status === "AGUARDANDO" && (
                         <div>
-                          <div style={{ color: "#8a8a8a", fontSize: 11.5, marginBottom: 7 }}>Atribuir entregador</div>
+                          <div style={{ color: "#8a8a8a", fontSize: 11.5, marginBottom: 7 }}>Atribuir entregador individual</div>
                           <div className="flex flex-wrap gap-2">
                             {store.drivers.map((d) => (
                               <Btn key={d.id} small variant="dark" onClick={() => store.assignDriver(o.id, d.id)}>
@@ -6919,20 +7476,115 @@ function ExpeditionApp({ store, now }) {
           {store.drivers.map((d) => {
             const load = store.orders.filter((o) => o.driverId === d.id && o.status === "ROTA").length;
             return (
-              <Card key={d.id} className="p-3 flex items-center gap-3">
-                <div className="flex items-center justify-center rounded-full" style={{ width: 38, height: 38, background: C.gray800, fontSize: 18 }}>🛵</div>
-                <div className="flex-1">
-                  <div style={{ color: C.white, fontWeight: 800, fontSize: 13 }}>{d.name}</div>
-                  <div style={{ color: "#7a7a7a", fontSize: 11 }}>{d.vehicle}</div>
+              <Card key={d.id} className="p-3">
+                <div className="flex items-center gap-3">
+                  <div className="flex items-center justify-center rounded-full" style={{ width: 38, height: 38, background: C.gray800, fontSize: 18 }}>🛵</div>
+                  <div className="flex-1">
+                    <div style={{ color: C.white, fontWeight: 800, fontSize: 13 }}>{d.name}</div>
+                    <div style={{ color: "#7a7a7a", fontSize: 11 }}>{d.vehicle}</div>
+                  </div>
+                  <span style={{ color: load ? C.orange : C.green, fontSize: 11, fontWeight: 800 }}>
+                    {load ? `${load} em rota` : "livre"}
+                  </span>
                 </div>
-                <span style={{ color: load ? C.orange : C.green, fontSize: 11, fontWeight: 800 }}>
-                  {load ? `${load} em rota` : "livre"}
-                </span>
+                <div className="mt-2.5 flex items-center justify-between pt-2" style={{ borderTop: `1px solid ${C.gray800}` }}>
+                  <span style={{ color: "#7a7a7a", fontSize: 11 }}>Turno & diária:</span>
+                  <button
+                    onClick={() => setSettlementDriver(d)}
+                    className="px-2 py-1 rounded-lg font-bold text-xs active:scale-95 transition flex items-center gap-1"
+                    style={{ background: "#16653433", color: C.green, border: `1px solid ${C.green}55` }}
+                  >
+                    <span>🤝</span>
+                    <span>Fechar Acerto</span>
+                  </button>
+                </div>
               </Card>
             );
           })}
         </div>
       </div>
+
+      {/* BARRA FLUTUANTE DE ROTA COMPOSTA / MULTI-STOP */}
+      {selectedOrderIds.length > 0 && (
+        <div
+          className="fixed bottom-4 left-4 right-4 z-40 max-w-4xl mx-auto p-4 rounded-2xl shadow-2xl flex flex-wrap items-center justify-between gap-3 animate-bounce-subtle"
+          style={{ background: "#1c1917", border: `2px solid ${C.orange}`, boxShadow: "0 10px 30px rgba(0,0,0,0.8)" }}
+        >
+          <div className="flex items-center gap-3">
+            <span className="text-2xl">📦</span>
+            <div>
+              <div style={{ color: C.white, fontWeight: 900, fontSize: 15 }}>
+                {selectedOrderIds.length} {selectedOrderIds.length === 1 ? "entrega selecionada" : "entregas selecionadas na rota"}
+              </div>
+              <div style={{ color: "#a0a0a0", fontSize: 11 }}>
+                Despache para um motoboy em rota otimizada multi-paradas
+              </div>
+            </div>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2">
+            <select
+              value={batchDriverId}
+              onChange={(e) => setBatchDriverId(e.target.value)}
+              className="px-3 py-2 rounded-xl text-xs font-bold text-white cursor-pointer"
+              style={{ background: C.gray850, border: `1px solid ${C.gray700}` }}
+            >
+              <option value="">-- Selecione o Entregador --</option>
+              {store.drivers.map((d) => (
+                <option key={d.id} value={d.id}>
+                  🛵 {d.name} ({d.vehicle || "Moto"})
+                </option>
+              ))}
+            </select>
+
+            <button
+              disabled={dispatchingRoute || !batchDriverId}
+              onClick={handleBatchDispatch}
+              className="px-4 py-2 rounded-xl font-black text-xs text-black active:scale-95 transition flex items-center gap-1.5 disabled:opacity-50"
+              style={{ background: C.green }}
+            >
+              <span>{dispatchingRoute ? "⏳" : "🚀"}</span>
+              <span>{dispatchingRoute ? "Despachando..." : `DESPACHAR ROTA (${selectedOrderIds.length})`}</span>
+            </button>
+
+            <a
+              href={buildGoogleMapsMultiStopUrl(
+                selectedOrderIds.map((id) => store.orders.find((o) => o.id === id)).filter(Boolean),
+                store.settings?.address
+              )}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="px-3 py-2 rounded-xl font-bold text-xs text-white flex items-center gap-1 active:scale-95 text-decoration-none"
+              style={{ background: "#4285F4" }}
+            >
+              <span>🗺️</span>
+              <span>Ver no Maps</span>
+            </a>
+
+            <button
+              onClick={() => setSelectedOrderIds([])}
+              className="px-3 py-2 rounded-xl font-bold text-xs text-gray-400 hover:text-white"
+            >
+              Limpar
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Modais de Acerto */}
+      {settlementDriver && (
+        <DriverSettlementModal
+          driver={settlementDriver}
+          store={store}
+          onClose={() => setSettlementDriver(null)}
+        />
+      )}
+      {showHistoryModal && (
+        <SettlementsHistoryModal
+          store={store}
+          onClose={() => setShowHistoryModal(false)}
+        />
+      )}
     </div>
   );
 }
@@ -7120,12 +7772,14 @@ function DriverApp({ store, now }) {
   const meId = meDriver?.id;
   const mine = store.orders.filter((o) => o.driverId === meId && ["ROTA", "ENTREGUE"].includes(o.status));
   const open = store.orders.filter((o) => o.status === "AGUARDANDO" && o.type === "delivery");
+  const activeRouteOrders = mine.filter((o) => o.status === "ROTA").sort((a, b) => (a.routeSeq || 0) - (b.routeSeq || 0));
 
   // Estados de atividades operacionais do entregador
   const [arrivedMap, setArrivedMap] = useState({});
   const [routeModal, setRouteModal] = useState(null);
   const [confirmModal, setConfirmModal] = useState(null);
   const [problemModal, setProblemModal] = useState(null);
+  const [showSettlementModal, setShowSettlementModal] = useState(false);
 
   const cleanPhone = (phone) => {
     let d = String(phone || "").replace(/\D/g, "");
@@ -7176,6 +7830,14 @@ function DriverApp({ store, now }) {
           >
             🛵 {meDriver ? meDriver.name.split(" ")[0] : "…"} · {meDriver?.vehicle}
           </span>
+          <button
+            onClick={() => setShowSettlementModal(true)}
+            className="rounded-lg px-2.5 py-1.5 font-bold text-xs flex items-center gap-1.5 active:scale-95"
+            style={{ background: "#16653433", color: C.green, border: `1px solid ${C.green}55` }}
+          >
+            <span>🤝</span>
+            <span>Meu Acerto</span>
+          </button>
           {store.me && (
             <button
               onClick={store.logout}
@@ -7197,6 +7859,65 @@ function DriverApp({ store, now }) {
       <div style={{ color: "#7a7a7a", fontSize: 12, marginBottom: 16 }}>
         {meDriver?.name || "Entregador"} · {mine.filter((o) => o.status === "ROTA").length} em rota hoje
       </div>
+
+      {/* ROTA COMPOSTA MULTI-PARADAS ATIVA */}
+      {activeRouteOrders.length >= 2 && (
+        <div
+          className="mb-5 p-4 rounded-2xl"
+          style={{
+            background: "linear-gradient(135deg, #1c1917, #292524)",
+            border: `2px solid ${C.orange}`,
+            boxShadow: "0 6px 20px rgba(255,107,0,0.15)",
+          }}
+        >
+          <div className="flex items-center justify-between mb-2">
+            <div className="flex items-center gap-2">
+              <span className="text-xl">🛵</span>
+              <div>
+                <div style={{ color: C.white, fontWeight: 900, fontSize: 15 }}>
+                  ROTA COMPOSTA MULTI-PARADAS ({activeRouteOrders.length} entregas)
+                </div>
+                <div style={{ color: "#a0a0a0", fontSize: 11 }}>
+                  Siga a sequência de paradas para entrega mais rápida
+                </div>
+              </div>
+            </div>
+            <span className="px-2.5 py-1 rounded-full text-xs font-black" style={{ background: C.orange, color: C.black }}>
+              EM ANDAMENTO
+            </span>
+          </div>
+
+          <div className="space-y-1.5 my-3">
+            {activeRouteOrders.map((ro, idx) => (
+              <div key={ro.id} className="p-2.5 rounded-xl flex items-center justify-between text-xs" style={{ background: C.gray900, border: `1px solid ${C.gray800}` }}>
+                <div className="flex items-center gap-2">
+                  <span className="w-5 h-5 rounded-full flex items-center justify-center font-black text-[10px]" style={{ background: C.orange, color: C.black }}>
+                    {ro.routeSeq || idx + 1}
+                  </span>
+                  <span style={{ color: C.white, fontWeight: 800 }}>#{ro.code}</span>
+                  <span style={{ color: "#c0c0c0" }}>{ro.customer?.name} ({ro.customer?.addr?.split(",")[0]})</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span style={{ color: C.yellowLight, fontWeight: 800 }}>{brl(ro.total)}</span>
+                  <span style={{ color: "#8a8a8a", fontSize: 10 }}>({ro.payment})</span>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          <button
+            onClick={() => {
+              const url = buildGoogleMapsMultiStopUrl(activeRouteOrders, store.settings?.address);
+              if (typeof window !== "undefined" && window.open) window.open(url, "_blank");
+            }}
+            className="w-full py-3.5 rounded-xl font-black text-sm text-white flex items-center justify-center gap-2 transition active:scale-95 shadow-lg"
+            style={{ background: "#4285F4" }}
+          >
+            <span>🗺️</span>
+            <span>INICIAR NAVEGAÇÃO MULTI-PARADAS NO GOOGLE MAPS</span>
+          </button>
+        </div>
+      )}
 
       {open.length > 0 && (
         <div className="mb-5">
@@ -7233,6 +7954,14 @@ function DriverApp({ store, now }) {
               <div className="flex items-center justify-between mb-2">
                 <div className="flex items-center gap-2">
                   <span style={{ color: C.white, fontFamily: font.display, fontStyle: "italic", fontSize: 20 }}>#{o.code}</span>
+                  {o.routeSeq && (
+                    <span
+                      className="rounded-full px-2 py-0.5 text-[10px] font-black"
+                      style={{ background: C.orange, color: C.black }}
+                    >
+                      {o.routeSeq}ª PARADA
+                    </span>
+                  )}
                   {isArrived && !done && (
                     <span
                       className="rounded-full px-2 py-0.5 text-xs font-bold"
@@ -7552,6 +8281,15 @@ function DriverApp({ store, now }) {
             <Btn full variant="dark" onClick={() => setProblemModal(null)}>Fechar</Btn>
           </Card>
         </div>
+      )}
+
+      {/* Modal de Acerto do Entregador */}
+      {showSettlementModal && meDriver && (
+        <DriverSettlementModal
+          driver={meDriver}
+          store={store}
+          onClose={() => setShowSettlementModal(false)}
+        />
       )}
     </div>
   );
@@ -7999,6 +8737,23 @@ export default function App() {
       setCashRegister(d.register);
       toast("Caixa fechado com sucesso! 🔒");
       return d.register;
+    },
+
+    dispatchRoute: async ({ driverId, orderIds }) => {
+      const d = await api("/api/routes/dispatch", { method: "POST", body: { driverId, orderIds } });
+      await refreshAll();
+      toast(`Rota com ${d.count} entregas despachada com sucesso! 🛵`);
+      return d;
+    },
+    getDriverSettlement: async (driverId) => {
+      const d = await api(`/api/drivers/${driverId}/settlement`);
+      return d.settlement;
+    },
+    settleDriver: async (driverId, { basePay, notes }) => {
+      const d = await api(`/api/drivers/${driverId}/settle`, { method: "POST", body: { basePay, notes } });
+      await refreshAll();
+      toast("Acerto de contas realizado com sucesso! 🤝");
+      return d.settlement;
     },
 
     validateCoupon: async (code, subtotal) => {

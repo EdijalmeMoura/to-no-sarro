@@ -352,6 +352,83 @@ console.log("\n4) APIs — cupons, promoções, usuários e refresh de pedidos")
 
     const printSummary = await req("POST", "/api/cash/print-summary", { registerId: openCash.data.register?.id }, admin);
     ok("gera resumo de impressão do caixa", printSummary.ok);
+
+    // Agrupamento de Entregas & Rotas Multi-Stop / Acerto de Entregadores (Part 5)
+    const routeOrder1 = await req("POST", "/api/orders", {
+      customer: { name: "Cliente Rota 1", phone: "(81) 98888-1111", addr: "Rua das Flores, 100, Janga, Paulista - PE" },
+      items: [{ productId: "p1", qty: 2, optionIds: [], note: "" }],
+      type: "delivery", payment: "Dinheiro",
+    });
+    const routeOrder2 = await req("POST", "/api/orders", {
+      customer: { name: "Cliente Rota 2", phone: "(81) 98888-2222", addr: "Av. Cláudio Gueiros Leite, 2500, Janga, Paulista - PE" },
+      items: [{ productId: "p2", qty: 2, optionIds: [], note: "" }],
+      type: "delivery", payment: "Cartão",
+    });
+
+    const ro1 = routeOrder1.data.order;
+    const ro2 = routeOrder2.data.order;
+
+    // Coloca pedidos como PRONTO na cozinha
+    await req("PATCH", `/api/orders/${ro1.id}/status`, { status: "PRONTO" }, admin);
+    await req("PATCH", `/api/orders/${ro2.id}/status`, { status: "PRONTO" }, admin);
+
+    // Despacha rota multi-paradas para o entregador d1 (Rafael)
+    const dispatchMulti = await req("POST", "/api/routes/dispatch", {
+      driverId: "d1",
+      orderIds: [ro1.id, ro2.id],
+    }, admin);
+
+    ok("despacha rota composta com múltiplas paradas", dispatchMulti.ok && dispatchMulti.data.routeId && dispatchMulti.data.count === 2);
+
+    const checkO1 = await req("GET", `/api/track/${ro1.id}?t=${ro1.trackToken}`);
+    const checkO2 = await req("GET", `/api/track/${ro2.id}?t=${ro2.trackToken}`);
+    ok("pedidos recebem route_id e sequência 1 e 2 em status ROTA",
+      checkO1.data.order?.status === "ROTA" &&
+      checkO2.data.order?.status === "ROTA" &&
+      checkO1.data.order?.routeSeq === 1 &&
+      checkO2.data.order?.routeSeq === 2 &&
+      checkO1.data.order?.routeId === dispatchMulti.data.routeId
+    );
+
+    // Entregador conclui as entregas
+    await req("PATCH", `/api/orders/${ro1.id}/status`, { status: "ENTREGUE" }, admin);
+    await req("PATCH", `/api/orders/${ro2.id}/status`, { status: "ENTREGUE" }, admin);
+
+    // Consulta acerto pendente do entregador
+    const pendingSettlement = await req("GET", "/api/drivers/d1/settlement", undefined, admin);
+    ok("consulta acerto pendente do entregador com entregas concluídas",
+      pendingSettlement.ok &&
+      pendingSettlement.data.settlement?.orders?.length >= 2 &&
+      pendingSettlement.data.settlement?.summary?.deliveriesCount >= 2 &&
+      pendingSettlement.data.settlement?.summary?.totalFees > 0 &&
+      pendingSettlement.data.settlement?.summary?.totalCashCollected > 0
+    );
+
+    // Fecha acerto do entregador
+    const settleRes = await req("POST", "/api/drivers/d1/settle", {
+      basePay: 20.00,
+      notes: "Turno da noite multi-rotas fechado",
+    }, admin);
+    ok("efetua acerto e quitação do entregador com diária",
+      settleRes.ok &&
+      settleRes.data.settlement?.status === "SETTLED" &&
+      settleRes.data.settlement?.base_pay === 20 &&
+      settleRes.data.settlement?.deliveries_count >= 2
+    );
+
+    // Histórico de acertos
+    const histRes = await req("GET", "/api/settlements", undefined, admin);
+    ok("histórico de acertos inclui o fechamento recém registrado",
+      histRes.ok &&
+      Array.isArray(histRes.data?.settlements) &&
+      histRes.data.settlements.some((s) => s.id === settleRes.data.settlement?.id)
+    );
+
+    // Confirma que acerto pendente agora está zerado para novas entregas
+    const pendingAfter = await req("GET", "/api/drivers/d1/settlement", undefined, admin);
+    ok("acerto pendente do entregador fica zerado após quitação",
+      pendingAfter.ok && pendingAfter.data.settlement?.orders?.length === 0
+    );
   }
 
 console.log(fails === 0 ? `\n🎉 tudo verde — ${total} checagens\n` : `\n💥 ${fails} falha(s) em ${total}\n`);

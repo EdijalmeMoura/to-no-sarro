@@ -222,6 +222,22 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_items_order ON order_items(order_id);
   CREATE INDEX IF NOT EXISTS idx_cash_reg_status ON cash_registers(status);
   CREATE INDEX IF NOT EXISTS idx_cash_tx_reg ON cash_transactions(register_id);
+
+  CREATE TABLE IF NOT EXISTS driver_settlements (
+    id TEXT PRIMARY KEY,
+    driver_id TEXT NOT NULL REFERENCES drivers(id),
+    created_at INTEGER NOT NULL,
+    settled_by TEXT NOT NULL,
+    deliveries_count INTEGER NOT NULL,
+    total_fees REAL NOT NULL,
+    base_pay REAL NOT NULL DEFAULT 0,
+    total_cash_collected REAL NOT NULL,
+    net_balance REAL NOT NULL,
+    status TEXT NOT NULL DEFAULT 'SETTLED',
+    notes TEXT
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_settle_driver ON driver_settlements(driver_id);
 `);
 
 // Migrações leves: adiciona colunas novas em bancos já existentes
@@ -234,6 +250,9 @@ addColumnIfMissing("products", "updated_at", "updated_at INTEGER DEFAULT 0");
 addColumnIfMissing("orders", "payment_status", "payment_status TEXT DEFAULT ('indefinido')");
 addColumnIfMissing("orders", "ext_ref", "ext_ref TEXT");
 addColumnIfMissing("orders", "track_token", "track_token TEXT");
+addColumnIfMissing("orders", "route_id", "route_id TEXT");
+addColumnIfMissing("orders", "route_seq", "route_seq INTEGER DEFAULT 1");
+addColumnIfMissing("orders", "settlement_id", "settlement_id TEXT");
 addColumnIfMissing("users", "active", "active INTEGER DEFAULT 1");
 addColumnIfMissing("users", "last_login_at", "last_login_at INTEGER");
 addColumnIfMissing("promos", "starts_at", "starts_at INTEGER");
@@ -600,6 +619,9 @@ export function getOrders() {
       paidAt: pay?.paid_at || null,
       pixCode,
       pixKey: isPix ? pixKey : null,
+      routeId: o.route_id || null,
+      routeSeq: o.route_seq || 1,
+      settlementId: o.settlement_id || null,
       items: byOrder.get(o.id) || [],
     };
   });
@@ -792,4 +814,161 @@ export function getCashHistory(limit = 20) {
     SELECT * FROM cash_registers WHERE status = 'CLOSED' ORDER BY closed_at DESC LIMIT ?
   `).all(limit);
   return rows.map((r) => getCashSummary(r));
+}
+
+// ============================================================
+// ENTREGAS — Agrupamento de Rotas Multi-Paradas & Acerto de Contas
+// ============================================================
+
+export function dispatchMultiStopRoute({ driverId, orderIds }) {
+  if (!Array.isArray(orderIds) || orderIds.length === 0) {
+    throw new Error("Selecione pelo menos um pedido para a rota.");
+  }
+  const driver = db.prepare("SELECT * FROM drivers WHERE id = ?").get(driverId);
+  if (!driver) throw new Error("Entregador não encontrado.");
+
+  const routeId = crypto.randomUUID();
+  const now = Date.now();
+
+  const updateStmt = db.prepare(`
+    UPDATE orders
+    SET driver_id = ?, status = 'ROTA', started_at = ?, route_id = ?, route_seq = ?
+    WHERE id = ?
+  `);
+
+  db.exec("BEGIN");
+  try {
+    orderIds.forEach((id, index) => {
+      updateStmt.run(driverId, now, routeId, index + 1, id);
+    });
+    db.exec("COMMIT");
+  } catch (err) {
+    db.exec("ROLLBACK");
+    throw err;
+  }
+
+  return { routeId, driver, orderIds, count: orderIds.length };
+}
+
+export function getDriverPendingSettlement(driverId) {
+  const driver = db.prepare("SELECT * FROM drivers WHERE id = ?").get(driverId);
+  if (!driver) throw new Error("Entregador não encontrado.");
+
+  // Pedidos entregues por este motorista ainda não acertados
+  const orders = getOrders().filter((o) =>
+    o.driverId === driverId &&
+    o.status === "ENTREGUE" &&
+    (!o.settlementId || o.settlementId === "")
+  );
+
+  const deliveriesCount = orders.length;
+  const totalFees = orders.reduce((sum, o) => sum + (o.fee || 0), 0);
+  const totalCashCollected = orders
+    .filter((o) => String(o.payment || "").toUpperCase().includes("DINHEIRO"))
+    .reduce((sum, o) => sum + (o.total || 0), 0);
+
+  const basePay = 0;
+  const totalDueToDriver = totalFees + basePay;
+  const netBalance = Math.round((totalCashCollected - totalDueToDriver) * 100) / 100;
+
+  return {
+    driver: { id: driver.id, name: driver.name, phone: driver.phone, vehicle: driver.vehicle },
+    orders,
+    summary: {
+      deliveriesCount,
+      totalFees: Math.round(totalFees * 100) / 100,
+      basePay,
+      totalCashCollected: Math.round(totalCashCollected * 100) / 100,
+      totalDueToDriver: Math.round(totalDueToDriver * 100) / 100,
+      netBalance,
+    },
+  };
+}
+
+export function settleDriver({ driverId, settledBy = "Operador", basePay = 0, notes = "" }) {
+  const pending = getDriverPendingSettlement(driverId);
+  if (pending.orders.length === 0) {
+    throw new Error("Não há entregas pendentes de acerto para este entregador.");
+  }
+
+  const bPay = Math.max(0, parseFloat(basePay) || 0);
+  const totalDueToDriver = pending.summary.totalFees + bPay;
+  const netBalance = Math.round((pending.summary.totalCashCollected - totalDueToDriver) * 100) / 100;
+
+  const settlementId = crypto.randomUUID();
+  const now = Date.now();
+
+  db.exec("BEGIN");
+  try {
+    db.prepare(`
+      INSERT INTO driver_settlements (id, driver_id, created_at, settled_by, deliveries_count, total_fees, base_pay, total_cash_collected, net_balance, status, notes)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'SETTLED', ?)
+    `).run(
+      settlementId,
+      driverId,
+      now,
+      settledBy,
+      pending.summary.deliveriesCount,
+      pending.summary.totalFees,
+      bPay,
+      pending.summary.totalCashCollected,
+      netBalance,
+      notes || ""
+    );
+
+    const markOrder = db.prepare("UPDATE orders SET settlement_id = ? WHERE id = ?");
+    for (const o of pending.orders) {
+      markOrder.run(settlementId, o.id);
+    }
+
+    db.exec("COMMIT");
+  } catch (err) {
+    db.exec("ROLLBACK");
+    throw err;
+  }
+
+  const settlement = db.prepare("SELECT * FROM driver_settlements WHERE id = ?").get(settlementId);
+  return {
+    ...settlement,
+    driver: pending.driver,
+    orders: pending.orders,
+    summary: {
+      deliveriesCount: settlement.deliveries_count,
+      totalFees: settlement.total_fees,
+      basePay: settlement.base_pay,
+      totalDueToDriver: settlement.total_fees + settlement.base_pay,
+      totalCashCollected: settlement.total_cash_collected,
+      netBalance: settlement.net_balance,
+    },
+  };
+}
+
+export function getSettlementsHistory(limit = 30) {
+  const rows = db.prepare(`
+    SELECT s.*, d.name as driver_name, d.phone as driver_phone, d.vehicle as driver_vehicle
+    FROM driver_settlements s
+    JOIN drivers d ON d.id = s.driver_id
+    ORDER BY s.created_at DESC
+    LIMIT ?
+  `).all(limit);
+
+  return rows.map((r) => ({
+    id: r.id,
+    driverId: r.driver_id,
+    createdAt: r.created_at,
+    settledBy: r.settled_by,
+    deliveriesCount: r.deliveries_count,
+    totalFees: r.total_fees,
+    basePay: r.base_pay,
+    totalCashCollected: r.total_cash_collected,
+    netBalance: r.net_balance,
+    status: r.status,
+    notes: r.notes || "",
+    driver: {
+      id: r.driver_id,
+      name: r.driver_name,
+      phone: r.driver_phone,
+      vehicle: r.driver_vehicle,
+    },
+  }));
 }

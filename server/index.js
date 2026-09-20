@@ -27,6 +27,7 @@ import {
   getSetting, setSetting, getOrders, getPaymentSettings, getUsers,
   logIntegration, enqueueWhatsApp, markOutbox, getOutbox, getIntegrationLogs,
   getCurrentCashRegister, openCashRegister, addCashTransaction, closeCashRegister, getCashHistory,
+  dispatchMultiStopRoute, getDriverPendingSettlement, settleDriver, getSettlementsHistory,
 } from "./db.js";
 import { attachUser, requireRole, login, logout, publicUser, ROLES } from "./auth.js";
 import { createCheckoutLink, paymentCheck, cents } from "./payments/infinitepay.js";
@@ -529,6 +530,61 @@ app.patch("/api/orders/:id/driver", requireRole("ADMIN", "GERENTE", "EXPEDICAO")
   audit(req.user.username, "pedido_entregador", `#${o.code} → ${d.name}`);
   broadcast();
   res.json({ order: getOrders().find((x) => x.id === o.id) });
+});
+
+// ============================================================
+// ROTAS MULTI-PARADAS & DESPACHO EM LOTE
+// ============================================================
+
+app.post("/api/routes/dispatch", requireRole("ADMIN", "GERENTE", "ATENDIMENTO", "EXPEDICAO"), (req, res) => {
+  const { driverId, orderIds } = req.body || {};
+  try {
+    const result = dispatchMultiStopRoute({ driverId, orderIds });
+    audit(req.user.username, "rota_multi_despachada", `${result.driver.name} · ${result.count} entregas`);
+    broadcast();
+    res.json({ ok: true, routeId: result.routeId, count: result.count, orders: getOrders().filter((o) => orderIds.includes(o.id)) });
+  } catch (e) {
+    res.status(400).json({ error: e.message });
+  }
+});
+
+// ============================================================
+// ACERTO DE CONTAS DO MOTOBOY
+// ============================================================
+
+app.get("/api/drivers/:id/settlement", requireRole("ADMIN", "GERENTE", "ATENDIMENTO", "EXPEDICAO", "ENTREGADOR"), (req, res) => {
+  if (req.user.role === "ENTREGADOR" && req.user.driver_id !== req.params.id) {
+    return res.status(403).json({ error: "Você só pode consultar o seu próprio acerto." });
+  }
+  try {
+    const settlement = getDriverPendingSettlement(req.params.id);
+    res.json({ settlement });
+  } catch (e) {
+    res.status(404).json({ error: e.message });
+  }
+});
+
+app.post("/api/drivers/:id/settle", requireRole("ADMIN", "GERENTE", "ATENDIMENTO", "EXPEDICAO"), (req, res) => {
+  const { basePay, notes } = req.body || {};
+  try {
+    const settled = settleDriver({
+      driverId: req.params.id,
+      settledBy: req.user.name || req.user.username || "Operador",
+      basePay,
+      notes,
+    });
+    audit(req.user.username, "acerto_motoboy_concluido", `${settled.driver?.name || "Entregador"} · ${settled.deliveries_count || settled.deliveriesCount || 0} entregas · Saldo: R$ ${settled.net_balance ?? settled.netBalance}`);
+    broadcast();
+    res.json({ ok: true, settlement: settled });
+  } catch (e) {
+    res.status(400).json({ error: e.message });
+  }
+});
+
+app.get("/api/settlements", requireRole("ADMIN", "GERENTE", "ATENDIMENTO", "EXPEDICAO"), (req, res) => {
+  const limit = Math.min(100, Math.max(1, parseInt(req.query.limit || "30", 10)));
+  const settlements = getSettlementsHistory(limit);
+  res.json({ settlements });
 });
 
 app.post("/api/orders/:id/items", requireRole("ADMIN", "GERENTE", "ATENDIMENTO", "COZINHA"), (req, res) => {
