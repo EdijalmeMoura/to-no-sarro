@@ -33,8 +33,10 @@ export function runMigrations(db) {
 import * as m001 from "./001_service_charge.js";
 import * as m002 from "./002_geo.js";
 import * as m003 from "./003_split_pay.js";
+import * as m004 from "./004_idempotency.js";
+import * as m005 from "./005_session_security.js";
 
-const MIGRATIONS = [m001, m002, m003];
+const MIGRATIONS = [m001, m002, m003, m004, m005];
 
 export function runMigrationsSync(db) {
   db.exec(`

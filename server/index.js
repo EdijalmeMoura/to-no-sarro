@@ -40,6 +40,7 @@ import { validateSettings } from "./schemas/settings.js";
 import { validateProduct } from "./schemas/products.js";
 import { optimizeDeliveryRoute } from "./routing/osrm.js";
 import { logger, requestLogger, setupErrorHandlers } from "./observability/logger.js";
+import { xssSanitizer } from "./utils/sanitize.js";
 import { waCredentials, normalizePhone, buildOrderMessage, sendWhatsApp } from "./messaging/whatsapp.js";
 import * as ifood from "./integrations/ifood.js";
 import * as escpos from "./printing/escpos.js";
@@ -76,34 +77,63 @@ setInterval(() => {
   for (const [k, b] of rateBuckets) if (now - b.start > 60000*5) rateBuckets.delete(k);
 }, 60000).unref?.();
 
-// Idempotency keys para evitar duplicação de pedidos ao recarregar
-const idempotencyKeys = new Map(); // key -> { response, createdAt }
+// Idempotency keys persistidos em DB para evitar duplicação de pedidos ao recarregar
+// Fallback em memória se tabela ainda não existir (durante migração)
+const idempotencyMemory = new Map();
 function idempotencyMiddleware(req, res, next) {
   const key = req.headers['x-idempotency-key'] || req.headers['idempotency-key'];
   if (!key) return next();
   
-  const existing = idempotencyKeys.get(key);
-  if (existing) {
-    // Retorna resposta cacheada se dentro de 24h
-    if (Date.now() - existing.createdAt < 24*60*60*1000) {
+  // Sanitiza key
+  const cleanKey = String(key).slice(0, 100).replace(/[^a-zA-Z0-9-_]/g, "");
+  if (!cleanKey) return next();
+  
+  try {
+    // Tenta buscar no DB
+    const row = db.prepare("SELECT * FROM idempotency_keys WHERE key = ?").get(cleanKey);
+    if (row) {
+      if (Date.now() - row.created_at < 24*60*60*1000) {
+        try {
+          const body = JSON.parse(row.body);
+          return res.status(row.status).json(body);
+        } catch {
+          // se falhar parse, apaga
+          db.prepare("DELETE FROM idempotency_keys WHERE key = ?").run(cleanKey);
+        }
+      } else {
+        db.prepare("DELETE FROM idempotency_keys WHERE key = ?").run(cleanKey);
+      }
+    }
+  } catch (e) {
+    // Tabela pode não existir ainda, usa memória como fallback
+    const existing = idempotencyMemory.get(cleanKey);
+    if (existing && Date.now() - existing.createdAt < 24*60*60*1000) {
       return res.status(existing.status).json(existing.body);
     }
-    idempotencyKeys.delete(key);
   }
   
   // Intercepta res.json para cachear
   const originalJson = res.json.bind(res);
   res.json = (body) => {
     if (res.statusCode < 400) {
-      idempotencyKeys.set(key, {
-        status: res.statusCode,
-        body,
-        createdAt: Date.now(),
-      });
-      // limpeza
-      if (idempotencyKeys.size > 1000) {
-        const first = idempotencyKeys.keys().next().value;
-        idempotencyKeys.delete(first);
+      try {
+        db.prepare("INSERT INTO idempotency_keys (key, status, body, created_at) VALUES (?, ?, ?, ?) ON CONFLICT(key) DO UPDATE SET status=excluded.status, body=excluded.body, created_at=excluded.created_at")
+          .run(cleanKey, res.statusCode, JSON.stringify(body), Date.now());
+        // limpeza periódica de chaves antigas
+        if (Math.random() < 0.05) {
+          db.prepare("DELETE FROM idempotency_keys WHERE created_at < ?").run(Date.now() - 24*60*60*1000);
+        }
+      } catch (e) {
+        // fallback memória
+        idempotencyMemory.set(cleanKey, {
+          status: res.statusCode,
+          body,
+          createdAt: Date.now(),
+        });
+        if (idempotencyMemory.size > 1000) {
+          const first = idempotencyMemory.keys().next().value;
+          idempotencyMemory.delete(first);
+        }
       }
     }
     return originalJson(body);
@@ -124,8 +154,22 @@ seedIfEmpty();
 const app = express();
 app.set('trust proxy', 1);
 app.use(helmet({
-  contentSecurityPolicy: false, // desabilitado para permitir inline styles do app legado
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc: ["'self'"],
+      scriptSrc: ["'self'", "'unsafe-inline'", "'unsafe-eval'", "https://api.qrserver.com"],
+      styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
+      imgSrc: ["'self'", "data:", "https:", "blob:", "https://api.qrserver.com"],
+      connectSrc: ["'self'", "ws:", "wss:", "https://router.project-osrm.org", "https://nominatim.openstreetmap.org", "https://api.qrserver.com"],
+      fontSrc: ["'self'", "https://fonts.gstatic.com", "data:"],
+      objectSrc: ["'none'"],
+      baseUri: ["'self'"],
+      formAction: ["'self'"],
+      frameAncestors: ["'self'"],
+    },
+  },
   crossOriginEmbedderPolicy: false,
+  crossOriginOpenerPolicy: { policy: "same-origin-allow-popups" },
 }));
 app.use(cors({
   origin: process.env.CORS_ORIGIN || true,
@@ -170,6 +214,7 @@ app.use((req, res, next) => {
 });
 
 app.use(requestLogger);
+app.use(xssSanitizer);
 app.use(attachUser);
 
 // ------------------------------------------------------------

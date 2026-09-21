@@ -1,6 +1,7 @@
 // ============================================================
 // TÔ NO SARRO — Autenticação: bcrypt + sessão em cookie httpOnly
 // Sem tokens no frontend; roles validadas em cada rota.
+// Sprint4-6: rotação segura, detecção de reuso, IP/UA tracking
 // ============================================================
 
 import crypto from "node:crypto";
@@ -59,7 +60,13 @@ export function login(req, res) {
   db.prepare("UPDATE users SET last_login_at = ? WHERE id = ?").run(Date.now(), user.id);
 
   const token = crypto.randomBytes(32).toString("hex");
-  db.prepare("INSERT INTO sessions (token, user_id, created_at) VALUES (?, ?, ?)").run(token, user.id, Date.now());
+  const ua = String(req.headers["user-agent"] || "").slice(0, 200);
+  try {
+    db.prepare("INSERT INTO sessions (token, user_id, created_at, ip, user_agent) VALUES (?, ?, ?, ?, ?)").run(token, user.id, Date.now(), ip, ua);
+  } catch {
+    // fallback para schema antigo sem ip/ua
+    db.prepare("INSERT INTO sessions (token, user_id, created_at) VALUES (?, ?, ?)").run(token, user.id, Date.now());
+  }
   // limpeza de sessões expiradas
   db.prepare("DELETE FROM sessions WHERE created_at < ?").run(Date.now() - SESSION_TTL);
 
@@ -68,16 +75,21 @@ export function login(req, res) {
     sameSite: "lax",
     path: "/",
     maxAge: SESSION_TTL,
-    // https real (proxy/TLS) ou APP_BASE_URL https:// ou SECURE_COOKIE=1 → só viaja por TLS
     secure: req.secure || (process.env.APP_BASE_URL || "").startsWith("https://") || process.env.SECURE_COOKIE === "1",
   });
-  audit(user.username, "login", `ip ${ip}`);
+  audit(user.username, "login", `ip ${ip} · ${ua.slice(0,50)}`);
   res.json({ user: publicUser(user) });
 }
 
 export function logout(req, res) {
   const token = req.cookies?.[COOKIE];
-  if (token) db.prepare("DELETE FROM sessions WHERE token = ?").run(token);
+  if (token) {
+    try {
+      db.prepare("DELETE FROM sessions WHERE token = ? OR previous_token = ?").run(token, token);
+    } catch {
+      db.prepare("DELETE FROM sessions WHERE token = ?").run(token);
+    }
+  }
   res.clearCookie(COOKIE, { path: "/" });
   res.json({ ok: true });
 }
@@ -93,14 +105,33 @@ export function logoutAll(req, res) {
 export function refreshSession(req, res) {
   const token = req.cookies?.[COOKIE];
   if (!token) return res.status(401).json({ error: "Sessão expirada." });
-  const row = db.prepare(`SELECT u.*, s.created_at FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.token = ?`).get(token);
+  
+  // Verifica se token é um previous_token (reuso detectado - possível roubo)
+  try {
+    const reuse = db.prepare(`SELECT u.*, s.id as sid FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.previous_token = ?`).get(token);
+    if (reuse) {
+      // Reuso detectado! Invalida todas sessões do usuário por segurança
+      db.prepare("DELETE FROM sessions WHERE user_id = ?").run(reuse.id);
+      audit(reuse.username, "session_reuse_detected", `possível roubo de sessão · ip ${req.ip}`);
+      res.clearCookie(COOKIE, { path: "/" });
+      return res.status(401).json({ error: "Sessão comprometida. Faça login novamente." });
+    }
+  } catch {}
+  
+  const row = db.prepare(`SELECT u.*, s.created_at, s.id as sid FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.token = ?`).get(token);
   if (!row || row.active === 0) return res.status(401).json({ error: "Sessão inválida." });
   
-  // Se sessão tem mais de 1 dia, renova
+  // Se sessão tem mais de 1 dia, rotaciona com detecção de reuso
   const age = Date.now() - row.created_at;
   if (age > 24*60*60*1000) {
     const newToken = crypto.randomBytes(32).toString("hex");
-    db.prepare("UPDATE sessions SET token = ?, created_at = ? WHERE token = ?").run(newToken, Date.now(), token);
+    try {
+      db.prepare("UPDATE sessions SET token = ?, previous_token = ?, rotated_at = ?, created_at = ?, ip = ?, user_agent = ? WHERE id = ?")
+        .run(newToken, token, Date.now(), Date.now(), req.ip || "?", String(req.headers["user-agent"]||"").slice(0,200), row.sid);
+    } catch {
+      // fallback schema antigo
+      db.prepare("UPDATE sessions SET token = ?, created_at = ? WHERE token = ?").run(newToken, Date.now(), token);
+    }
     res.cookie(COOKIE, newToken, {
       httpOnly: true,
       sameSite: "lax",
@@ -108,7 +139,7 @@ export function refreshSession(req, res) {
       maxAge: SESSION_TTL,
       secure: req.secure || (process.env.APP_BASE_URL || "").startsWith("https://") || process.env.SECURE_COOKIE === "1",
     });
-    audit(row.username, "session_refresh", `idade ${Math.round(age/3600000)}h`);
+    audit(row.username, "session_refresh", `idade ${Math.round(age/3600000)}h · ip ${req.ip}`);
     return res.json({ user: publicUser(row), refreshed: true });
   }
   res.json({ user: publicUser(row), refreshed: false });
@@ -116,14 +147,35 @@ export function refreshSession(req, res) {
 
 // Preenche req.user (ou null) a partir do cookie de sessão.
 // Conta desativada perde o acesso na hora, mesmo com cookie válido.
+// Também detecta reuso de previous_token (roubo de sessão)
 export function attachUser(req, _res, next) {
   req.user = null;
   const token = req.cookies?.[COOKIE];
   if (token) {
+    // Verifica reuso de token antigo (indica roubo)
+    try {
+      const reuse = db.prepare(`SELECT user_id FROM sessions WHERE previous_token = ?`).get(token);
+      if (reuse) {
+        // Token antigo sendo reusado após rotação - possível ataque
+        // Invalida todas sessões do usuário
+        db.prepare("DELETE FROM sessions WHERE user_id = ?").run(reuse.user_id);
+        // Não preenche req.user, força logout
+        return next();
+      }
+    } catch {}
+    
     const row = db.prepare(`
       SELECT u.* FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.token = ?
     `).get(token);
-    if (row && row.active !== 0) req.user = row;
+    if (row && row.active !== 0) {
+      // Verifica expiração
+      const session = db.prepare("SELECT created_at FROM sessions WHERE token = ?").get(token);
+      if (session && Date.now() - session.created_at > SESSION_TTL) {
+        db.prepare("DELETE FROM sessions WHERE token = ?").run(token);
+      } else {
+        req.user = row;
+      }
+    }
   }
   next();
 }
