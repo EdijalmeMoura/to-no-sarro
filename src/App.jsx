@@ -129,24 +129,27 @@ const css = `
   /* Esconde scrollbar mas mantém scroll */
   .no-scrollbar { scrollbar-width: none; -ms-overflow-style: none; }
   .no-scrollbar::-webkit-scrollbar { display: none; width: 0; height: 0; }
-  /* Carrossel base */
+  /* Carrossel base — proximity evita o loop de voltar pro início no mobile */
   .sarro-carousel {
     display: flex;
     gap: 12px;
     overflow-x: auto;
     overflow-y: hidden;
-    scroll-snap-type: x mandatory;
+    scroll-snap-type: x proximity;
     scroll-padding-left: 16px;
-    scroll-padding-right: 16px;
+    scroll-padding-right: 24px;
     -webkit-overflow-scrolling: touch;
     scrollbar-width: none;
     overscroll-behavior-x: contain;
+    overscroll-behavior-y: auto;
     cursor: grab;
+    touch-action: pan-y pinch-zoom;
+    scroll-behavior: auto;
   }
   .sarro-carousel:active { cursor: grabbing; }
   .sarro-carousel::-webkit-scrollbar { display: none; }
   .sarro-carousel-item { scroll-snap-align: start; scroll-snap-stop: normal; flex-shrink: 0; }
-  .sarro-carousel.dragging, .sarro-chips.dragging { scroll-snap-type: none; user-select: none; }
+  .sarro-carousel.dragging, .sarro-chips.dragging { scroll-snap-type: none !important; user-select: none; -webkit-user-select: none; }
   .sarro-carousel.dragging * , .sarro-chips.dragging * { pointer-events: none; }
   /* Chips categoria */
   .sarro-chips {
@@ -162,6 +165,7 @@ const css = `
     cursor: grab;
     scroll-padding-left: 12px;
     scroll-padding-right: 12px;
+    touch-action: pan-y pinch-zoom;
   }
   .sarro-chips:active { cursor: grabbing; }
   .sarro-chips::-webkit-scrollbar { display: none; }
@@ -397,13 +401,13 @@ function useDragScroll() {
   const [isDragging, setIsDragging] = useState(false);
   const [canLeft, setCanLeft] = useState(false);
   const [canRight, setCanRight] = useState(false);
-  const drag = useRef({ startX: 0, scrollLeft: 0, moved: false, suppressClick: false });
+  const drag = useRef({ startX: 0, scrollLeft: 0, moved: false, suppress: false, pointerId: null });
 
   const update = () => {
     const el = ref.current;
     if (!el) return;
     const left = el.scrollLeft > 8;
-    const right = el.scrollLeft + el.clientWidth < el.scrollWidth - 8;
+    const right = el.scrollLeft + el.clientWidth < el.scrollWidth - 10;
     setCanLeft(left);
     setCanRight(right);
   };
@@ -412,49 +416,73 @@ function useDragScroll() {
     const el = ref.current;
     if (!el) return;
     update();
-    el.addEventListener("scroll", update, { passive: true });
+    const onScroll = () => update();
+    el.addEventListener("scroll", onScroll, { passive: true });
     const ro = new ResizeObserver(update);
     ro.observe(el);
-    return () => { el.removeEventListener("scroll", update); ro.disconnect(); };
+    // checa de novo após imagens carregarem
+    const t = setTimeout(update, 300);
+    return () => { el.removeEventListener("scroll", onScroll); ro.disconnect(); clearTimeout(t); };
   }, []);
 
   const onPointerDown = (e) => {
+    if (e.pointerType === "mouse" && e.button !== 0) return;
     const el = ref.current;
     if (!el) return;
-    setIsDragging(true);
-    drag.current.moved = false;
-    drag.current.suppressClick = false;
-    const x = e.touches ? e.touches[0].clientX : e.clientX;
-    drag.current.startX = x - el.offsetLeft;
+    drag.current.startX = e.clientX;
     drag.current.scrollLeft = el.scrollLeft;
+    drag.current.moved = false;
+    drag.current.suppress = false;
+    drag.current.pointerId = e.pointerId;
+    setIsDragging(true);
     el.classList.add("dragging");
+    try { el.setPointerCapture(e.pointerId); } catch {}
   };
+
   const onPointerMove = (e) => {
     const el = ref.current;
     if (!isDragging || !el) return;
-    const x = e.touches ? e.touches[0].clientX : e.clientX;
-    const walk = (x - el.offsetLeft - drag.current.startX) * 1.25;
-    if (Math.abs(walk) > 6) {
+    // só o ponteiro que iniciou arrasta
+    if (drag.current.pointerId !== null && e.pointerId !== drag.current.pointerId) return;
+    const dx = e.clientX - drag.current.startX;
+    if (!drag.current.moved && Math.abs(dx) < 5) return;
+    if (Math.abs(dx) >= 5) {
       drag.current.moved = true;
-      drag.current.suppressClick = true;
+      drag.current.suppress = true;
     }
-    if (drag.current.moved) {
-      if (e.cancelable) e.preventDefault?.();
-      el.scrollLeft = drag.current.scrollLeft - walk;
-    }
+    // arrasto real: sem multiplicador exagerado, evita pulo
+    el.scrollLeft = drag.current.scrollLeft - dx;
   };
-  const onPointerUp = () => {
+
+  const endDrag = (e) => {
     const el = ref.current;
     if (!el) return;
+    if (drag.current.pointerId !== null) {
+      try { el.releasePointerCapture(drag.current.pointerId); } catch {}
+    }
     setIsDragging(false);
     el.classList.remove("dragging");
-    if (drag.current.suppressClick) {
+    // mantém snap desativado por um instante pra não dar snap-back pro início
+    if (drag.current.suppress) {
+      el.style.scrollSnapType = "none";
       setTimeout(() => {
+        if (el) el.style.scrollSnapType = "";
         drag.current.moved = false;
-        drag.current.suppressClick = false;
-      }, 120);
+        drag.current.suppress = false;
+        update();
+      }, 180);
     } else {
       drag.current.moved = false;
+      drag.current.suppress = false;
+    }
+    drag.current.pointerId = null;
+    update();
+  };
+
+  const onClickCapture = (e) => {
+    if (drag.current.suppress) {
+      e.preventDefault();
+      e.stopPropagation();
     }
   };
 
@@ -465,25 +493,16 @@ function useDragScroll() {
     el.scrollBy({ left: amount, behavior: "smooth" });
   };
 
-  const onClickCapture = (e) => {
-    if (drag.current.suppressClick) {
-      e.preventDefault();
-      e.stopPropagation();
-    }
-  };
-
   const handlers = {
-    onMouseDown: onPointerDown,
-    onMouseMove: onPointerMove,
-    onMouseUp: onPointerUp,
-    onMouseLeave: onPointerUp,
-    onTouchStart: onPointerDown,
-    onTouchMove: onPointerMove,
-    onTouchEnd: onPointerUp,
+    onPointerDown,
+    onPointerMove,
+    onPointerUp: endDrag,
+    onPointerCancel: endDrag,
+    onPointerLeave: (e) => { if (isDragging) endDrag(e); },
     onClickCapture,
   };
 
-  return { ref, isDragging, canLeft, canRight, scrollBy, handlers, moved: drag.current.moved, update };
+  return { ref, isDragging, canLeft, canRight, scrollBy, handlers, update };
 }
 
 function CarouselShell({ children, className = "", gap = 12, showArrows = true, fade = true }) {
@@ -493,7 +512,7 @@ function CarouselShell({ children, className = "", gap = 12, showArrows = true, 
       <div
         ref={ref}
         className={`sarro-carousel no-scrollbar ${isDragging ? "dragging" : ""} ${className}`}
-        style={{ gap }}
+        style={{ gap, touchAction: "pan-y pinch-zoom" }}
         {...handlers}
       >
         {children}
@@ -1054,6 +1073,7 @@ function MenuScreen({ store, onOpen }) {
             <div
               ref={chipsHook.ref}
               className="sarro-chips no-scrollbar"
+              style={{ touchAction: "pan-y pinch-zoom" }}
               {...chipsHook.handlers}
             >
               {(store.categories.length ? store.categories : CATEGORIES).map((c) => {
