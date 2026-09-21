@@ -6,6 +6,7 @@ import { buildMesaIndex } from "../../utils/mesa.js";
 import { api } from "../../utils/api.js";
 import { printHTML } from "../../utils/print.js";
 import { Card, KPI, Btn } from "../ui/index.jsx";
+import SplitBillModal from "./SplitBillModal.jsx";
 
 export default function AdminTables({ store, now }) {
   const [filter, setFilter] = useState("TODAS"); // TODAS | LIVRES | OCUPADAS
@@ -19,7 +20,9 @@ export default function AdminTables({ store, now }) {
   const [custName, setCustName] = useState("");
   const [cartItems, setCartItems] = useState({});
   const [obs, setObs] = useState("");
-  const [serviceCharge, setServiceCharge] = useState(true);
+  const [serviceCharge, setServiceCharge] = useState(store.settings?.serviceChargeEnabled ?? true);
+  const servicePercent = store.settings?.serviceChargePercent ?? 10;
+  const [splitModal, setSplitModal] = useState(null);
   const [payMethod, setPayMethod] = useState("Cartão");
   const [busy, setBusy] = useState(false);
 
@@ -202,7 +205,7 @@ export default function AdminTables({ store, now }) {
     if (!t.occupied) return;
     const items = t.items;
     const subtotal = t.total;
-    const serv = serviceCharge ? subtotal * 0.1 : 0;
+    const serv = serviceCharge ? subtotal * (servicePercent/100) : 0;
     const totalFinal = subtotal + serv;
     const codes = t.orders.map((o) => `#${o.code}`).join(", ");
     const oldest = t.orders.reduce((min, o) => Math.min(min, o.createdAt), Date.now());
@@ -227,7 +230,7 @@ export default function AdminTables({ store, now }) {
         </div>
         <div style="border-top:1px dashed #ccc; padding-top:6px;">
           <div style="display:flex; justify-content:space-between;"><span>Subtotal:</span><span>${brl(subtotal)}</span></div>
-          ${serviceCharge ? `<div style="display:flex; justify-content:space-between; color:#555;"><span>Serviço (10%):</span><span>${brl(serv)}</span></div>` : ""}
+          ${serviceCharge ? `<div style="display:flex; justify-content:space-between; color:#555;"><span>Serviço (${servicePercent}%):</span><span>${brl(serv)}</span></div>` : ""}
           <div style="display:flex; justify-content:space-between; font-weight:bold; font-size:14px; margin-top:4px;">
             <span>TOTAL:</span><span>${brl(totalFinal)}</span>
           </div>
@@ -407,7 +410,14 @@ export default function AdminTables({ store, now }) {
                       ↔️ Trocar Mesa
                     </button>
                   </div>
-                  <div className="grid grid-cols-2 gap-1.5">
+                  <div className="grid grid-cols-3 gap-1.5 mb-1.5">
+                    <button
+                      onClick={() => setSplitModal(t)}
+                      className="rounded-lg py-1.5 font-bold text-xs transition active:scale-95"
+                      style={{ background: `${C.blue}22`, color: C.blue, border: `1px solid ${C.blue}66` }}
+                    >
+                      ✂️ Dividir
+                    </button>
                     <button
                       onClick={() => printTableBill(t)}
                       className="rounded-lg py-1.5 font-bold text-xs transition active:scale-95"
@@ -420,7 +430,7 @@ export default function AdminTables({ store, now }) {
                       className="rounded-lg py-1.5 font-bold text-xs transition active:scale-95 text-black"
                       style={{ background: C.green }}
                     >
-                      💵 Fechar Mesa
+                      💵 Fechar
                     </button>
                   </div>
                 </div>
@@ -831,14 +841,14 @@ export default function AdminTables({ store, now }) {
                   <span>Taxa de serviço 10% (opcional)</span>
                 </label>
                 <span style={{ color: serviceCharge ? C.green : "#555" }}>
-                  {brl(serviceCharge ? closeModal.total * 0.1 : 0)}
+                  {brl(serviceCharge ? closeModal.total * (servicePercent/100) : 0)}
                 </span>
               </div>
 
               <div className="flex justify-between items-center pt-2 border-t border-gray-800 font-black text-sm">
                 <span style={{ color: C.white }}>TOTAL A COBRAR:</span>
                 <span style={{ color: C.yellowLight, fontSize: 18 }}>
-                  {brl(closeModal.total + (serviceCharge ? closeModal.total * 0.1 : 0))}
+                  {brl(closeModal.total + (serviceCharge ? closeModal.total * (servicePercent/100) : 0))}
                 </span>
               </div>
             </div>

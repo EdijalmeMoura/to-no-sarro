@@ -33,13 +33,17 @@ import { attachUser, requireRole, login, logout, publicUser, ROLES } from "./aut
 import { createCheckoutLink, paymentCheck, cents } from "./payments/infinitepay.js";
 import { generatePixBRCode } from "./payments/pix.js";
 import { validateOrder } from "./schemas/orders.js";
+import { optimizeDeliveryRoute } from "./routing/osrm.js";
+import { logger, requestLogger, setupErrorHandlers } from "./observability/logger.js";
 import { waCredentials, normalizePhone, buildOrderMessage, sendWhatsApp } from "./messaging/whatsapp.js";
 import * as ifood from "./integrations/ifood.js";
 import * as escpos from "./printing/escpos.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+setupErrorHandlers();
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+setupErrorHandlers();
 
 // Rate limiter simples em memória para rotas públicas
 const rateBuckets = new Map();
@@ -115,6 +119,7 @@ app.use((req, res, next) => {
   next();
 });
 
+app.use(requestLogger);
 app.use(attachUser);
 
 // ------------------------------------------------------------
@@ -605,6 +610,26 @@ app.post("/api/routes/dispatch", requireRole("ADMIN", "GERENTE", "ATENDIMENTO", 
     res.json({ ok: true, routeId: result.routeId, count: result.count, orders: getOrders().filter((o) => orderIds.includes(o.id)) });
   } catch (e) {
     res.status(400).json({ error: e.message });
+  }
+});
+
+app.post("/api/routes/optimize", requireRole("ADMIN", "GERENTE", "ATENDIMENTO", "EXPEDICAO"), async (req, res) => {
+  const { orderIds } = req.body || {};
+  if (!Array.isArray(orderIds) || orderIds.length === 0) {
+    return res.status(400).json({ error: "Selecione pedidos para otimizar." });
+  }
+  try {
+    const allOrders = getOrders();
+    const orders = allOrders.filter(o => orderIds.includes(o.id));
+    if (orders.length === 0) return res.status(404).json({ error: "Nenhum pedido encontrado." });
+    const settings = getSettings();
+    const storeAddress = settings.address || "Av. Cláudio José Gueiros Leite, 3200 — Janga, Paulista/PE";
+    const result = await optimizeDeliveryRoute(orders, storeAddress);
+    audit(req.user.username, "rota_otimizada", `${orders.length} pedidos · ${result.optimized ? 'otimizada' : 'original'} · ${Math.round(result.distance||0)}m`);
+    res.json(result);
+  } catch (e) {
+    console.error("[osrm] optimize erro:", e);
+    res.status(500).json({ error: "Falha ao otimizar rota: " + e.message });
   }
 });
 
@@ -1889,6 +1914,8 @@ app.patch("/api/settings", requireRole("ADMIN", "GERENTE"), (req, res) => {
   }
   if (typeof b.printer_enabled === "boolean") setSetting("printer_enabled", b.printer_enabled ? "1" : "0");
   if (typeof b.printer_auto === "boolean") setSetting("printer_auto", b.printer_auto ? "1" : "0");
+  if (typeof b.service_charge_enabled === "boolean") setSetting("service_charge_enabled", b.service_charge_enabled ? "1" : "0");
+  if (typeof b.service_charge_percent === "number" && b.service_charge_percent >= 0 && b.service_charge_percent <= 30) setSetting("service_charge_percent", String(b.service_charge_percent));
   audit(req.user.username, "config", JSON.stringify(b).slice(0, 200));
   broadcast();
   res.json({ ok: true });

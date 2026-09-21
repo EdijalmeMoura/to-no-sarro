@@ -4,6 +4,7 @@ import { getOrderModality as getOrderModalityUtil } from "./utils/orderModality.
 import { extractTableNumber, getOrderTableNumber, buildMesaIndex } from "./utils/mesa.js";
 import AdminTablesModular from "./components/tables/AdminTables.jsx";
 import TrackScreenModular from "./components/track/TrackScreen.jsx";
+import ServiceChargeCard from "./components/admin/ServiceChargeCard.jsx";
 
 // ============================================================
 // TÔ NO SARRO! — SMART FOOD SYSTEM
@@ -4599,6 +4600,7 @@ function AdminSettings({ store, now }) {
       <AdminPrinterCard store={store} />
       <AdminStoreCard store={store} />
       <AdminModalitiesCard store={store} />
+      <ServiceChargeCard store={store} />
 
       <Card className="p-4 lg:col-span-2">
         <div style={{ color: C.white, fontWeight: 900, fontSize: 14, marginBottom: 10 }}>Usuários e permissões</div>
@@ -6235,6 +6237,8 @@ function ExpeditionApp({ store, now }) {
   const [selectedOrderIds, setSelectedOrderIds] = useState([]);
   const [batchDriverId, setBatchDriverId] = useState("");
   const [dispatchingRoute, setDispatchingRoute] = useState(false);
+  const [optimizing, setOptimizing] = useState(false);
+  const [optimizedOrder, setOptimizedOrder] = useState(null);
   const [settlementDriver, setSettlementDriver] = useState(null);
   const [showHistoryModal, setShowHistoryModal] = useState(false);
   const lastReadyCount = useRef(0);
@@ -6273,11 +6277,41 @@ function ExpeditionApp({ store, now }) {
       store.toast(`🚀 Rota com ${selectedOrderIds.length} paradas despachada com sucesso!`);
       setSelectedOrderIds([]);
       setBatchDriverId("");
+      setOptimizedOrder(null);
     } catch (err) {
       store.toast(err.message || "Erro ao despachar rota multi-paradas");
     } finally {
       setDispatchingRoute(false);
     }
+  };
+
+  const handleOptimizeRoute = async () => {
+    if (selectedOrderIds.length < 2) {
+      store.toast("Selecione pelo menos 2 pedidos para otimizar");
+      return;
+    }
+    setOptimizing(true);
+    try {
+      const res = await fetch("/api/routes/optimize", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "same-origin",
+        body: JSON.stringify({ orderIds: selectedOrderIds })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Falha ao otimizar");
+      if (data.optimized) {
+        const newOrder = data.orders.map(o => o.id);
+        setSelectedOrderIds(newOrder);
+        setOptimizedOrder(data);
+        store.toast(`✅ Rota otimizada! ${Math.round(data.distance/1000*10)/10}km · ${Math.round(data.duration/60)}min`);
+      } else {
+        store.toast(`⚠️ Não foi possível otimizar (${data.reason}), mantendo ordem original`);
+      }
+    } catch (e) {
+      store.toast(e.message);
+    }
+    setOptimizing(false);
   };
 
   return (
@@ -6569,7 +6603,7 @@ function ExpeditionApp({ store, now }) {
                 {selectedOrderIds.length} {selectedOrderIds.length === 1 ? "entrega selecionada" : "entregas selecionadas na rota"}
               </div>
               <div style={{ color: "#a0a0a0", fontSize: 11 }}>
-                Despache para um motoboy em rota otimizada multi-paradas
+                {optimizedOrder ? `✅ Otimizada: ${Math.round(optimizedOrder.distance/1000*10)/10}km · ${Math.round(optimizedOrder.duration/60)}min` : "Despache para um motoboy em rota otimizada multi-paradas"}
               </div>
             </div>
           </div>
@@ -6590,6 +6624,16 @@ function ExpeditionApp({ store, now }) {
             </select>
 
             <button
+              disabled={optimizing || selectedOrderIds.length < 2}
+              onClick={handleOptimizeRoute}
+              className="px-3 py-2 rounded-xl font-black text-xs text-white active:scale-95 transition flex items-center gap-1 disabled:opacity-50"
+              style={{ background: selectedOrderIds.length < 2 ? C.gray800 : `${C.blue}DD`, border: `1px solid ${C.blue}` }}
+            >
+              <span>{optimizing ? "⏳" : "🗺️"}</span>
+              <span>{optimizing ? "Otimizando..." : "Otimizar (OSRM)"}</span>
+            </button>
+
+            <button
               disabled={dispatchingRoute || !batchDriverId}
               onClick={handleBatchDispatch}
               className="px-4 py-2 rounded-xl font-black text-xs text-black active:scale-95 transition flex items-center gap-1.5 disabled:opacity-50"
@@ -6601,7 +6645,7 @@ function ExpeditionApp({ store, now }) {
 
             <a
               href={buildGoogleMapsMultiStopUrl(
-                selectedOrderIds.map((id) => store.orders.find((o) => o.id === id)).filter(Boolean),
+                (optimizedOrder?.orders || selectedOrderIds.map((id) => store.orders.find((o) => o.id === id)).filter(Boolean)),
                 store.settings?.address
               )}
               target="_blank"

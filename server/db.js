@@ -14,6 +14,7 @@ import {
   DRIVERS, CUSTOMERS, INVENTORY, PROMOS, USERS, SETTINGS,
 } from "./data.js";
 import { generatePixBRCode } from "./payments/pix.js";
+import { runMigrationsSync } from "./migrations/index.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // Em produção (ex.: Render Disk), aponte DATA_DIR para o volume persistente
@@ -241,6 +242,10 @@ db.exec(`
 
   CREATE INDEX IF NOT EXISTS idx_settle_driver ON driver_settlements(driver_id);
 `);
+
+// Sistema de migrations versionado (Sprint 3)
+try { runMigrationsSync(db); } catch (e) { console.error('[db] falha nas migrations', e); }
+
 
 // Migrações leves: adiciona colunas novas em bancos já existentes
 function addColumnIfMissing(table, col, ddl) {
@@ -557,6 +562,8 @@ export function getSettings() {
     pixKey: s.pix_key || "",
     tablesEnabled: s.tables_enabled === "1",
     tablesCount: parseInt(s.tables_count || "10", 10),
+    serviceChargeEnabled: s.service_charge_enabled === "1",
+    serviceChargePercent: parseFloat(s.service_charge_percent || "10"),
   };
 }
 
@@ -657,6 +664,12 @@ export function getOrders(opts = {}) {
       settlementId: o.settlement_id || null,
       tableNumber: o.table_number || null,
       tableName: o.table_name || null,
+      serviceCharge: o.service_charge || 0,
+      serviceChargePercent: o.service_charge_percent || 0,
+      customerLat: o.customer_lat || null,
+      customerLng: o.customer_lng || null,
+      splitGroup: o.split_group || null,
+      splitPeople: o.split_people || 1,
       items: byOrder.get(o.id) || [],
     };
   });
