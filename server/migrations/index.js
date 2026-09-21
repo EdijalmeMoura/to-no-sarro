@@ -32,8 +32,9 @@ export function runMigrations(db) {
 // Versão síncrona com imports estáticos para evitar async no startup
 import * as m001 from "./001_service_charge.js";
 import * as m002 from "./002_geo.js";
+import * as m003 from "./003_split_pay.js";
 
-const MIGRATIONS = [m001, m002];
+const MIGRATIONS = [m001, m002, m003];
 
 export function runMigrationsSync(db) {
   db.exec(`

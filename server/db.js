@@ -564,6 +564,9 @@ export function getSettings() {
     tablesCount: parseInt(s.tables_count || "10", 10),
     serviceChargeEnabled: s.service_charge_enabled === "1",
     serviceChargePercent: parseFloat(s.service_charge_percent || "10"),
+    loyaltyEnabled: s.loyalty_enabled === "1",
+    loyaltyPointsPerReal: parseFloat(s.loyalty_points_per_real || "1"),
+    stockAlertEnabled: s.stock_alert_enabled !== "0",
   };
 }
 
@@ -666,6 +669,9 @@ export function getOrders(opts = {}) {
       tableName: o.table_name || null,
       serviceCharge: o.service_charge || 0,
       serviceChargePercent: o.service_charge_percent || 0,
+      tipAmount: o.tip_amount || 0,
+      tipPercent: o.tip_percent || 0,
+      waiterName: o.waiter_name || null,
       customerLat: o.customer_lat || null,
       customerLng: o.customer_lng || null,
       splitGroup: o.split_group || null,
@@ -757,6 +763,90 @@ export function getCashSummary(reg) {
     })),
   };
 }
+
+
+export function getOrderPayments(orderId) {
+  return db.prepare("SELECT * FROM order_payments WHERE order_id = ? ORDER BY created_at").all(orderId).map(p => ({
+    id: p.id,
+    orderId: p.order_id,
+    personIndex: p.person_index,
+    personName: p.person_name,
+    method: p.method,
+    amount: p.amount,
+    createdAt: p.created_at,
+    createdBy: p.created_by,
+  }));
+}
+
+export function addOrderPayment({ orderId, personIndex = 0, personName = "", method, amount, createdBy }) {
+  const order = db.prepare("SELECT * FROM orders WHERE id = ?").get(orderId);
+  if (!order) throw new Error("Pedido não encontrado");
+  const cleanAmount = Math.max(0, parseFloat(amount) || 0);
+  if (cleanAmount <= 0) throw new Error("Valor deve ser maior que zero");
+  
+  const id = crypto.randomUUID();
+  const now = Date.now();
+  db.prepare(`
+    INSERT INTO order_payments (id, order_id, person_index, person_name, method, amount, created_at, created_by)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(id, orderId, personIndex, personName || "", method, cleanAmount, now, createdBy || "sistema");
+  
+  return getOrderPayments(orderId);
+}
+
+export function getWaiterReport(fromTs = 0, toTs = Date.now()) {
+  const rows = db.prepare(`
+    SELECT waiter_name, COUNT(*) as mesas, 
+           COALESCE(SUM(total),0) as total,
+           COALESCE(SUM(service_charge),0) as service,
+           COALESCE(SUM(tip_amount),0) as tips,
+           AVG(CASE WHEN created_at AND started_at THEN (started_at - created_at) ELSE NULL END) as avgPrep
+    FROM orders
+    WHERE waiter_name IS NOT NULL AND waiter_name != '' AND created_at >= ? AND created_at <= ? AND status != 'CANCELADO'
+    GROUP BY waiter_name
+    ORDER BY total DESC
+  `).all(fromTs, toTs);
+  
+  return rows.map(r => ({
+    waiterName: r.waiter_name,
+    mesas: r.mesas,
+    total: Math.round(r.total*100)/100,
+    service: Math.round(r.service*100)/100,
+    tips: Math.round(r.tips*100)/100,
+    avgPrepMs: r.avgPrep,
+  }));
+}
+
+export function getLowStockAlerts() {
+  return db.prepare("SELECT * FROM inventory WHERE qty <= min ORDER BY qty ASC").all().map(i => ({
+    id: i.id, name: i.name, unit: i.unit, qty: i.qty, min: i.min,
+    critical: i.qty <= 0,
+  }));
+}
+
+export function getLoyaltyPoints(phone) {
+  const digits = String(phone||"").replace(/\D/g,"");
+  if (!digits) return null;
+  const customer = db.prepare("SELECT * FROM customers WHERE phone LIKE ?").get(`%${digits.slice(-8)}%`);
+  if (!customer) return null;
+  return { id: customer.id, name: customer.name, points: customer.points || 0, tier: customer.tier };
+}
+
+export function addLoyaltyPoints(phone, amount) {
+  const settings = getSettings();
+  if (!settings.loyaltyEnabled) return null;
+  const pointsPerReal = settings.loyaltyPointsPerReal || 1;
+  const points = Math.floor(amount * pointsPerReal);
+  if (points <= 0) return null;
+  
+  const digits = String(phone||"").replace(/\D/g,"");
+  const customer = db.prepare("SELECT * FROM customers WHERE phone LIKE ?").get(`%${digits.slice(-8)}%`);
+  if (!customer) return null;
+  
+  db.prepare("UPDATE customers SET points = points + ? WHERE id = ?").run(points, customer.id);
+  return { customerId: customer.id, pointsAdded: points, total: (customer.points||0)+points };
+}
+
 
 export function getCurrentCashRegister() {
   const reg = db.prepare(`

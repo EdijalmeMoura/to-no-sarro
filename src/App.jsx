@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import QRCode from "qrcode";
 import { getOrderModality as getOrderModalityUtil } from "./utils/orderModality.js";
+import { useKeyboardShortcuts } from "./hooks/useKeyboardShortcuts.js";
 import { extractTableNumber, getOrderTableNumber, buildMesaIndex } from "./utils/mesa.js";
 import ServiceChargeCard from "./components/admin/ServiceChargeCard.jsx";
 // Lazy load heavy panels for code splitting
@@ -3424,6 +3425,9 @@ export default function App() {
     const p = rolePath(r);
     if (window.location.pathname !== p) window.history.pushState({ role: r }, "", p);
   };
+
+  // Atalhos teclado Sprint6 (M=mesas, E=expedição, C=cozinha, Ctrl+K busca)
+  useKeyboardShortcuts({ store: { role, settings, setTab }, goRole });
 
   if (!ready) return <Splash error={bootError} onRetry={load} />;
 

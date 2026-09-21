@@ -30,6 +30,7 @@ import {
   logIntegration, enqueueWhatsApp, markOutbox, getOutbox, getIntegrationLogs,
   getCurrentCashRegister, openCashRegister, addCashTransaction, closeCashRegister, getCashHistory,
   dispatchMultiStopRoute, getDriverPendingSettlement, settleDriver, getSettlementsHistory,
+  getOrderPayments, addOrderPayment, getWaiterReport, getLowStockAlerts, getLoyaltyPoints, addLoyaltyPoints,
 } from "./db.js";
 import { attachUser, requireRole, login, logout, logoutAll, refreshSession, publicUser, ROLES } from "./auth.js";
 import { createCheckoutLink, paymentCheck, cents } from "./payments/infinitepay.js";
@@ -701,6 +702,122 @@ app.post("/api/routes/optimize", requireRole("ADMIN", "GERENTE", "ATENDIMENTO", 
     res.status(500).json({ error: "Falha ao otimizar rota: " + e.message });
   }
 });
+
+// ============================================================
+// SPLIT CONTA & PAGAMENTOS PARCIAIS (Sprint 6)
+// ============================================================
+
+app.get("/api/orders/:id/payments", requireRole("ADMIN", "GERENTE", "ATENDIMENTO"), (req, res) => {
+  try {
+    const payments = getOrderPayments(req.params.id);
+    res.json({ payments });
+  } catch (e) {
+    res.status(404).json({ error: e.message });
+  }
+});
+
+app.post("/api/orders/:id/payments", requireRole("ADMIN", "GERENTE", "ATENDIMENTO"), (req, res) => {
+  const { personIndex, personName, method, amount } = req.body || {};
+  try {
+    const payments = addOrderPayment({
+      orderId: req.params.id,
+      personIndex: parseInt(personIndex)||0,
+      personName,
+      method: method || "Dinheiro",
+      amount,
+      createdBy: req.user.username,
+    });
+    audit(req.user.username, "pagamento_parcial", `${req.params.id} · ${personName||personIndex} · ${method} · R$ ${amount}`);
+    broadcast();
+    res.status(201).json({ payments });
+  } catch (e) {
+    res.status(400).json({ error: e.message });
+  }
+});
+
+app.patch("/api/orders/:id/tip", requireRole("ADMIN", "GERENTE", "ATENDIMENTO"), (req, res) => {
+  const { tipAmount, tipPercent, waiterName } = req.body || {};
+  const order = db.prepare("SELECT * FROM orders WHERE id = ?").get(req.params.id);
+  if (!order) return res.status(404).json({ error: "Pedido não encontrado" });
+  
+  const tip = Math.max(0, parseFloat(tipAmount)||0);
+  const percent = Math.max(0, Math.min(30, parseFloat(tipPercent)||0));
+  
+  db.prepare("UPDATE orders SET tip_amount = ?, tip_percent = ?, waiter_name = ? WHERE id = ?")
+    .run(tip, percent, waiterName ? String(waiterName).slice(0,50) : order.waiter_name, order.id);
+  
+  audit(req.user.username, "gorjeta", `${req.params.id} · R$ ${tip} (${percent}%) · ${waiterName||""}`);
+  broadcast();
+  res.json({ ok: true, order: getOrders().find(o => o.id === req.params.id) });
+});
+
+// ============================================================
+// RELATÓRIOS AVANÇADOS (Sprint 6)
+// ============================================================
+
+app.get("/api/reports/waiters", requireRole("ADMIN", "GERENTE"), (req, res) => {
+  const from = parseInt(req.query.from) || 0;
+  const to = parseInt(req.query.to) || Date.now();
+  try {
+    const report = getWaiterReport(from, to);
+    res.json({ report });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.get("/api/reports/low-stock", requireRole("ADMIN", "GERENTE", "ATENDIMENTO", "COZINHA"), (req, res) => {
+  try {
+    const alerts = getLowStockAlerts();
+    res.json({ alerts });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.get("/api/loyalty/:phone", requireRole("ADMIN", "GERENTE", "ATENDIMENTO"), (req, res) => {
+  try {
+    const data = getLoyaltyPoints(req.params.phone);
+    if (!data) return res.status(404).json({ error: "Cliente não encontrado" });
+    res.json(data);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ============================================================
+// GEOCODING PERSISTIDO (Sprint 6)
+// ============================================================
+
+app.patch("/api/orders/:id/geo", requireRole("ADMIN", "GERENTE", "EXPEDICAO"), async (req, res) => {
+  const { lat, lng } = req.body || {};
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+    return res.status(400).json({ error: "Lat/lng inválidos" });
+  }
+  try {
+    db.prepare("UPDATE orders SET customer_lat = ?, customer_lng = ? WHERE id = ?").run(lat, lng, req.params.id);
+    broadcast();
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post("/api/orders/:id/geocode", requireRole("ADMIN", "GERENTE", "EXPEDICAO"), async (req, res) => {
+  try {
+    const order = getOrders().find(o => o.id === req.params.id);
+    if (!order) return res.status(404).json({ error: "Pedido não encontrado" });
+    const { geocodeAddress } = await import("./routing/osrm.js");
+    const geo = await geocodeAddress(order.customer?.addr || "");
+    if (!geo) return res.status(404).json({ error: "Não foi possível geocodificar endereço" });
+    db.prepare("UPDATE orders SET customer_lat = ?, customer_lng = ? WHERE id = ?").run(geo.lat, geo.lng, order.id);
+    broadcast();
+    res.json({ ok: true, lat: geo.lat, lng: geo.lng, display: geo.display });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 
 // ============================================================
 // ACERTO DE CONTAS DO MOTOBOY

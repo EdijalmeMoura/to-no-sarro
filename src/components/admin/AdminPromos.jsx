@@ -7,155 +7,147 @@ import { getOrderModality } from "../../utils/orderModality.js";
 import { buildMesaIndex, getOrderTableNumber } from "../../utils/mesa.js";
 import { Card, Btn, KPI, BarChart, Donut, StatusPill, SyncBadge, ChannelPill, Badge, Logo, SmartImg } from "../ui/index.jsx";
 import ServiceChargeCard from "./ServiceChargeCard.jsx";
+import WaiterReport from "./WaiterReport.jsx";
+import LowStockAlerts from "./LowStockAlerts.jsx";
 
+function AdminPromos({ store, now }) {
+  const [couponForm, setCouponForm] = useState(null); // null | "new" | cupom
+  const [promoForm, setPromoForm] = useState(null); // null | "new" | promo
+  const [confirmDel, setConfirmDel] = useState(null); // { kind: "coupon"|"promo", ref }
+  const say = (m) => store.toast(m);
 
-function FormShell({ title, sub, onClose, children }) {
+  const toggleCoupon = (c) =>
+    api(`/api/coupons/${c.code}`, { method: "PATCH", body: { active: !c.active } })
+      .then(() => say(c.active ? `Cupom ${c.code} pausado` : `Cupom ${c.code} ativado ✓`))
+      .catch((e) => say(e.message));
+
+  const togglePromo = (p) =>
+    api(`/api/promos/${p.id}`, { method: "PATCH", body: { active: !p.active } })
+      .then(() => say(p.active ? `“${p.name}” pausada` : `“${p.name}” ativada ✓`))
+      .catch((e) => say(e.message));
+
+  const doDelete = async () => {
+    try {
+      if (confirmDel.kind === "coupon") await api(`/api/coupons/${confirmDel.ref.code}`, { method: "DELETE" });
+      else await api(`/api/promos/${confirmDel.ref.id}`, { method: "DELETE" });
+      say("Excluído");
+    } catch (e) {
+      say(e.message);
+    }
+    setConfirmDel(null);
+  };
+
   return (
-    <div className="fixed inset-0 z-40 flex items-end sm:items-center justify-center" style={{ background: "rgba(0,0,0,.78)" }}>
-      <div
-        className="w-full sm:max-w-md max-h-[92vh] overflow-y-auto p-5"
-        style={{ background: C.gray900, borderTop: `3px solid ${C.orange}`, borderRadius: "22px 22px 0 0" }}
-      >
-        <div className="flex items-start justify-between mb-1">
-          <div>
-            <h3 style={{ fontFamily: font.display, fontStyle: "italic", fontSize: 20, color: C.white }}>{title}</h3>
-            {sub && <div style={{ color: "#8a8a8a", fontSize: 12, marginTop: 2 }}>{sub}</div>}
+    <div className="space-y-5">
+      {confirmDel && (
+        <Card className="p-4" style={{ borderColor: `${C.red}66`, background: `${C.red}12` }}>
+          <div style={{ color: C.white, fontWeight: 800, fontSize: 13 }}>
+            Excluir {confirmDel.kind === "coupon" ? `o cupom ${confirmDel.ref.code}` : `a promoção “${confirmDel.ref.name}”`}?
           </div>
-          <button
-            onClick={onClose}
-            className="rounded-full flex items-center justify-center shrink-0"
-            style={{ width: 32, height: 32, background: C.gray800, color: C.white, fontSize: 15 }}
-          >
-            ✕
-          </button>
+          <div className="flex gap-2 mt-3">
+            <Btn small variant="danger" onClick={doDelete}>Excluir de vez</Btn>
+            <Btn small variant="dark" onClick={() => setConfirmDel(null)}>Cancelar</Btn>
+          </div>
+        </Card>
+      )}
+
+      <div>
+        <div className="flex items-center justify-between mb-2.5">
+          <div style={{ color: C.white, fontWeight: 900, fontSize: 14 }}>Cupons de desconto</div>
+          <Btn small onClick={() => setCouponForm("new")}>+ Novo cupom</Btn>
         </div>
-        <div className="space-y-3 mt-4">{children}</div>
+        <Card className="p-1">
+          <Table
+            cols={["Cupom", "Desconto", "Mínimo", "Usos", "Status", ""]}
+            rows={store.coupons.map((c) => [
+              <span key="c">
+                <span style={{ fontWeight: 800 }}>{c.code}</span>
+                {c.note && <span className="block" style={{ color: "#7a7a7a", fontSize: 10.5, fontWeight: 400 }}>{c.note}</span>}
+              </span>,
+              couponLabel(c),
+              brl(c.min),
+              `${c.uses}/${c.limit || "∞"}`,
+              <span key="s" className="flex items-center gap-2">
+                <MiniToggle on={c.active} onClick={() => toggleCoupon(c)} />
+                <span style={{ color: c.active ? C.green : "#7a7a7a", fontSize: 10.5, fontWeight: 800 }}>
+                  {c.active ? "ATIVO" : "PAUSADO"}
+                </span>
+              </span>,
+              <span key="a" className="flex items-center gap-1.5">
+                <button onClick={() => setCouponForm(c)} className="rounded-lg px-2 py-1 font-bold"
+                  style={{ background: C.gray800, color: C.white, fontSize: 11 }}>✎</button>
+                <button onClick={() => setConfirmDel({ kind: "coupon", ref: c })} className="rounded-lg px-2 py-1 font-bold"
+                  style={{ background: "transparent", border: `1px solid ${C.red}55`, color: C.red, fontSize: 11 }}>🗑</button>
+              </span>,
+            ])}
+          />
+        </Card>
       </div>
+
+      <div>
+        <div className="flex items-center justify-between mb-2.5">
+          <div style={{ color: C.white, fontWeight: 900, fontSize: 14 }}>Promoções programadas</div>
+          <Btn small onClick={() => setPromoForm("new")}>+ Nova promoção</Btn>
+        </div>
+        <div className="grid md:grid-cols-3 gap-3">
+          {store.promos.map((p) => { const st = promoStatus(p, now); return (
+            <Card key={p.id} className="p-4" style={{ opacity: p.active ? 1 : 0.6 }}>
+              <div className="flex justify-between items-start gap-2">
+                <span style={{ color: C.white, fontWeight: 800, fontSize: 13.5 }}>{p.name}</span>
+                <MiniToggle on={p.active} onClick={() => togglePromo(p)} />
+              </div>
+              <div style={{ color: "#9a9a9a", fontSize: 12, marginTop: 6, minHeight: 18 }}>{p.rule}</div>
+              <div style={{ color: C.yellowLight, fontSize: 11, marginTop: 8, fontWeight: 700 }}>
+                ⏰ {p.startsAt || p.endsAt
+                  ? `${p.startsAt ? fmtShort(p.startsAt) : "…"} → ${p.endsAt ? fmtShort(p.endsAt) : "…"}`
+                  : (p.window || "sempre")}
+              </div>
+              {p.window && (p.startsAt || p.endsAt) && (
+                <div style={{ color: "#7a7a7a", fontSize: 10.5, marginTop: 2 }}>{p.window}</div>
+              )}
+              <div className="flex items-center justify-between mt-3 pt-3" style={{ borderTop: `1px solid ${C.gray800}` }}>
+                <span className="rounded-md px-2 py-0.5 font-bold" style={{ background: `${st.color}1f`, color: st.color, fontSize: 10.5 }}>
+                  {st.label}
+                </span>
+                <span className="flex items-center gap-1.5">
+                  <button onClick={() => setPromoForm(p)} className="rounded-lg px-2 py-1 font-bold"
+                    style={{ background: C.gray800, color: C.white, fontSize: 11 }}>✎ Editar</button>
+                  <button onClick={() => setConfirmDel({ kind: "promo", ref: p })} className="rounded-lg px-2 py-1 font-bold"
+                    style={{ background: "transparent", border: `1px solid ${C.red}55`, color: C.red, fontSize: 11 }}>🗑</button>
+                </span>
+              </div>
+            </Card>
+          ); })}
+          {store.promos.length === 0 && (
+            <Card className="p-6 text-center"><span style={{ color: "#8a8a8a", fontSize: 13 }}>Nenhuma promoção. Crie a primeira acima ↑</span></Card>
+          )}
+        </div>
+      </div>
+
+      {couponForm && (
+        <CouponForm
+          key={couponForm === "new" ? "new" : couponForm.code}
+          initial={couponForm === "new" ? null : couponForm}
+          onClose={() => setCouponForm(null)}
+          onSaved={(m) => { setCouponForm(null); say(m); }}
+        />
+      )}
+      {promoForm && (
+        <PromoForm
+          key={promoForm === "new" ? "new" : promoForm.id}
+          initial={promoForm === "new" ? null : promoForm}
+          onClose={() => setPromoForm(null)}
+          onSaved={(m) => { setPromoForm(null); say(m); }}
+        />
+      )}
     </div>
   );
 }
 
-
-function FSelect({ label, value, onChange, options }) {
-  return (
-    <label className="block">
-      <span style={{ color: "#9a9a9a", fontSize: 11.5, fontWeight: 700 }}>{label}</span>
-      <select
-        value={value} onChange={(e) => onChange(e.target.value)}
-        className="w-full rounded-xl px-3 py-3 mt-1.5 outline-none"
-        style={{ background: C.gray850, border: `1px solid ${C.gray800}`, color: C.white, fontSize: 13.5 }}
-      >
-        {options.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
-      </select>
-    </label>
-  );
-}
-
-const couponLabel = (c) =>
-  c.type === "percent" ? `${c.value}% off` : c.type === "fixed" ? `${brl(c.value)} off` : "Entrega grátis";
-
-// Selo automático da promoção: deriva do relógio — entra e sai do ar
-// sozinha, sem ninguém precisar lembrar de ligar/desligar.
-
-function MiniToggle({ on, onClick, title }) {
-  return (
-    <button
-      onClick={onClick} title={title || (on ? "Pausar" : "Ativar")}
-      className="rounded-full shrink-0"
-      style={{ width: 38, height: 21, background: on ? C.green : C.gray700, position: "relative", transition: "background .2s" }}
-    >
-      <span
-        style={{
-          position: "absolute", top: 2.5, left: on ? 20 : 2.5, width: 16, height: 16,
-          borderRadius: 99, background: C.white, transition: "left .2s",
-        }}
-      />
-    </button>
-  );
-}
-
-// Molde dos modais de gestão (cupom, promoção, usuário)
-
-function Field({ label, value, onChange, ph, type = "text" }) {
-  return (
-    <label className="block">
-      <span style={{ color: "#9a9a9a", fontSize: 11.5, fontWeight: 700 }}>{label}</span>
-      <input
-        value={value} onChange={(e) => onChange(e.target.value)} placeholder={ph} type={type}
-        className="w-full rounded-xl px-3 py-3 mt-1.5 outline-none"
-        style={{ background: C.gray850, border: `1px solid ${C.gray800}`, color: C.white, fontSize: 13.5 }}
-      />
-    </label>
-  );
-}
-
-
-
-function AdminPromos({ store, now }) {
-  return <AdminPromosModular store={store} now={now} />;
-}
-
-function UserForm({ initial, roles, drivers, onClose, onSaved }) {
-  const [f, setF] = useState({
-    name: initial?.name || "",
-    username: initial?.username || "",
-    password: "",
-    role: initial?.role || "ATENDIMENTO",
-    driverId: initial?.driverId || "",
-    active: initial ? !!initial.active : true,
-  });
-  const [busy, setBusy] = useState(false);
-  const [err, setErr] = useState("");
-  const set = (k, v) => setF((p) => ({ ...p, [k]: v }));
-
-  const save = async () => {
-    setBusy(true); setErr("");
-    try {
-      const body = {
-        name: f.name.trim(),
-        role: f.role,
-        driver_id: f.role === "ENTREGADOR" ? (f.driverId || null) : null,
-        active: f.active,
-      };
-      if (!initial || f.password) body.password = f.password;
-      if (initial) {
-        await api(`/api/users/${initial.id}`, { method: "PATCH", body });
-      } else {
-        await api("/api/users", { method: "POST", body: { ...body, username: f.username } });
-      }
-      onSaved(initial ? `“${f.name}” atualizado ✓` : `Usuário ${f.username.toLowerCase()} criado ✓`);
-    } catch (e) {
-      setErr(e.message);
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  return (
-    <FormShell title={initial ? "EDITAR USUÁRIO" : "NOVO USUÁRIO"} sub={initial?.username} onClose={onClose}>
-      <Field label="Nome" value={f.name} onChange={(v) => set("name", v)} ph="Ex: Maria da Chapa" />
-      {!initial && <Field label="Usuário (login)" value={f.username} onChange={(v) => set("username", v.toLowerCase())} ph="Ex: maria" />}
-      <Field
-        label={initial ? "Nova senha (vazio = manter)" : "Senha (mín. 6 caracteres)"}
-        value={f.password} onChange={(v) => set("password", v)} ph={initial ? "••••••" : "mínimo 6 caracteres"} type="password"
-      />
-      <FSelect label="Perfil" value={f.role} onChange={(v) => set("role", v)}
-        options={roles.map((r) => [r, ROLE_LABELS[r] || r])} />
-      {f.role === "ENTREGADOR" && (
-        <FSelect label="Entregador vinculado" value={f.driverId} onChange={(v) => set("driverId", v)}
-          options={[["", "— escolher —"], ...drivers.map((d) => [d.id, `${d.name} · ${d.vehicle}`])]} />
-      )}
-      <button onClick={() => set("active", !f.active)} className="flex items-center gap-2.5">
-        <MiniToggle on={f.active} onClick={() => set("active", !f.active)} />
-        <span style={{ color: f.active ? C.green : "#7a7a7a", fontSize: 12.5, fontWeight: 800 }}>
-          {f.active ? "Conta ativa" : "Conta desativada"}
-        </span>
-      </button>
-      {err && <div className="rounded-lg px-3 py-2" style={{ background: `${C.red}18`, color: C.red, fontSize: 12, fontWeight: 700 }}>{err}</div>}
-      <Btn full disabled={busy} onClick={save}>{busy ? "SALVANDO…" : initial ? "SALVAR ALTERAÇÕES" : "CRIAR USUÁRIO"}</Btn>
-    </FormShell>
-  );
-}
+const ROLE_LABELS = {
+  ADMIN: "Administrador", GERENTE: "Gerente", ATENDIMENTO: "Atendimento",
+  COZINHA: "Cozinha", EXPEDICAO: "Expedição", ENTREGADOR: "Entregador",
+};
 
 
 export default AdminPromos;

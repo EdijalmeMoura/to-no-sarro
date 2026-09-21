@@ -7,6 +7,8 @@ import { getOrderModality } from "../../utils/orderModality.js";
 import { buildMesaIndex, getOrderTableNumber } from "../../utils/mesa.js";
 import { Card, Btn, KPI, BarChart, Donut, StatusPill, SyncBadge, ChannelPill, Badge, Logo, SmartImg } from "../ui/index.jsx";
 import ServiceChargeCard from "./ServiceChargeCard.jsx";
+import WaiterReport from "./WaiterReport.jsx";
+import LowStockAlerts from "./LowStockAlerts.jsx";
 
 function AdminPrinterCard({ store }) {
   const [host, setHost] = useState("");
