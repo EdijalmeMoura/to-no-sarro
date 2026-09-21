@@ -2,7 +2,7 @@
   "name": "to-no-sarro-smart-food-system",
   "private": true,
   "version": "0.2.0",
-  "description": "T\u00d4 NO SARRO! \u2014 Smart Food System: card\u00e1pio digital, gest\u00e3o de pedidos, KDS, expedi\u00e7\u00e3o e app do entregador.",
+  "description": "TÔ NO SARRO! — Smart Food System: cardápio digital, gestão de pedidos, KDS, expedição e app do entregador.",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -30,7 +30,8 @@
   "devDependencies": {
     "concurrently": "^9.1.2",
     "esbuild": "^0.21.5",
-    "jsdom": "^30.1.0"
+    "jsdom": "^30.1.0",
+    "vite-plugin-pwa": "^1.3.0"
   },
   "engines": {
     "node": ">=22.13.0 <25"

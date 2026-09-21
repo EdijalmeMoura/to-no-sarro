@@ -38,6 +38,34 @@ import * as ifood from "./integrations/ifood.js";
 import * as escpos from "./printing/escpos.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+// Rate limiter simples em memória para rotas públicas
+const rateBuckets = new Map();
+function rateLimit({ windowMs = 60000, max = 20, key = (req) => req.ip } = {}) {
+  return (req, res, next) => {
+    const k = `${key(req)}:${req.path}`;
+    const now = Date.now();
+    let bucket = rateBuckets.get(k);
+    if (!bucket || now - bucket.start > windowMs) {
+      bucket = { start: now, count: 0 };
+      rateBuckets.set(k, bucket);
+    }
+    bucket.count++;
+    if (bucket.count > max) {
+      const retry = Math.ceil((bucket.start + windowMs - now)/1000);
+      res.setHeader("Retry-After", retry);
+      return res.status(429).json({ error: "Muitas requisições. Tente novamente em instantes." });
+    }
+    next();
+  };
+}
+// limpeza periódica
+setInterval(() => {
+  const now = Date.now();
+  for (const [k, b] of rateBuckets) if (now - b.start > 60000*5) rateBuckets.delete(k);
+}, 60000).unref?.();
 const PORT = Number(process.env.PORT) || 3001;
 const HOST = process.env.HOST || "0.0.0.0";
 // Versão exibida no app (diagnóstico: confirma qual build está rodando)
@@ -210,7 +238,7 @@ server.on("upgrade", (req, socket, head) => {
 // ------------------------------------------------------------
 // AUTH
 // ------------------------------------------------------------
-app.post("/api/auth/login", login);
+app.post("/api/auth/login", rateLimit({ windowMs: 60000, max: 8, key: (req) => req.body?.username || req.ip }), login);
 app.post("/api/auth/logout", logout);
 app.get("/api/auth/me", (req, res) => res.json({ user: publicUser(req.user) }));
 
@@ -337,7 +365,7 @@ function shapeOrder(o) {
   return o; // getOrders() já devolve o formato do frontend
 }
 
-app.post("/api/orders", (req, res) => {
+app.post("/api/orders", rateLimit({ windowMs: 60000, max: 15, key: (req) => req.body?.customer?.phone || req.ip }), (req, res) => {
   const rawBody = req.body || {};
   const settings = getSettings();
   const isStaffChannel = ["IFOOD", "NNFOOD", "WHATSAPP"].includes(rawBody.channel);
