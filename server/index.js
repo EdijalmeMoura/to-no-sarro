@@ -11,6 +11,8 @@
 
 import express from "express";
 import cookieParser from "cookie-parser";
+import helmet from "helmet";
+import cors from "cors";
 import bcrypt from "bcryptjs";
 import http from "node:http";
 import { execSync } from "node:child_process";
@@ -29,10 +31,12 @@ import {
   getCurrentCashRegister, openCashRegister, addCashTransaction, closeCashRegister, getCashHistory,
   dispatchMultiStopRoute, getDriverPendingSettlement, settleDriver, getSettlementsHistory,
 } from "./db.js";
-import { attachUser, requireRole, login, logout, publicUser, ROLES } from "./auth.js";
+import { attachUser, requireRole, login, logout, logoutAll, refreshSession, publicUser, ROLES } from "./auth.js";
 import { createCheckoutLink, paymentCheck, cents } from "./payments/infinitepay.js";
 import { generatePixBRCode } from "./payments/pix.js";
 import { validateOrder } from "./schemas/orders.js";
+import { validateSettings } from "./schemas/settings.js";
+import { validateProduct } from "./schemas/products.js";
 import { optimizeDeliveryRoute } from "./routing/osrm.js";
 import { logger, requestLogger, setupErrorHandlers } from "./observability/logger.js";
 import { waCredentials, normalizePhone, buildOrderMessage, sendWhatsApp } from "./messaging/whatsapp.js";
@@ -70,6 +74,42 @@ setInterval(() => {
   const now = Date.now();
   for (const [k, b] of rateBuckets) if (now - b.start > 60000*5) rateBuckets.delete(k);
 }, 60000).unref?.();
+
+// Idempotency keys para evitar duplicação de pedidos ao recarregar
+const idempotencyKeys = new Map(); // key -> { response, createdAt }
+function idempotencyMiddleware(req, res, next) {
+  const key = req.headers['x-idempotency-key'] || req.headers['idempotency-key'];
+  if (!key) return next();
+  
+  const existing = idempotencyKeys.get(key);
+  if (existing) {
+    // Retorna resposta cacheada se dentro de 24h
+    if (Date.now() - existing.createdAt < 24*60*60*1000) {
+      return res.status(existing.status).json(existing.body);
+    }
+    idempotencyKeys.delete(key);
+  }
+  
+  // Intercepta res.json para cachear
+  const originalJson = res.json.bind(res);
+  res.json = (body) => {
+    if (res.statusCode < 400) {
+      idempotencyKeys.set(key, {
+        status: res.statusCode,
+        body,
+        createdAt: Date.now(),
+      });
+      // limpeza
+      if (idempotencyKeys.size > 1000) {
+        const first = idempotencyKeys.keys().next().value;
+        idempotencyKeys.delete(first);
+      }
+    }
+    return originalJson(body);
+  };
+  next();
+}
+
 const PORT = Number(process.env.PORT) || 3001;
 const HOST = process.env.HOST || "0.0.0.0";
 // Versão exibida no app (diagnóstico: confirma qual build está rodando)
@@ -81,6 +121,15 @@ const APP_VERSION = process.env.APP_VERSION || (() => {
 seedIfEmpty();
 
 const app = express();
+app.set('trust proxy', 1);
+app.use(helmet({
+  contentSecurityPolicy: false, // desabilitado para permitir inline styles do app legado
+  crossOriginEmbedderPolicy: false,
+}));
+app.use(cors({
+  origin: process.env.CORS_ORIGIN || true,
+  credentials: true,
+}));
 app.disable("x-powered-by");
 // Atrás de proxy com TLS (Render, Nginx etc.): req.secure reflete o https real
 app.set("trust proxy", 1);
@@ -245,11 +294,31 @@ server.on("upgrade", (req, socket, head) => {
 // ------------------------------------------------------------
 app.post("/api/auth/login", rateLimit({ windowMs: 60000, max: 8, key: (req) => req.body?.username || req.ip }), login);
 app.post("/api/auth/logout", logout);
+app.post("/api/auth/logout-all", requireRole("ADMIN", "GERENTE", "ATENDIMENTO", "COZINHA", "EXPEDICAO", "ENTREGADOR"), logoutAll);
+app.post("/api/auth/refresh", refreshSession);
 app.get("/api/auth/me", (req, res) => res.json({ user: publicUser(req.user) }));
 
 // ------------------------------------------------------------
 // BOOTSTRAP — tudo que o app precisa em uma chamada
 // ------------------------------------------------------------
+app.get("/api/health", (req, res) => {
+  try {
+    const dbOk = db.prepare("SELECT 1 as ok").get()?.ok === 1;
+    const migrations = db.prepare("SELECT COUNT(*) as c FROM migrations").get()?.c ?? 0;
+    res.json({
+      ok: true,
+      status: "healthy",
+      version: APP_VERSION,
+      uptime: process.uptime(),
+      db: dbOk ? "ok" : "fail",
+      migrations,
+      timestamp: Date.now(),
+    });
+  } catch (e) {
+    res.status(500).json({ ok: false, status: "unhealthy", error: e.message });
+  }
+});
+
 app.get("/api/bootstrap", (req, res) => {
   res.json({
     ...(req.user ? snapshot() : publicSnapshot()),
@@ -370,7 +439,7 @@ function shapeOrder(o) {
   return o; // getOrders() já devolve o formato do frontend
 }
 
-app.post("/api/orders", rateLimit({ windowMs: 60000, max: 15, key: (req) => req.body?.customer?.phone || req.ip }), (req, res) => {
+app.post("/api/orders", idempotencyMiddleware, rateLimit({ windowMs: 60000, max: 15, key: (req) => req.body?.customer?.phone || req.ip }), (req, res) => {
   const rawBody = req.body || {};
   const settings = getSettings();
   const isStaffChannel = ["IFOOD", "NNFOOD", "WHATSAPP"].includes(rawBody.channel);

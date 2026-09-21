@@ -82,6 +82,38 @@ export function logout(req, res) {
   res.json({ ok: true });
 }
 
+export function logoutAll(req, res) {
+  if (!req.user) return res.status(401).json({ error: "Faça login para continuar." });
+  db.prepare("DELETE FROM sessions WHERE user_id = ?").run(req.user.id);
+  res.clearCookie(COOKIE, { path: "/" });
+  audit(req.user.username, "logout_all", "todas sessões encerradas");
+  res.json({ ok: true });
+}
+
+export function refreshSession(req, res) {
+  const token = req.cookies?.[COOKIE];
+  if (!token) return res.status(401).json({ error: "Sessão expirada." });
+  const row = db.prepare(`SELECT u.*, s.created_at FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.token = ?`).get(token);
+  if (!row || row.active === 0) return res.status(401).json({ error: "Sessão inválida." });
+  
+  // Se sessão tem mais de 1 dia, renova
+  const age = Date.now() - row.created_at;
+  if (age > 24*60*60*1000) {
+    const newToken = crypto.randomBytes(32).toString("hex");
+    db.prepare("UPDATE sessions SET token = ?, created_at = ? WHERE token = ?").run(newToken, Date.now(), token);
+    res.cookie(COOKIE, newToken, {
+      httpOnly: true,
+      sameSite: "lax",
+      path: "/",
+      maxAge: SESSION_TTL,
+      secure: req.secure || (process.env.APP_BASE_URL || "").startsWith("https://") || process.env.SECURE_COOKIE === "1",
+    });
+    audit(row.username, "session_refresh", `idade ${Math.round(age/3600000)}h`);
+    return res.json({ user: publicUser(row), refreshed: true });
+  }
+  res.json({ user: publicUser(row), refreshed: false });
+}
+
 // Preenche req.user (ou null) a partir do cookie de sessão.
 // Conta desativada perde o acesso na hora, mesmo com cookie válido.
 export function attachUser(req, _res, next) {

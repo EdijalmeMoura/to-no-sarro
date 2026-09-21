@@ -1,0 +1,36 @@
+version: '3.8'
+services:
+  api:
+    build: .
+    ports:
+      - "3001:3001"
+    environment:
+      - NODE_ENV=production
+      - DATA_DIR=/data
+      - PORT=3001
+      - CORS_ORIGIN=http://localhost:5173
+      - LOG_LEVEL=info
+      # - SENTRY_DSN=https://...@sentry.io/...
+      # - OSRM_URL=https://router.project-osrm.org
+    volumes:
+      - sarro_data:/data
+      - ./public/assets:/app/public/assets:ro
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:3001/api/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  # Opcional: OSRM self-hosted para rotas offline
+  # osrm:
+  #   image: osrm/osrm-backend
+  #   ports:
+  #     - "5000:5000"
+  #   volumes:
+  #     - ./osrm-data:/data
+  #   command: "osrm-routed --algorithm mld /data/brazil-latest.osrm"
+
+volumes:
+  sarro_data:
+    driver: local
