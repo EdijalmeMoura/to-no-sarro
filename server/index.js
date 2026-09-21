@@ -32,6 +32,7 @@ import {
 import { attachUser, requireRole, login, logout, publicUser, ROLES } from "./auth.js";
 import { createCheckoutLink, paymentCheck, cents } from "./payments/infinitepay.js";
 import { generatePixBRCode } from "./payments/pix.js";
+import { validateOrder } from "./schemas/orders.js";
 import { waCredentials, normalizePhone, buildOrderMessage, sendWhatsApp } from "./messaging/whatsapp.js";
 import * as ifood from "./integrations/ifood.js";
 import * as escpos from "./printing/escpos.js";
@@ -242,6 +243,22 @@ app.post("/api/coupons/validate", (req, res) => {
 });
 
 // ------------------------------------------------------------
+// PEDIDOS — listagem com paginação e filtro por mesa
+// ------------------------------------------------------------
+app.get("/api/orders", requireRole("ADMIN","GERENTE","ATENDIMENTO","COZINHA","EXPEDICAO","ENTREGADOR"), (req, res) => {
+  const { limit, offset, tableNumber, table_number, status, type } = req.query;
+  const tn = tableNumber ?? table_number;
+  const orders = getOrders({
+    limit: limit || 50,
+    offset: offset || 0,
+    tableNumber: tn,
+    status,
+    type,
+  });
+  res.json({ orders, count: orders.length });
+});
+
+// ------------------------------------------------------------
 // PEDIDOS
 // ------------------------------------------------------------
 
@@ -321,9 +338,9 @@ function shapeOrder(o) {
 }
 
 app.post("/api/orders", (req, res) => {
-  const body = req.body || {};
+  const rawBody = req.body || {};
   const settings = getSettings();
-  const isStaffChannel = ["IFOOD", "NNFOOD", "WHATSAPP"].includes(body.channel);
+  const isStaffChannel = ["IFOOD", "NNFOOD", "WHATSAPP"].includes(rawBody.channel);
   if (isStaffChannel && !req.user) {
     return res.status(401).json({ error: "Canais externos exigem autenticação." });
   }
@@ -332,20 +349,19 @@ app.post("/api/orders", (req, res) => {
     return res.status(409).json({ error: "A loja está fechada agora. Voltamos às 18h!" });
   }
 
-  const { customer = {}, items = [], type = "delivery", payment = "PIX", couponCode, note = "" } = body;
+  let body;
+  try {
+    body = validateOrder(rawBody);
+  } catch (err) {
+    return res.status(400).json({ error: err.message });
+  }
+
+  const { customer = {}, items = [], type = "delivery", payment = "PIX", couponCode, note = "", tableNumber: bodyTableNumber, tableName: bodyTableName } = body;
   const name = String(customer.name || "").trim();
   const phone = String(customer.phone || "").trim();
   const addr = String(customer.addr || "").trim();
 
-  if (name.length < 3) return res.status(400).json({ error: "Informe seu nome completo." });
-  if (phone.replace(/\D/g, "").length < 10) return res.status(400).json({ error: "WhatsApp inválido." });
-  if (!["delivery", "pickup", "dine_in", "mesa"].includes(type)) return res.status(400).json({ error: "Tipo de pedido inválido." });
   if (type === "delivery" && addr.length < 8) return res.status(400).json({ error: "Informe o endereço de entrega." });
-  const PM_METHODS = new Set(["PIX", "CARTAO_ONLINE", "Cartão", "Dinheiro", "No fechamento da mesa", "Mesa", "Balcão"]);
-  if (!PM_METHODS.has(payment)) {
-    return res.status(400).json({ error: "Forma de pagamento inválida." });
-  }
-  if (typeof note !== "string" || note.length > 200) return res.status(400).json({ error: "Observação muito longa." });
 
   let parsed;
   try {
@@ -391,18 +407,18 @@ app.post("/api/orders", (req, res) => {
   const trackToken = crypto.randomBytes(12).toString("hex");
 
   // Extrai número da mesa para campo dedicado (robustez para filtro)
-  let tableNumber = null;
-  let tableName = null;
-  if (type === "dine_in" || type === "mesa" || /^Mesa\s*\d+/i.test(addr) || /^Mesa\s*\d+/i.test(name)) {
+  let tableNumber = bodyTableNumber ?? null;
+  let tableName = bodyTableName ?? null;
+  if (type === "dine_in" || type === "mesa" || /^Mesa\s*\d+/i.test(addr) || /^Mesa\s*\d+/i.test(name) || tableNumber) {
     const extractNum = (s) => {
       const m = String(s || "").match(/Mesa\s*0?(\d+)/i);
       return m ? parseInt(m[1], 10) : null;
     };
-    tableNumber = extractNum(addr) ?? extractNum(name);
+    tableNumber = tableNumber ?? extractNum(addr) ?? extractNum(name) ?? extractNum(tableName);
     if (tableNumber) {
-      tableName = `Mesa ${String(tableNumber).padStart(2, "0")}`;
+      tableName = tableName || `Mesa ${String(tableNumber).padStart(2, "0")}`;
     } else if (/^Mesa\s*\d+/i.test(addr)) {
-      tableName = addr.split("·")[0].trim();
+      tableName = tableName || addr.split("·")[0].trim();
     }
   }
 

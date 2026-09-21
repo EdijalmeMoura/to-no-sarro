@@ -219,6 +219,8 @@ db.exec(`
   );
 
   CREATE INDEX IF NOT EXISTS idx_orders_created ON orders(created_at DESC);
+  CREATE INDEX IF NOT EXISTS idx_orders_table_number ON orders(table_number);
+  CREATE INDEX IF NOT EXISTS idx_orders_status ON orders(status);
   CREATE INDEX IF NOT EXISTS idx_items_order ON order_items(order_id);
   CREATE INDEX IF NOT EXISTS idx_cash_reg_status ON cash_registers(status);
   CREATE INDEX IF NOT EXISTS idx_cash_tx_reg ON cash_transactions(register_id);
@@ -580,9 +582,35 @@ export function setSetting(key, value) {
     .run(key, String(value));
 }
 
-export function getOrders() {
-  const rows = db.prepare("SELECT * FROM orders ORDER BY created_at DESC LIMIT 200").all();
-  const items = db.prepare("SELECT * FROM order_items").all();
+export function getOrders(opts = {}) {
+  const limit = Math.min(Math.max(parseInt(opts.limit) || 200, 1), 500);
+  const offset = Math.max(parseInt(opts.offset) || 0, 0);
+  const tableNumber = opts.tableNumber != null ? parseInt(opts.tableNumber, 10) : null;
+  const statusFilter = opts.status ? String(opts.status).toUpperCase() : null;
+  const typeFilter = opts.type ? String(opts.type).toLowerCase() : null;
+
+  let where = [];
+  let params = [];
+  if (tableNumber != null && !Number.isNaN(tableNumber)) {
+    where.push("table_number = ?");
+    params.push(tableNumber);
+  }
+  if (statusFilter && statusFilter !== "ALL") {
+    where.push("status = ?");
+    params.push(statusFilter);
+  }
+  if (typeFilter && typeFilter !== "all") {
+    where.push("type = ?");
+    params.push(typeFilter);
+  }
+  const whereClause = where.length ? "WHERE " + where.join(" AND ") : "";
+  const rows = db.prepare(`SELECT * FROM orders ${whereClause} ORDER BY created_at DESC LIMIT ? OFFSET ?`).all(...params, limit, offset);
+  // só carrega itens dos pedidos retornados
+  let items = [];
+  if (rows.length) {
+    const placeholders = rows.map(() => "?").join(",");
+    items = db.prepare(`SELECT * FROM order_items WHERE order_id IN (${placeholders})`).all(...rows.map(r=>r.id));
+  }
   const byOrder = new Map();
   for (const it of items) {
     if (!byOrder.has(it.order_id)) byOrder.set(it.order_id, []);
@@ -592,7 +620,10 @@ export function getOrders() {
     });
   }
   const pays = new Map();
-  for (const p of db.prepare("SELECT * FROM payments").all()) pays.set(p.order_id, p);
+  if (rows.length) {
+    const placeholders = rows.map(() => "?").join(",");
+    for (const p of db.prepare(`SELECT * FROM payments WHERE order_id IN (${placeholders})`).all(...rows.map(r=>r.id))) pays.set(p.order_id, p);
+  }
 
   const pixKeyRow = db.prepare("SELECT value FROM settings WHERE key = 'pix_key'").get();
   const storeNameRow = db.prepare("SELECT value FROM settings WHERE key = 'store_name'").get();
@@ -638,41 +669,34 @@ export function getOrders() {
 export function getCashSummary(reg) {
   if (!reg) return null;
 
-  const txs = db.prepare(`
-    SELECT * FROM cash_transactions WHERE register_id = ? ORDER BY created_at DESC
-  `).all(reg.id);
+  const txAgg = db.prepare(`
+    SELECT
+      COALESCE(SUM(CASE WHEN type='SUPRIMENTO' THEN amount ELSE 0 END),0) AS suprimentos,
+      COALESCE(SUM(CASE WHEN type='SANGRIA' THEN amount ELSE 0 END),0) AS sangrias
+    FROM cash_transactions WHERE register_id = ?
+  `).get(reg.id);
 
-  let suprimentos = 0;
-  let sangrias = 0;
-  for (const t of txs) {
-    if (t.type === "SUPRIMENTO") suprimentos += t.amount;
-    if (t.type === "SANGRIA") sangrias += t.amount;
-  }
+  let suprimentos = Number(txAgg?.suprimentos || 0);
+  let sangrias = Number(txAgg?.sangrias || 0);
 
   const endAt = reg.closed_at || Date.now();
-  const orders = db.prepare(`
-    SELECT total, payment, status FROM orders
+  const agg = db.prepare(`
+    SELECT
+      COUNT(*) as cnt,
+      COALESCE(SUM(CASE WHEN UPPER(payment) LIKE '%DINHEIRO%' THEN total ELSE 0 END),0) AS cashSales,
+      COALESCE(SUM(CASE WHEN UPPER(payment) LIKE '%PIX%' THEN total ELSE 0 END),0) AS pixSales,
+      COALESCE(SUM(CASE WHEN UPPER(payment) LIKE '%CART%' OR UPPER(payment) LIKE '%CREDITO%' OR UPPER(payment) LIKE '%DEBITO%' THEN total ELSE 0 END),0) AS cardSales,
+      COALESCE(SUM(CASE WHEN UPPER(payment) NOT LIKE '%DINHEIRO%' AND UPPER(payment) NOT LIKE '%PIX%' AND UPPER(payment) NOT LIKE '%CART%' AND UPPER(payment) NOT LIKE '%CREDITO%' AND UPPER(payment) NOT LIKE '%DEBITO%' THEN total ELSE 0 END),0) AS otherSales
+    FROM orders
     WHERE created_at >= ? AND created_at <= ? AND status != 'CANCELADO'
-  `).all(reg.opened_at, endAt);
+  `).get(reg.opened_at, endAt);
 
-  let cashSales = 0;
-  let pixSales = 0;
-  let cardSales = 0;
-  let otherSales = 0;
-  let orderCount = orders.length;
+  let cashSales = Number(agg?.cashSales || 0);
+  let pixSales = Number(agg?.pixSales || 0);
+  let cardSales = Number(agg?.cardSales || 0);
+  let otherSales = Number(agg?.otherSales || 0);
+  let orderCount = Number(agg?.cnt || 0);
 
-  for (const o of orders) {
-    const p = String(o.payment || "").toUpperCase();
-    if (p.includes("DINHEIRO")) {
-      cashSales += o.total;
-    } else if (p.includes("PIX")) {
-      pixSales += o.total;
-    } else if (p.includes("CART") || p.includes("CREDITO") || p.includes("DEBITO")) {
-      cardSales += o.total;
-    } else {
-      otherSales += o.total;
-    }
-  }
 
   const initialCash = Number(reg.initial_cash || 0);
   const totalSales = cashSales + pixSales + cardSales + otherSales;

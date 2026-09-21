@@ -1,5 +1,7 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import QRCode from "qrcode";
+import { getOrderModality as getOrderModalityUtil } from "./utils/orderModality.js";
+import { extractTableNumber, getOrderTableNumber, buildMesaIndex } from "./utils/mesa.js";
 
 // ============================================================
 // TÔ NO SARRO! — SMART FOOD SYSTEM
@@ -158,58 +160,7 @@ function playReadyChime() {
 }
 
 function getOrderModality(o) {
-  if (!o) return { id: "delivery", label: "DELIVERY", badge: "DELIVERY", color: "#f58200", bg: "#ea580c22", border: "#f58200", icon: "🛵", isMesa: false, isPickup: false, instruction: "EMBALAGEM DE VIAGEM" };
-  const hasTableNum = o.tableNumber != null || o.table_number != null;
-  const hasTableName = o.tableName || o.table_name;
-  const isMesa = hasTableNum || hasTableName || o.type === "dine_in" || o.type === "mesa" || /^Mesa \d+/i.test(o.customer?.addr || "") || /^Mesa \d+/i.test(o.customer?.name || "");
-  if (isMesa) {
-    const num = o.tableNumber ?? o.table_number;
-    let mesaTag = hasTableName ? (o.tableName || o.table_name).toUpperCase() : null;
-    if (!mesaTag) {
-      const match = (o.customer?.addr || o.customer?.name || "").match(/Mesa \d+/i);
-      mesaTag = match ? match[0].toUpperCase() : (num ? `MESA ${String(num).padStart(2, "0")}` : "SALÃO");
-    }
-    return {
-      id: "mesa",
-      label: `SALÃO · ${mesaTag}`,
-      badge: mesaTag,
-      color: "#10b981",
-      bg: "#064e3b33",
-      border: "#10b981",
-      icon: "🍽️",
-      isMesa: true,
-      isPickup: false,
-      instruction: "SERVIÇO NO SALÃO (NÃO EMBALAR)",
-      tableNumber: num ?? null,
-    };
-  }
-  const isPickup = o.type === "pickup" || /Retirada/i.test(o.customer?.addr || "");
-  if (isPickup) {
-    return {
-      id: "pickup",
-      label: "BALCÃO · RETIRADA",
-      badge: "BALCÃO",
-      color: "#3b82f6",
-      bg: "#1d4ed833",
-      border: "#3b82f6",
-      icon: "🏪",
-      isMesa: false,
-      isPickup: true,
-      instruction: "RETIRADA NO BALCÃO",
-    };
-  }
-  return {
-    id: "delivery",
-    label: "DELIVERY",
-    badge: "DELIVERY",
-    color: "#f58200",
-    bg: "#ea580c22",
-    border: "#f58200",
-    icon: "🛵",
-    isMesa: false,
-    isPickup: false,
-    instruction: "EMBALAGEM DE VIAGEM",
-  };
+  return getOrderModalityUtil(o);
 }
 
 
@@ -5180,25 +5131,8 @@ function AdminTables({ store, now }) {
 
   const tablesCount = store.settings?.tablesCount || 10;
 
-  // Indexação O(n) para evitar O(n*m) — agrupa pedidos por número da mesa
-  const extractNum = (s) => {
-    const m = String(s || "").match(/Mesa\s*0?(\d+)/i);
-    return m ? parseInt(m[1], 10) : null;
-  };
-  const byMesa = new Map(); // numInt -> orders[]
-  for (const o of store.orders) {
-    if (["ENTREGUE", "CANCELADO"].includes(o.status)) continue;
-    // Campo dedicado do backend (robusto) com fallback para parsing legado
-    let n = o.tableNumber ?? o.table_number ?? null;
-    if (n == null) {
-      n = extractNum(o.tableName || o.table_name) ?? extractNum(o.customer?.addr) ?? extractNum(o.customer?.name);
-    }
-    if (n != null) {
-      const key = parseInt(n, 10);
-      if (!byMesa.has(key)) byMesa.set(key, []);
-      byMesa.get(key).push(o);
-    }
-  }
+  // Indexação O(n) para evitar O(n*m) — usa util centralizado
+  const byMesa = buildMesaIndex(store.orders);
 
   const tables = Array.from({ length: tablesCount }, (_, i) => {
     const num = String(i + 1).padStart(2, "0");
