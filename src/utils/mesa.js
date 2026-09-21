@@ -15,10 +15,22 @@ export function getOrderTableNumber(order) {
   return n;
 }
 
+export function isTableOccupied(order) {
+  if (!order) return false;
+  if (order.status === "CANCELADO") return false;
+  // Se pagamento ainda é "No fechamento da mesa" → mesa continua ocupada até pagar no AdminTables
+  const payment = order.payment || order.payment_method || "";
+  if (payment === "No fechamento da mesa") return true;
+  // Se já foi entregue e pago → libera
+  if (order.status === "ENTREGUE") return false;
+  // Qualquer outro status ativo → ocupada
+  return true;
+}
+
 export function buildMesaIndex(orders) {
   const byMesa = new Map();
   for (const o of orders) {
-    if (["ENTREGUE","CANCELADO"].includes(o.status)) continue;
+    if (!isTableOccupied(o)) continue;
     const n = getOrderTableNumber(o);
     if (n != null) {
       const key = parseInt(n,10);

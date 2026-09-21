@@ -647,10 +647,37 @@ app.post("/api/orders/external", requireRole("ADMIN", "GERENTE", "ATENDIMENTO", 
 const VALID_STATUS = new Set(["NOVO", "CONFIRMADO", "PREPARO", "PRONTO", "EMBALADO", "AGUARDANDO", "ROTA", "ENTREGUE", "CANCELADO"]);
 
 app.patch("/api/orders/:id/status", requireRole("ADMIN", "GERENTE", "ATENDIMENTO", "COZINHA", "EXPEDICAO", "ENTREGADOR"), (req, res) => {
-  const { status } = req.body || {};
+  const { status, payment: newPayment } = req.body || {};
   const o = db.prepare("SELECT * FROM orders WHERE id = ?").get(req.params.id);
   if (!o) return res.status(404).json({ error: "Pedido não encontrado." });
   if (!VALID_STATUS.has(status)) return res.status(400).json({ error: "Status inválido." });
+
+  // REGRA DE MESA: só pode dar baixa (ENTREGUE) quando paga no módulo Mesas
+  // Se pedido é de mesa e ainda está "No fechamento da mesa", bloqueia ENTREGUE fora do fluxo de pagamento
+  const isMesaOrder = o.table_number != null || o.type === "dine_in" || o.type === "mesa" || /^Mesa\s*\d+/i.test(o.customer_addr || "") || /^Mesa\s*\d+/i.test(o.customer_name || "");
+  const currentPayment = o.payment || "";
+  const incomingPayment = typeof newPayment === "string" ? newPayment.trim() : "";
+  const willStillBeNoFechamento = !incomingPayment || incomingPayment === "No fechamento da mesa";
+  
+  if (isMesaOrder && status === "ENTREGUE" && currentPayment === "No fechamento da mesa" && willStillBeNoFechamento) {
+    // Verifica se tem pagamentos parciais que cobrem total
+    try {
+      const payments = db.prepare("SELECT COALESCE(SUM(amount),0) as paid FROM order_payments WHERE order_id = ?").get(o.id);
+      const paid = payments?.paid || 0;
+      if (paid < o.total) {
+        return res.status(400).json({ 
+          error: "Mesa só pode dar baixa quando paga no módulo Mesas. Use Fechar Conta para registrar pagamento.",
+          code: "MESA_NOT_PAID"
+        });
+      }
+    } catch {
+      // Se tabela order_payments não existir ou erro, bloqueia mesmo
+      return res.status(400).json({ 
+        error: "Mesa só pode dar baixa quando paga no módulo Mesas. Use Fechar Conta para registrar pagamento.",
+        code: "MESA_NOT_PAID"
+      });
+    }
+  }
 
   const role = req.user.role;
   if (role === "COZINHA" && !["PREPARO", "PRONTO", "CANCELADO"].includes(status)) {

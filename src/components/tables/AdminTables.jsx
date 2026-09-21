@@ -2,7 +2,7 @@ import React, { useState } from "react";
 import QRCode from "qrcode";
 import { C, font } from "../../constants/theme.js";
 import { brl, elapsed } from "../../utils/format.js";
-import { buildMesaIndex } from "../../utils/mesa.js";
+import { buildMesaIndex, isTableOccupied } from "../../utils/mesa.js";
 import { api } from "../../utils/api.js";
 import { printHTML } from "../../utils/print.js";
 import { Card, KPI, Btn } from "../ui/index.jsx";
@@ -38,10 +38,10 @@ export default function AdminTables({ store, now }) {
     // Busca direta no índice — evita filtro em todas as mesas
     let activeOrders = byMesa.get(numInt) || [];
 
-    // Fallback extra para casos sem tableNumber (legado): verifica exato
+    // Fallback extra para casos sem tableNumber (legado): verifica exato + só ocupada se isTableOccupied
     if (activeOrders.length === 0) {
       activeOrders = store.orders.filter((o) => {
-        if (["ENTREGUE", "CANCELADO"].includes(o.status)) return false;
+        if (!isTableOccupied(o)) return false;
         const addr = (o.customer?.addr || "").trim();
         const cname = (o.customer?.name || "").trim();
         if (addr === name) return true;
@@ -89,10 +89,10 @@ export default function AdminTables({ store, now }) {
       return;
     }
 
-    // Validação extra: não abrir mesa já ocupada (race condition)
+    // Validação extra: não abrir mesa já ocupada (race condition) - usa isTableOccupied
     const numInt = parseInt(openModal.tableNum, 10);
     const already = store.orders.filter((o) => {
-      if (["ENTREGUE", "CANCELADO"].includes(o.status)) return false;
+      if (!isTableOccupied(o)) return false;
       const tn = o.tableNumber ?? o.table_number;
       if (tn != null && parseInt(tn, 10) === numInt) return true;
       return false;

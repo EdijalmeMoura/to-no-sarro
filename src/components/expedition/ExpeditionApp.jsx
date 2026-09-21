@@ -298,10 +298,24 @@ function ExpeditionApp({ store, now }) {
                   </div>
 
                   {mod.isMesa ? (
-                    <div className="mt-2">
-                      <Btn full variant="green" onClick={() => store.setStatus(o.id, "ENTREGUE")}>
-                        🍽️ LEVAR À {mod.badge} & CONCLUIR
-                      </Btn>
+                    <div className="mt-2 space-y-2">
+                      {o.payment === "No fechamento da mesa" ? (
+                        <>
+                          <div className="p-2 rounded-lg text-center" style={{ background: "#f59e0b18", border: "1px solid #f59e0b44" }}>
+                            <div style={{ color: "#fbbf24", fontSize: 11, fontWeight: 800 }}>⏳ AGUARDA PAGAMENTO NO MÓDULO MESAS</div>
+                            <div style={{ color: "#a0a0a0", fontSize: 10, marginTop: 2 }}>Leve à {mod.badge} e feche a conta em Mesas → Fechar Conta</div>
+                          </div>
+                          <Btn full variant="dark" onClick={() => {
+                            store.toast(`🍽️ ${mod.badge} servida! Mesa continua ocupada até pagamento no módulo Mesas.`);
+                          }}>
+                            🍽️ MARCAR COMO SERVIDO NA {mod.badge}
+                          </Btn>
+                        </>
+                      ) : (
+                        <Btn full variant="green" onClick={() => store.setStatus(o.id, "ENTREGUE")}>
+                          🍽️ LEVAR À {mod.badge} & CONCLUIR (JÁ PAGO)
+                        </Btn>
+                      )}
                     </div>
                   ) : mod.isPickup ? (
                     <div className="mt-2">
