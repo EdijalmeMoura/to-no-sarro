@@ -159,10 +159,16 @@ function playReadyChime() {
 
 function getOrderModality(o) {
   if (!o) return { id: "delivery", label: "DELIVERY", badge: "DELIVERY", color: "#f58200", bg: "#ea580c22", border: "#f58200", icon: "🛵", isMesa: false, isPickup: false, instruction: "EMBALAGEM DE VIAGEM" };
-  const isMesa = o.type === "dine_in" || o.type === "mesa" || /^Mesa \d+/i.test(o.customer?.addr || "") || /^Mesa \d+/i.test(o.customer?.name || "");
+  const hasTableNum = o.tableNumber != null || o.table_number != null;
+  const hasTableName = o.tableName || o.table_name;
+  const isMesa = hasTableNum || hasTableName || o.type === "dine_in" || o.type === "mesa" || /^Mesa \d+/i.test(o.customer?.addr || "") || /^Mesa \d+/i.test(o.customer?.name || "");
   if (isMesa) {
-    const match = (o.customer?.addr || o.customer?.name || "").match(/Mesa \d+/i);
-    const mesaTag = match ? match[0].toUpperCase() : "SALÃO";
+    const num = o.tableNumber ?? o.table_number;
+    let mesaTag = hasTableName ? (o.tableName || o.table_name).toUpperCase() : null;
+    if (!mesaTag) {
+      const match = (o.customer?.addr || o.customer?.name || "").match(/Mesa \d+/i);
+      mesaTag = match ? match[0].toUpperCase() : (num ? `MESA ${String(num).padStart(2, "0")}` : "SALÃO");
+    }
     return {
       id: "mesa",
       label: `SALÃO · ${mesaTag}`,
@@ -174,6 +180,7 @@ function getOrderModality(o) {
       isMesa: true,
       isPickup: false,
       instruction: "SERVIÇO NO SALÃO (NÃO EMBALAR)",
+      tableNumber: num ?? null,
     };
   }
   const isPickup = o.type === "pickup" || /Retirada/i.test(o.customer?.addr || "");
@@ -5172,34 +5179,51 @@ function AdminTables({ store, now }) {
   const [busy, setBusy] = useState(false);
 
   const tablesCount = store.settings?.tablesCount || 10;
+
+  // Indexação O(n) para evitar O(n*m) — agrupa pedidos por número da mesa
+  const extractNum = (s) => {
+    const m = String(s || "").match(/Mesa\s*0?(\d+)/i);
+    return m ? parseInt(m[1], 10) : null;
+  };
+  const byMesa = new Map(); // numInt -> orders[]
+  for (const o of store.orders) {
+    if (["ENTREGUE", "CANCELADO"].includes(o.status)) continue;
+    // Campo dedicado do backend (robusto) com fallback para parsing legado
+    let n = o.tableNumber ?? o.table_number ?? null;
+    if (n == null) {
+      n = extractNum(o.tableName || o.table_name) ?? extractNum(o.customer?.addr) ?? extractNum(o.customer?.name);
+    }
+    if (n != null) {
+      const key = parseInt(n, 10);
+      if (!byMesa.has(key)) byMesa.set(key, []);
+      byMesa.get(key).push(o);
+    }
+  }
+
   const tables = Array.from({ length: tablesCount }, (_, i) => {
     const num = String(i + 1).padStart(2, "0");
     const name = `Mesa ${num}`;
-    const numInt = String(parseInt(num, 10));
-    const activeOrders = store.orders.filter((o) => {
-      if (["ENTREGUE", "CANCELADO"].includes(o.status)) return false;
-      const addr = (o.customer?.addr || "").trim();
-      const cname = (o.customer?.name || "").trim();
-      // Extrai número da mesa de forma robusta: "Mesa 01" -> "1", "Mesa 1" -> "1"
-      const extractNum = (s) => {
-        const m = s.match(/Mesa\s*0?(\d+)/i);
-        return m ? String(parseInt(m[1], 10)) : null;
-      };
-      const addrNum = extractNum(addr);
-      const nameNum = extractNum(cname);
-      const targetNum = String(parseInt(num, 10));
-      // Se addr ou cname contém número de mesa, compara números
-      if (addrNum && addrNum === targetNum) return true;
-      if (nameNum && nameNum === targetNum && (o.type === "dine_in" || o.type === "mesa" || addr.startsWith("Mesa"))) return true;
-      // Fallback exato: addr exatamente igual ao nome da mesa
-      if (addr === name) return true;
-      if (cname === name) return true;
-      if (cname.startsWith(name + " ·") || cname.startsWith(name + " -") || cname.startsWith(name + " ")) return true;
-      return false;
-    });
+    const numInt = parseInt(num, 10);
+    // Busca direta no índice — evita filtro em todas as mesas
+    let activeOrders = byMesa.get(numInt) || [];
+
+    // Fallback extra para casos sem tableNumber (legado): verifica exato
+    if (activeOrders.length === 0) {
+      activeOrders = store.orders.filter((o) => {
+        if (["ENTREGUE", "CANCELADO"].includes(o.status)) return false;
+        const addr = (o.customer?.addr || "").trim();
+        const cname = (o.customer?.name || "").trim();
+        if (addr === name) return true;
+        if (cname === name) return true;
+        if (cname.startsWith(name + " ·") || cname.startsWith(name + " -") || cname.startsWith(name + " ")) return true;
+        return false;
+      });
+    }
+
     const primaryOrder = activeOrders[0] || null;
     const allItems = activeOrders.flatMap((o) => o.items || []);
     const tableTotal = activeOrders.reduce((acc, o) => acc + (o.total || 0), 0);
+    const oldest = activeOrders.reduce((min, o) => Math.min(min, o.createdAt || Date.now()), Date.now());
 
     return {
       num,
@@ -5209,6 +5233,8 @@ function AdminTables({ store, now }) {
       items: allItems,
       total: tableTotal,
       occupied: activeOrders.length > 0,
+      oldest,
+      elapsed: activeOrders.length ? elapsed(oldest, now) : null,
     };
   });
 
@@ -5232,6 +5258,20 @@ function AdminTables({ store, now }) {
       return;
     }
 
+    // Validação extra: não abrir mesa já ocupada (race condition)
+    const numInt = parseInt(openModal.tableNum, 10);
+    const already = store.orders.filter((o) => {
+      if (["ENTREGUE", "CANCELADO"].includes(o.status)) return false;
+      const tn = o.tableNumber ?? o.table_number;
+      if (tn != null && parseInt(tn, 10) === numInt) return true;
+      return false;
+    });
+    if (already.length > 0) {
+      store.toast(`⚠️ ${openModal.tableName} já está ocupada! Use Nova Rodada.`);
+      setBusy(false);
+      return;
+    }
+
     setBusy(true);
     try {
       const body = {
@@ -5244,6 +5284,8 @@ function AdminTables({ store, now }) {
         type: "dine_in",
         payment: "No fechamento da mesa",
         note: obs.trim(),
+        tableNumber: numInt,
+        tableName: openModal.tableName,
       };
       await api("/api/orders", { method: "POST", body });
       store.toast(`🎉 ${openModal.tableName} aberta! Comanda enviada para a cozinha.`);
@@ -5286,6 +5328,13 @@ function AdminTables({ store, now }) {
 
   const handleTransferTable = async () => {
     if (!transferModal?.order || !targetTable) return;
+    // Avisa se destino já ocupada (permite mesclar, mas avisa)
+    const targetNum = parseInt((targetTable.match(/\d+/) || ["0"])[0], 10);
+    const targetOccupied = tables.find((t) => parseInt(t.num, 10) === targetNum)?.occupied;
+    if (targetOccupied) {
+      const ok = confirm(`A ${targetTable} já está ocupada. Deseja mesclar as comandas? (os consumos serão somados)`);
+      if (!ok) return;
+    }
     setBusy(true);
     try {
       for (const ord of transferModal.orders) {
@@ -5474,11 +5523,15 @@ function AdminTables({ store, now }) {
                 <div className="space-y-2 mt-3 text-xs">
                   <div className="flex justify-between" style={{ color: "#8a8a8a" }}>
                     <span>Permanência:</span>
-                    <span style={{ color: C.white, fontWeight: 700 }}>⏱ {elapsed(t.order?.createdAt, now)}</span>
+                    <span style={{ color: C.white, fontWeight: 700 }}>⏱ {t.elapsed || elapsed(t.oldest, now)}</span>
                   </div>
                   <div className="flex justify-between" style={{ color: "#8a8a8a" }}>
                     <span>Cozinha (KDS):</span>
-                    <span style={{ color: C.orange, fontWeight: 800 }}>{t.order?.status}</span>
+                    <span style={{ color: C.orange, fontWeight: 800 }}>{t.order?.status || t.orders[0]?.status}</span>
+                  </div>
+                  <div className="flex justify-between" style={{ color: "#8a8a8a" }}>
+                    <span>Comandas:</span>
+                    <span style={{ color: "#c9c9c9", fontWeight: 700 }}>{t.orders.length} {t.orders.length>1?"pedidos":"pedido"} · {t.items.length} itens</span>
                   </div>
 
                   <div className="p-2 rounded-lg space-y-1 mt-2" style={{ background: C.black, border: `1px solid ${C.gray800}` }}>
