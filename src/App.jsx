@@ -115,11 +115,82 @@ const css = `
     0% { transform: translateY(0) rotate(0deg); opacity: 1; }
     100% { transform: translateY(110vh) rotate(280deg); opacity: 0; }
   }
+  @keyframes sarroshimmer {
+    0% { transform: translateX(-100%); }
+    100% { transform: translateX(200%); }
+  }
   .sarro-img { width: 100%; height: 100%; object-fit: cover; display: block; }
   .sarro-imgzoom { overflow: hidden; }
   .sarro-imgzoom img { width: 100%; height: 100%; object-fit: cover; display: block; }
   * { box-sizing: border-box; }
-  body { margin: 0; }
+  html { overflow-x: hidden; -webkit-text-size-adjust: 100%; }
+  body { margin: 0; overflow-x: hidden; width: 100%; max-width: 100vw; overscroll-behavior-y: contain; -webkit-tap-highlight-color: transparent; }
+  #root { overflow-x: hidden; max-width: 100vw; }
+  /* Esconde scrollbar mas mantém scroll */
+  .no-scrollbar { scrollbar-width: none; -ms-overflow-style: none; }
+  .no-scrollbar::-webkit-scrollbar { display: none; width: 0; height: 0; }
+  /* Carrossel base */
+  .sarro-carousel {
+    display: flex;
+    gap: 12px;
+    overflow-x: auto;
+    overflow-y: hidden;
+    scroll-snap-type: x mandatory;
+    scroll-padding-left: 16px;
+    scroll-padding-right: 16px;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+    overscroll-behavior-x: contain;
+    cursor: grab;
+  }
+  .sarro-carousel:active { cursor: grabbing; }
+  .sarro-carousel::-webkit-scrollbar { display: none; }
+  .sarro-carousel-item { scroll-snap-align: start; scroll-snap-stop: normal; flex-shrink: 0; }
+  .sarro-carousel.dragging, .sarro-chips.dragging { scroll-snap-type: none; user-select: none; }
+  .sarro-carousel.dragging * , .sarro-chips.dragging * { pointer-events: none; }
+  /* Chips categoria */
+  .sarro-chips {
+    display: flex;
+    gap: 8px;
+    overflow-x: auto;
+    overflow-y: hidden;
+    scroll-snap-type: x proximity;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+    overscroll-behavior-x: contain;
+    padding-bottom: 2px;
+    cursor: grab;
+    scroll-padding-left: 12px;
+    scroll-padding-right: 12px;
+  }
+  .sarro-chips:active { cursor: grabbing; }
+  .sarro-chips::-webkit-scrollbar { display: none; }
+  .sarro-chip { scroll-snap-align: start; flex-shrink: 0; }
+  /* Fade lateral para indicar mais conteúdo */
+  .sarro-fade { position: relative; }
+  .sarro-fade::before, .sarro-fade::after {
+    content: '';
+    position: absolute;
+    top: 0; bottom: 0;
+    width: 20px;
+    pointer-events: none;
+    z-index: 2;
+    transition: opacity .2s;
+  }
+  .sarro-fade::before { left: 0; background: linear-gradient(90deg, #050505 0%, transparent 100%); }
+  .sarro-fade::after { right: 0; background: linear-gradient(270deg, #050505 0%, transparent 100%); }
+  .sarro-fade.no-left::before { opacity: 0; }
+  .sarro-fade.no-right::after { opacity: 0; }
+  /* Responsivo */
+  @media (max-width: 360px) {
+    .sarro-carousel { gap: 10px; scroll-padding-left: 12px; }
+  }
+  @media (min-width: 640px) {
+    .sarro-carousel { gap: 14px; }
+  }
+  /* Safe area iPhone */
+  .safe-bottom { padding-bottom: env(safe-area-inset-bottom); }
+  .safe-bottom-plus { padding-bottom: calc(12px + env(safe-area-inset-bottom)); }
 `;
 
 function beep(freq = 880, dur = 0.14) {
@@ -244,10 +315,10 @@ function Toast({ msg }) {
   if (!msg) return null;
   return (
     <div
-      className="fixed left-1/2 z-50 px-4 py-3 rounded-xl font-bold flex items-center gap-2"
+      className="fixed left-1/2 z-50 px-4 py-3 rounded-xl font-bold flex items-center gap-2 text-center"
       style={{
-        bottom: 96, transform: "translateX(-50%)", background: C.white, color: C.black,
-        fontSize: 13, boxShadow: "0 12px 40px rgba(0,0,0,.6)", maxWidth: "88vw",
+        bottom: "calc(96px + env(safe-area-inset-bottom))", transform: "translateX(-50%)", background: C.white, color: C.black,
+        fontSize: "clamp(12px, 3.2vw, 13px)", boxShadow: "0 12px 40px rgba(0,0,0,.6)", maxWidth: "min(88vw, 420px)", lineHeight: 1.3,
       }}
     >
       🔥 {msg}
@@ -313,6 +384,171 @@ function ChannelPill({ channel }) {
     >
       {channel === "WHATSAPP" ? <WaIcon size={11} color={c.color} /> : c.icon} {c.short}
     </span>
+  );
+}
+
+// ============================================================
+// CARROSSEL — hook + componentes reutilizáveis
+// Responsivo, drag com mouse/touch, snap, setas desktop, fade
+// ============================================================
+
+function useDragScroll() {
+  const ref = useRef(null);
+  const [isDragging, setIsDragging] = useState(false);
+  const [canLeft, setCanLeft] = useState(false);
+  const [canRight, setCanRight] = useState(false);
+  const drag = useRef({ startX: 0, scrollLeft: 0, moved: false, suppressClick: false });
+
+  const update = () => {
+    const el = ref.current;
+    if (!el) return;
+    const left = el.scrollLeft > 8;
+    const right = el.scrollLeft + el.clientWidth < el.scrollWidth - 8;
+    setCanLeft(left);
+    setCanRight(right);
+  };
+
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    update();
+    el.addEventListener("scroll", update, { passive: true });
+    const ro = new ResizeObserver(update);
+    ro.observe(el);
+    return () => { el.removeEventListener("scroll", update); ro.disconnect(); };
+  }, []);
+
+  const onPointerDown = (e) => {
+    const el = ref.current;
+    if (!el) return;
+    setIsDragging(true);
+    drag.current.moved = false;
+    drag.current.suppressClick = false;
+    const x = e.touches ? e.touches[0].clientX : e.clientX;
+    drag.current.startX = x - el.offsetLeft;
+    drag.current.scrollLeft = el.scrollLeft;
+    el.classList.add("dragging");
+  };
+  const onPointerMove = (e) => {
+    const el = ref.current;
+    if (!isDragging || !el) return;
+    const x = e.touches ? e.touches[0].clientX : e.clientX;
+    const walk = (x - el.offsetLeft - drag.current.startX) * 1.25;
+    if (Math.abs(walk) > 6) {
+      drag.current.moved = true;
+      drag.current.suppressClick = true;
+    }
+    if (drag.current.moved) {
+      if (e.cancelable) e.preventDefault?.();
+      el.scrollLeft = drag.current.scrollLeft - walk;
+    }
+  };
+  const onPointerUp = () => {
+    const el = ref.current;
+    if (!el) return;
+    setIsDragging(false);
+    el.classList.remove("dragging");
+    if (drag.current.suppressClick) {
+      setTimeout(() => {
+        drag.current.moved = false;
+        drag.current.suppressClick = false;
+      }, 120);
+    } else {
+      drag.current.moved = false;
+    }
+  };
+
+  const scrollBy = (dir) => {
+    const el = ref.current;
+    if (!el) return;
+    const amount = Math.max(180, el.clientWidth * 0.82) * dir;
+    el.scrollBy({ left: amount, behavior: "smooth" });
+  };
+
+  const onClickCapture = (e) => {
+    if (drag.current.suppressClick) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+  };
+
+  const handlers = {
+    onMouseDown: onPointerDown,
+    onMouseMove: onPointerMove,
+    onMouseUp: onPointerUp,
+    onMouseLeave: onPointerUp,
+    onTouchStart: onPointerDown,
+    onTouchMove: onPointerMove,
+    onTouchEnd: onPointerUp,
+    onClickCapture,
+  };
+
+  return { ref, isDragging, canLeft, canRight, scrollBy, handlers, moved: drag.current.moved, update };
+}
+
+function CarouselShell({ children, className = "", gap = 12, showArrows = true, fade = true }) {
+  const { ref, canLeft, canRight, scrollBy, handlers, isDragging } = useDragScroll();
+  return (
+    <div className={`relative group/carousel ${fade ? "sarro-fade" : ""} ${!canLeft ? "no-left" : ""} ${!canRight ? "no-right" : ""}`}>
+      <div
+        ref={ref}
+        className={`sarro-carousel no-scrollbar ${isDragging ? "dragging" : ""} ${className}`}
+        style={{ gap }}
+        {...handlers}
+      >
+        {children}
+      </div>
+      {showArrows && (
+        <>
+          <button
+            onClick={() => scrollBy(-1)}
+            aria-label="Voltar"
+            className={`hidden md:flex absolute left-0 top-1/2 -translate-y-1/2 z-10 w-9 h-9 rounded-full items-center justify-center transition-all duration-200 ${canLeft ? "opacity-90 translate-x-0" : "opacity-0 -translate-x-2 pointer-events-none"}`}
+            style={{ background: C.gray850, border: `1px solid ${C.gray800}`, color: C.white, boxShadow: "0 4px 18px rgba(0,0,0,.5)" }}
+          >
+            ‹
+          </button>
+          <button
+            onClick={() => scrollBy(1)}
+            aria-label="Avançar"
+            className={`hidden md:flex absolute right-0 top-1/2 -translate-y-1/2 z-10 w-9 h-9 rounded-full items-center justify-center transition-all duration-200 ${canRight ? "opacity-90 translate-x-0" : "opacity-0 translate-x-2 pointer-events-none"}`}
+            style={{ background: C.gray850, border: `1px solid ${C.gray800}`, color: C.white, boxShadow: "0 4px 18px rgba(0,0,0,.5)" }}
+          >
+            ›
+          </button>
+        </>
+      )}
+    </div>
+  );
+}
+
+function ProductCarouselCard({ p, onOpen }) {
+  return (
+    <Card
+      onClick={() => p.available && onOpen(p)}
+      className="sarro-carousel-item p-2.5 sarro-imgzoom select-none"
+      style={{
+        width: "clamp(142px, 42vw, 174px)",
+        cursor: p.available ? "pointer" : "not-allowed",
+        opacity: p.available ? 1 : 0.5,
+      }}
+    >
+      <div className="rounded-xl overflow-hidden mb-2 relative" style={{ height: "clamp(84px, 26vw, 110px)", border: `1px solid ${p.promo ? `${C.orange}70` : C.gray800}` }}>
+        <SmartImg id={p.id} emoji={p.emoji} alt={p.name} fs={36} file={p.img} v={p.updatedAt} />
+        {p.promo && (
+          <span className="absolute top-1.5 left-1.5 rounded-full px-1.5 py-0.5 font-black" style={{ background: C.red, color: C.white, fontSize: 9, lineHeight: 1 }}>
+            OFERTA
+          </span>
+        )}
+      </div>
+      <div style={{ color: C.white, fontWeight: 800, fontSize: "clamp(12px, 3.2vw, 13.5px)", lineHeight: 1.2 }} className="line-clamp-2 min-h-[2.4em]">
+        {p.name}
+      </div>
+      <div className="flex items-baseline gap-1.5 mt-1 flex-wrap">
+        <span style={{ color: C.yellowLight, fontWeight: 900, fontSize: 14 }}>{brl(p.promo || p.price)}</span>
+        {p.promo && <span style={{ color: "#6e6e6e", fontSize: 10.5, textDecoration: "line-through" }}>{brl(p.price)}</span>}
+      </div>
+    </Card>
   );
 }
 
@@ -465,56 +701,56 @@ function Hero({ store, onOrder }) {
         }}
       />
       <div
-        className="absolute pointer-events-none"
+        className="absolute pointer-events-none hidden sm:block"
         style={{ left: "-14%", top: "13%", width: "68%", height: 3, background: `linear-gradient(90deg, transparent, ${C.orange}aa, transparent)`, transform: "rotate(-8deg)" }}
       />
       <div
-        className="absolute pointer-events-none"
+        className="absolute pointer-events-none hidden sm:block"
         style={{ left: "-10%", top: "21%", width: "52%", height: 2, background: `linear-gradient(90deg, transparent, ${C.yellow}77, transparent)`, transform: "rotate(-8deg)" }}
       />
 
-      <div className="relative px-5 pt-5 pb-7">
-        <div className="flex items-center justify-between mb-5 gap-2">
-          <Logo size={54} glow />
+      <div className="relative px-4 sm:px-5 pt-4 sm:pt-5 pb-6 sm:pb-7 max-w-[640px] mx-auto w-full">
+        <div className="flex items-center justify-between mb-4 sm:mb-5 gap-2">
+          <Logo size={50} glow style={{ width: "clamp(44px, 12vw, 54px)", height: "clamp(44px, 12vw, 54px)" }} />
           <div
-            className="flex items-center gap-2 px-3 py-1.5 rounded-full shrink-0"
+            className="flex items-center gap-2 px-2.5 sm:px-3 py-1 sm:py-1.5 rounded-full shrink-0"
             style={{ background: C.gray850, border: `1px solid ${store.open ? C.green : C.red}55` }}
           >
             <span
               style={{ width: 8, height: 8, borderRadius: 99, background: store.open ? C.green : C.red, display: "inline-block", animation: "sarropulse 1.8s infinite" }}
             />
-            <span style={{ fontSize: 11, fontWeight: 800, color: store.open ? C.green : C.red }}>
-              {store.open ? "Aberto agora" : "Fechado · voltamos 18h"}
+            <span style={{ fontSize: "clamp(10px, 2.8vw, 11px)", fontWeight: 800, color: store.open ? C.green : C.red, whiteSpace: "nowrap" }}>
+              {store.open ? "Aberto agora" : "Fechado · 18h"}
             </span>
           </div>
         </div>
 
         <div style={{ fontFamily: font.display, fontStyle: "italic", letterSpacing: "-0.03em" }}>
-          <div style={{ fontSize: 38, lineHeight: 0.94, color: C.white }}>BATEU A FOME?</div>
-          <div style={{ fontSize: 43, lineHeight: 1, color: C.orange, textShadow: `3px 3px 0 ${C.black}, 0 0 36px ${C.orange}55` }}>
+          <div style={{ fontSize: "clamp(26px, 8vw, 38px)", lineHeight: 0.94, color: C.white }}>BATEU A FOME?</div>
+          <div style={{ fontSize: "clamp(28px, 9.2vw, 43px)", lineHeight: 0.98, color: C.orange, textShadow: `3px 3px 0 ${C.black}, 0 0 36px ${C.orange}55` }}>
             ENTÃO TÁ NO SARRO! 🔥
           </div>
         </div>
 
-        <p style={{ color: "#bdbdbd", fontSize: 13, marginTop: 12, maxWidth: 430, lineHeight: 1.55 }}>
+        <p style={{ color: "#bdbdbd", fontSize: "clamp(12px, 3.4vw, 13px)", marginTop: 12, maxWidth: 430, lineHeight: 1.55 }}>
           Burger artesanal na chapa e açaí batido na hora, saindo do Janga direto
           pra sua casa. {store.open ? "Entrega em 35–45 min." : "Voltamos às 18h."}
         </p>
 
-        <div className="flex flex-wrap items-center gap-x-4 gap-y-3 mt-5">
-          <Btn onClick={onOrder} style={{ paddingLeft: 28, paddingRight: 28, boxShadow: `0 10px 32px ${C.orange}45` }}>
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-3 mt-5">
+          <Btn onClick={onOrder} full={false} style={{ paddingLeft: "clamp(20px, 5vw, 28px)", paddingRight: "clamp(20px, 5vw, 28px)", boxShadow: `0 10px 32px ${C.orange}45`, flex: "0 0 auto", minWidth: 140 }}>
             PEDIR AGORA
           </Btn>
-          <div className="flex items-center gap-2 flex-wrap" style={{ color: "#8a8a8a", fontSize: 11 }}>
+          <div className="flex items-center gap-2 flex-wrap" style={{ color: "#8a8a8a", fontSize: "clamp(10px, 2.9vw, 11px)" }}>
             <span>⭐ 4,9</span><span>•</span><span>🛵 {brl(store.fee)}</span><span>•</span><span>⏱ 35–45min</span>
           </div>
         </div>
 
         {/* foto hero: apetite vende pedido */}
         <div
-          className="sarro-imgzoom rounded-2xl overflow-hidden mt-6"
+          className="sarro-imgzoom rounded-2xl overflow-hidden mt-5 sm:mt-6"
           style={{
-            height: 220,
+            height: "clamp(160px, 52vw, 220px)",
             border: `1px solid ${C.gray800}`,
             boxShadow: `0 20px 60px rgba(0,0,0,.65), 0 0 0 1px ${C.orange}1f`,
           }}
@@ -531,34 +767,34 @@ function ProductCard({ p, onOpen }) {
   return (
     <Card
       onClick={() => p.available && onOpen(p)}
-      className="p-3 flex gap-3 items-center"
+      className="p-2.5 sm:p-3 flex gap-2.5 sm:gap-3 items-center group"
       style={{ opacity: p.available ? 1 : 0.45, cursor: p.available ? "pointer" : "not-allowed" }}
     >
       <div
         className="shrink-0 rounded-xl overflow-hidden sarro-imgzoom"
-        style={{ width: 88, height: 88, border: `1px solid ${p.promo ? `${C.orange}70` : C.gray800}` }}
+        style={{ width: "clamp(68px, 20vw, 88px)", height: "clamp(68px, 20vw, 88px)", border: `1px solid ${p.promo ? `${C.orange}70` : C.gray800}` }}
       >
-        <SmartImg id={p.id} emoji={p.emoji} alt={p.name} fs={36} file={p.img} v={p.updatedAt} />
+        <SmartImg id={p.id} emoji={p.emoji} alt={p.name} fs={32} file={p.img} v={p.updatedAt} />
       </div>
       <div className="min-w-0 flex-1">
-        <div className="flex items-center gap-1.5 flex-wrap mb-1">
+        <div className="flex items-center gap-1 sm:gap-1.5 flex-wrap mb-1">
           {p.badges.includes("maisvendido") && <Badge color={C.yellow}>MAIS VENDIDO</Badge>}
           {p.badges.includes("novidade") && <Badge color={C.white}>NOVIDADE</Badge>}
           {p.badges.includes("promocao") && <Badge color={C.red} text={C.white}>PROMO</Badge>}
         </div>
-        <div style={{ fontWeight: 800, color: C.white, fontSize: 15 }}>{p.name}</div>
-        <div style={{ color: "#9a9a9a", fontSize: 11.5, lineHeight: 1.35, marginTop: 2 }} className="line-clamp-2">
+        <div style={{ fontWeight: 800, color: C.white, fontSize: "clamp(13.5px, 3.8vw, 15px)", lineHeight: 1.2 }} className="line-clamp-2">{p.name}</div>
+        <div style={{ color: "#9a9a9a", fontSize: "clamp(10.5px, 3vw, 11.5px)", lineHeight: 1.35, marginTop: 2 }} className="line-clamp-2">
           {p.desc}
         </div>
-        <div className="flex items-center gap-2 mt-1.5">
-          <span style={{ color: C.yellowLight, fontWeight: 900, fontSize: 15 }}>{brl(price)}</span>
+        <div className="flex items-center gap-1.5 sm:gap-2 mt-1.5 flex-wrap">
+          <span style={{ color: C.yellowLight, fontWeight: 900, fontSize: "clamp(13px, 3.6vw, 15px)" }}>{brl(price)}</span>
           {p.promo && <span style={{ color: "#6e6e6e", fontSize: 11, textDecoration: "line-through" }}>{brl(p.price)}</span>}
           <span style={{ color: "#6e6e6e", fontSize: 10 }}>• {p.time} min</span>
         </div>
       </div>
       <button
-        className="shrink-0 rounded-xl flex items-center justify-center font-black active:scale-90 transition"
-        style={{ width: 40, height: 40, background: C.orange, color: C.black, fontSize: 22, lineHeight: 1 }}
+        className="shrink-0 rounded-xl flex items-center justify-center font-black active:scale-90 transition group-active:scale-95"
+        style={{ width: "clamp(36px, 10vw, 40px)", height: "clamp(36px, 10vw, 40px)", background: C.orange, color: C.black, fontSize: 22, lineHeight: 1 }}
         aria-label={`Adicionar ${p.name}`}
       >
         +
@@ -612,12 +848,12 @@ function ProductModal({ p, store, onClose, onAdd }) {
   };
 
   return (
-    <div className="fixed inset-0 z-40 flex items-end sm:items-center justify-center" style={{ background: "rgba(0,0,0,.78)" }}>
+    <div className="fixed inset-0 z-40 flex items-end sm:items-center justify-center p-0 sm:p-4" style={{ background: "rgba(0,0,0,.78)", paddingBottom: "env(safe-area-inset-bottom)" }}>
       <div
-        className="w-full sm:max-w-lg max-h-[92vh] overflow-y-auto"
+        className="w-full sm:max-w-lg max-h-[92dvh] sm:max-h-[92vh] overflow-y-auto no-scrollbar flex flex-col"
         style={{ background: C.gray900, borderTop: `3px solid ${C.orange}`, borderRadius: "22px 22px 0 0" }}
       >
-        <div className="relative sarro-imgzoom" style={{ height: 172, background: `linear-gradient(135deg, ${C.orange}33, ${C.black})` }}>
+        <div className="relative sarro-imgzoom shrink-0" style={{ height: "clamp(148px, 42vw, 172px)", background: `linear-gradient(135deg, ${C.orange}33, ${C.black})` }}>
           <SmartImg id={p.id} emoji={p.emoji} alt={p.name} fs={72} file={p.img} v={p.updatedAt} />
           <div
             className="absolute inset-x-0 bottom-0 pointer-events-none"
@@ -632,8 +868,8 @@ function ProductModal({ p, store, onClose, onAdd }) {
           </button>
         </div>
 
-        <div className="p-5">
-          <h3 style={{ fontFamily: font.display, fontStyle: "italic", fontSize: 26, color: C.white, letterSpacing: "-0.02em" }}>
+        <div className="p-4 sm:p-5 flex-1">
+          <h3 style={{ fontFamily: font.display, fontStyle: "italic", fontSize: "clamp(20px, 5.5vw, 26px)", color: C.white, letterSpacing: "-0.02em" }}>
             {p.name.toUpperCase()}
           </h3>
           <p style={{ color: "#a5a5a5", fontSize: 13, marginTop: 6, lineHeight: 1.5 }}>{p.desc}</p>
@@ -678,9 +914,9 @@ function ProductModal({ p, store, onClose, onAdd }) {
 
           {groups.map((g) => (
             <div key={g.id} className="mt-5">
-              <div className="flex items-center justify-between mb-2">
+              <div className="flex items-center justify-between mb-2 gap-2">
                 <span style={{ color: C.yellowLight, fontWeight: 800, fontSize: 13 }}>{g.name}</span>
-                <span style={{ color: "#777", fontSize: 10.5 }}>
+                <span style={{ color: "#777", fontSize: 10.5, whiteSpace: "nowrap" }}>
                   {g.required ? "Obrigatório" : "Opcional"} · até {g.max}
                 </span>
               </div>
@@ -730,13 +966,13 @@ function ProductModal({ p, store, onClose, onAdd }) {
           </div>
         </div>
 
-        <div className="sticky bottom-0 p-4 flex items-center gap-3" style={{ background: C.black, borderTop: `1px solid ${C.gray800}` }}>
-          <div className="flex items-center gap-3 rounded-xl px-3 py-2" style={{ background: C.gray850, border: `1px solid ${C.gray800}` }}>
+        <div className="sticky bottom-0 p-4 flex items-center gap-3 safe-bottom" style={{ background: C.black, borderTop: `1px solid ${C.gray800}` }}>
+          <div className="flex items-center gap-3 rounded-xl px-3 py-2 shrink-0" style={{ background: C.gray850, border: `1px solid ${C.gray800}` }}>
             <button onClick={() => setQty(Math.max(1, qty - 1))} style={{ color: C.orange, fontSize: 20, fontWeight: 900 }}>−</button>
             <span style={{ color: C.white, fontWeight: 900, minWidth: 18, textAlign: "center" }}>{qty}</span>
             <button onClick={() => setQty(qty + 1)} style={{ color: C.orange, fontSize: 20, fontWeight: 900 }}>+</button>
           </div>
-          <Btn full onClick={add} disabled={missing.length > 0}>
+          <Btn full onClick={add} disabled={missing.length > 0} style={{ minWidth: 0 }}>
             {missing.length > 0 ? `Escolha: ${missing[0].name}` : `Adicionar · ${brl(unit * qty)}`}
           </Btn>
         </div>
@@ -781,6 +1017,7 @@ function MenuScreen({ store, onOpen }) {
   const [cat, setCat] = useState("burgers");
   const [q, setQ] = useState("");
   const refs = useRef({});
+  const chipsHook = useDragScroll();
 
   const results = smartSearch(q, store.products);
   const searching = q.trim().length > 0;
@@ -796,46 +1033,56 @@ function MenuScreen({ store, onOpen }) {
       : store.products.filter((p) => p.cat === id);
 
   return (
-    <div>
-      <div className="px-4 pt-4 pb-2 sticky top-0 z-20" style={{ background: C.black }}>
+    <div className="w-full max-w-[720px] mx-auto">
+      <div className="px-3 sm:px-4 pt-3 sm:pt-4 pb-2 sticky z-20 backdrop-blur-md" style={{ background: "rgba(5,5,5,.92)", top: 44, borderBottom: `1px solid ${C.gray850}` }}>
         <div className="relative">
           <input
             value={q}
             onChange={(e) => setQ(e.target.value)}
             placeholder="Busque: “burger com bacon”, “combo barato”, “açaí”…"
-            className="w-full rounded-2xl pl-10 pr-4 py-3 outline-none"
+            className="w-full rounded-2xl pl-10 pr-10 py-3 outline-none"
             style={{ background: C.gray850, border: `1px solid ${C.gray800}`, color: C.white, fontSize: 13 }}
           />
           <span className="absolute left-3.5 top-3.5" style={{ fontSize: 15 }}>🔍</span>
+          {q && (
+            <button onClick={() => setQ("")} className="absolute right-3 top-2.5 rounded-full w-7 h-7 flex items-center justify-center" style={{ background: C.gray800, color: "#9a9a9a", fontSize: 12 }}>✕</button>
+          )}
         </div>
 
         {!searching && (
-          <div className="flex gap-2 overflow-x-auto pb-2 pt-3" style={{ scrollbarWidth: "none" }}>
-            {CATEGORIES.map((c) => {
-              const on = cat === c.id;
-              return (
-                <button
-                  key={c.id}
-                  onClick={() => go(c.id)}
-                  className="shrink-0 rounded-full px-3.5 py-2 font-bold"
-                  style={{
-                    background: on ? `linear-gradient(100deg, ${C.orange}, ${C.yellow})` : C.gray850,
-                    color: on ? C.black : "#c9c9c9",
-                    border: `1px solid ${on ? "transparent" : C.gray800}`, fontSize: 12.5, whiteSpace: "nowrap",
-                  }}
-                >
-                  {c.icon} {c.label}
-                </button>
-              );
-            })}
+          <div className={`relative mt-3 sarro-fade ${!chipsHook.canLeft ? "no-left" : ""} ${!chipsHook.canRight ? "no-right" : ""}`}>
+            <div
+              ref={chipsHook.ref}
+              className="sarro-chips no-scrollbar"
+              {...chipsHook.handlers}
+            >
+              {(store.categories.length ? store.categories : CATEGORIES).map((c) => {
+                const on = cat === c.id;
+                return (
+                  <button
+                    key={c.id}
+                    onClick={() => go(c.id)}
+                    className="sarro-chip shrink-0 rounded-full px-3.5 py-2 font-bold transition active:scale-95"
+                    style={{
+                      background: on ? `linear-gradient(100deg, ${C.orange}, ${C.yellow})` : C.gray850,
+                      color: on ? C.black : "#c9c9c9",
+                      border: `1px solid ${on ? "transparent" : C.gray800}`, fontSize: 12.5, whiteSpace: "nowrap",
+                      boxShadow: on ? `0 2px 12px ${C.orange}33` : "none",
+                    }}
+                  >
+                    {c.icon} {c.label}
+                  </button>
+                );
+              })}
+            </div>
           </div>
         )}
       </div>
 
-      <div className="px-4 pb-6">
+      <div className="px-3 sm:px-4 pb-24">
         {searching ? (
           <>
-            <div style={{ color: "#8a8a8a", fontSize: 12, margin: "10px 2px" }}>
+            <div style={{ color: "#8a8a8a", fontSize: 12, margin: "12px 2px" }}>
               {results.length} resultado{results.length === 1 ? "" : "s"} para “{q}”
             </div>
             {results.length === 0 ? (
@@ -853,15 +1100,18 @@ function MenuScreen({ store, onOpen }) {
             )}
           </>
         ) : (
-          CATEGORIES.map((c) => {
+          (store.categories.length ? store.categories : CATEGORIES).map((c) => {
             const items = byCat(c.id);
             if (!items.length) return null;
             return (
-              <div key={c.id} ref={(el) => (refs.current[c.id] = el)} className="pt-5" style={{ scrollMarginTop: 130 }}>
-                <h3 style={{ fontFamily: font.display, fontStyle: "italic", fontSize: 20, color: C.white, marginBottom: 12, letterSpacing: "-0.02em" }}>
-                  {c.icon} {c.label.toUpperCase()}
-                </h3>
-                <div className="space-y-3">
+              <div key={c.id} ref={(el) => (refs.current[c.id] = el)} className="pt-6" style={{ scrollMarginTop: 132 }}>
+                <div className="flex items-baseline justify-between mb-3 gap-2">
+                  <h3 style={{ fontFamily: font.display, fontStyle: "italic", fontSize: "clamp(18px, 4.8vw, 20px)", color: C.white, letterSpacing: "-0.02em" }}>
+                    {c.icon} {c.label.toUpperCase()}
+                  </h3>
+                  <span style={{ color: "#5a5a5a", fontSize: 11 }}>{items.length}</span>
+                </div>
+                <div className="space-y-2.5 sm:space-y-3">
                   {items.map((p) => <ProductCard key={p.id} p={p} onOpen={onOpen} />)}
                 </div>
               </div>
@@ -878,45 +1128,44 @@ function HomeScreen({ store, onOpen, goMenu }) {
   const promos = store.products.filter((p) => p.promo);
   const novos = store.products.filter((p) => p.badges.includes("novidade"));
 
-  const Row = ({ title, sub, items }) => (
-    <div className="pt-6">
-      <div className="px-4 mb-3">
-        <h3 style={{ fontFamily: font.display, fontStyle: "italic", fontSize: 20, color: C.white, letterSpacing: "-0.02em" }}>
-          {title}
-        </h3>
-        {sub && <div style={{ color: "#8a8a8a", fontSize: 12, marginTop: 2 }}>{sub}</div>}
+  const Row = ({ title, sub, items }) => {
+    if (!items.length) return null;
+    return (
+      <div className="pt-6 sm:pt-7">
+        <div className="px-4 sm:px-5 mb-3 flex items-baseline justify-between gap-2 max-w-[720px] mx-auto w-full">
+          <div>
+            <h3 style={{ fontFamily: font.display, fontStyle: "italic", fontSize: "clamp(18px, 4.8vw, 20px)", color: C.white, letterSpacing: "-0.02em" }}>
+              {title}
+            </h3>
+            {sub && <div style={{ color: "#8a8a8a", fontSize: 12, marginTop: 2 }}>{sub}</div>}
+          </div>
+          <span style={{ color: "#4a4a4a", fontSize: 11 }}>{items.length} itens</span>
+        </div>
+        <div className="px-3 sm:px-4 max-w-[720px] mx-auto w-full">
+          <CarouselShell>
+            {items.map((p) => (
+              <ProductCarouselCard key={p.id} p={p} onOpen={onOpen} />
+            ))}
+          </CarouselShell>
+        </div>
       </div>
-      <div className="flex gap-3 overflow-x-auto px-4 pb-1" style={{ scrollbarWidth: "none" }}>
-        {items.map((p) => (
-          <Card key={p.id} onClick={() => onOpen(p)} className="shrink-0 p-2.5 sarro-imgzoom" style={{ width: 174, cursor: "pointer" }}>
-            <div className="rounded-xl overflow-hidden mb-2" style={{ height: 110, border: `1px solid ${C.gray800}` }}>
-              <SmartImg id={p.id} emoji={p.emoji} alt={p.name} fs={44} file={p.img} v={p.updatedAt} />
-            </div>
-            <div style={{ color: C.white, fontWeight: 800, fontSize: 13.5 }}>{p.name}</div>
-            <div className="flex items-baseline gap-2 mt-1">
-              <span style={{ color: C.yellowLight, fontWeight: 900, fontSize: 14 }}>{brl(p.promo || p.price)}</span>
-              {p.promo && <span style={{ color: "#6e6e6e", fontSize: 10.5, textDecoration: "line-through" }}>{brl(p.price)}</span>}
-            </div>
-          </Card>
-        ))}
-      </div>
-    </div>
-  );
+    );
+  };
 
   return (
-    <div className="pb-6">
+    <div className="pb-6 w-full overflow-x-hidden">
       <Hero store={store} onOrder={goMenu} />
 
-      <div className="px-4 -mt-4 relative z-10">
-        <Card className="p-4 flex items-center gap-3" style={{ borderColor: `${C.orange}55` }}>
-          <div className="rounded-xl overflow-hidden shrink-0 sarro-imgzoom" style={{ width: 50, height: 50, border: `1px solid ${C.orange}55` }}>
+      <div className="px-3 sm:px-4 -mt-4 relative z-10 max-w-[720px] mx-auto w-full">
+        <Card className="p-3.5 sm:p-4 flex items-center gap-3" style={{ borderColor: `${C.orange}55` }}>
+          <div className="rounded-xl overflow-hidden shrink-0 sarro-imgzoom" style={{ width: "clamp(44px, 12vw, 50px)", height: "clamp(44px, 12vw, 50px)", border: `1px solid ${C.orange}55` }}>
             <SmartImg id="p16" emoji="🛠️" alt="Monte seu Sarro" fs={24} />
           </div>
-          <div className="flex-1">
-            <div style={{ color: C.white, fontWeight: 900, fontSize: 14 }}>Monte seu Sarro</div>
-            <div style={{ color: "#9a9a9a", fontSize: 11.5 }}>Pão, carne, queijo e molho do seu jeito</div>
+          <div className="flex-1 min-w-0">
+            <div style={{ color: C.white, fontWeight: 900, fontSize: "clamp(13px, 3.6vw, 14px)" }}>Monte seu Sarro</div>
+            <div style={{ color: "#9a9a9a", fontSize: "clamp(10.5px, 3vw, 11.5px)", lineHeight: 1.3 }} className="truncate">Pão, carne, queijo e molho do seu jeito</div>
           </div>
-          <Btn small onClick={() => onOpen(store.products.find((p) => p.builder))}>Montar</Btn>
+          <Btn small onClick={() => onOpen(store.products.find((p) => p.builder))} style={{ whiteSpace: "nowrap" }}>Montar</Btn>
         </Card>
       </div>
 
@@ -924,10 +1173,10 @@ function HomeScreen({ store, onOpen, goMenu }) {
       <Row title="💥 OFERTAS DE HOJE" sub="Enquanto durar o estoque" items={promos} />
       {novos.length > 0 && <Row title="✨ NOVIDADES" sub="Recém-chegados no cardápio" items={novos} />}
 
-      <div className="px-4 pt-7">
+      <div className="px-3 sm:px-4 pt-7 max-w-[720px] mx-auto w-full">
         <Card className="p-4" style={{ background: `linear-gradient(120deg, ${C.orange}22, ${C.gray850})`, borderColor: `${C.orange}44` }}>
           <div style={{ color: C.white, fontWeight: 900, fontSize: 15 }}>🔥 Happy Hour do Sarro</div>
-          <div style={{ color: "#c9c9c9", fontSize: 12.5, marginTop: 4 }}>
+          <div style={{ color: "#c9c9c9", fontSize: 12.5, marginTop: 4, lineHeight: 1.5 }}>
             Das 18h às 20h, todo combo sai com 15% de desconto. Sem cupom, o preço já cai no carrinho.
           </div>
         </Card>
@@ -988,8 +1237,8 @@ function CartScreen({ store, goCheckout, onOpen }) {
   }
 
   return (
-    <div className="px-4 py-5 pb-6">
-      <h2 style={{ fontFamily: font.display, fontStyle: "italic", fontSize: 24, color: C.white, marginBottom: 14 }}>
+    <div className="px-3 sm:px-4 py-5 pb-6 max-w-[720px] mx-auto w-full overflow-x-hidden">
+      <h2 style={{ fontFamily: font.display, fontStyle: "italic", fontSize: "clamp(22px, 6vw, 24px)", color: C.white, marginBottom: 14 }}>
         SEU PEDIDO
       </h2>
 
@@ -1027,18 +1276,18 @@ function CartScreen({ store, goCheckout, onOpen }) {
 
       <div className="pt-6">
         <div style={{ color: C.white, fontWeight: 900, fontSize: 14, marginBottom: 10 }}>COMBINA COM SEU PEDIDO 🔥</div>
-        <div className="flex gap-3 overflow-x-auto pb-1" style={{ scrollbarWidth: "none" }}>
+        <CarouselShell gap={10} showArrows={false}>
           {upsell.map((p) => (
-            <Card key={p.id} className="shrink-0 p-2.5 sarro-imgzoom" style={{ width: 138 }}>
+            <Card key={p.id} className="sarro-carousel-item p-2.5 sarro-imgzoom" style={{ width: "clamp(126px, 36vw, 138px)" }}>
               <div className="rounded-lg overflow-hidden mb-2" style={{ height: 66, border: `1px solid ${C.gray800}` }}>
                 <SmartImg id={p.id} emoji={p.emoji} alt={p.name} fs={30} file={p.img} v={p.updatedAt} />
               </div>
-              <div style={{ color: C.white, fontSize: 12, fontWeight: 700, lineHeight: 1.25 }}>{p.name}</div>
+              <div style={{ color: C.white, fontSize: 12, fontWeight: 700, lineHeight: 1.25 }} className="line-clamp-2 min-h-[2.5em]">{p.name}</div>
               <div style={{ color: C.yellowLight, fontWeight: 900, fontSize: 12.5, margin: "4px 0 8px" }}>{brl(p.promo || p.price)}</div>
               <Btn small full onClick={() => onOpen(p)}>Adicionar</Btn>
             </Card>
           ))}
-        </div>
+        </CarouselShell>
       </div>
 
       <div className="pt-6">
@@ -1167,7 +1416,7 @@ function Checkout({ store, totals, onBack, onDone }) {
   };
 
   return (
-    <div className="px-4 py-5 pb-6">
+    <div className="px-3 sm:px-4 py-5 pb-6 max-w-[640px] mx-auto w-full">
       <button onClick={step === 1 ? onBack : () => setStep(step - 1)} style={{ color: "#8a8a8a", fontSize: 13 }}>
         ← Voltar
       </button>
@@ -1176,7 +1425,7 @@ function Checkout({ store, totals, onBack, onDone }) {
         {steps.map((s, i) => (
           <div key={s} className="flex-1">
             <div style={{ height: 4, borderRadius: 9, background: i < step ? C.orange : C.gray800 }} />
-            <div style={{ color: i < step ? C.white : "#6a6a6a", fontSize: 9.5, marginTop: 5, fontWeight: 700 }}>{s}</div>
+            <div style={{ color: i < step ? C.white : "#6a6a6a", fontSize: "clamp(8.5px, 2.4vw, 9.5px)", marginTop: 5, fontWeight: 700, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{s}</div>
           </div>
         ))}
       </div>
@@ -1301,7 +1550,7 @@ function Checkout({ store, totals, onBack, onDone }) {
         </div>
       )}
 
-      <div className="mt-6">
+      <div className="mt-6 safe-bottom-plus">
         <Btn full disabled={!valid[step]} onClick={() => (step === 5 ? finish() : setStep(step + 1))}>
           {step === 5 ? `CONFIRMAR PEDIDO · ${brl(total)}` : "Continuar"}
         </Btn>
@@ -1342,7 +1591,7 @@ function TrackScreen({ order, store, now }) {
 
   if (!order) {
     return (
-      <div className="px-4 py-16 text-center">
+      <div className="px-4 py-16 text-center max-w-[640px] mx-auto">
         <div style={{ fontSize: 52 }}>📦</div>
         <div style={{ color: C.white, fontFamily: font.display, fontStyle: "italic", fontSize: 20, marginTop: 10 }}>
           NENHUM PEDIDO ATIVO
@@ -1359,13 +1608,13 @@ function TrackScreen({ order, store, now }) {
   const driver = store.drivers.find((d) => d.id === order.driverId);
 
   return (
-    <div className="px-4 py-5 pb-6">
+    <div className="px-3 sm:px-4 py-5 pb-6 max-w-[640px] mx-auto w-full">
       <div
-        className="rounded-2xl p-5 mb-4"
+        className="rounded-2xl p-4 sm:p-5 mb-4"
         style={{ background: `linear-gradient(130deg, ${C.orange}, ${C.yellow})`, color: C.black }}
       >
         <div style={{ fontSize: 11, fontWeight: 800, opacity: 0.75 }}>Pedido #{order.code}</div>
-          <div style={{ fontFamily: font.display, fontStyle: "italic", fontSize: 26, lineHeight: 1.02, marginTop: 4 }}>
+          <div style={{ fontFamily: font.display, fontStyle: "italic", fontSize: "clamp(20px, 6vw, 26px)", lineHeight: 1.02, marginTop: 4 }}>
             {done ? "SEU SARRO CHEGOU! 🔥" : order.type === "pickup" ? "SEU SARRO TÁ SAINDO!" : "SEU SARRO ESTÁ A CAMINHO!"}
         </div>
         <div style={{ fontSize: 12.5, fontWeight: 700, marginTop: 8 }}>
@@ -1469,7 +1718,7 @@ function AccountScreen({ store }) {
   const me = store.customers[0];
   if (!me) {
     return (
-      <div className="px-4 py-16 text-center">
+      <div className="px-4 py-16 text-center max-w-[640px] mx-auto">
         <div style={{ fontSize: 52 }}>😎</div>
         <div style={{ color: C.white, fontWeight: 900, fontSize: 16, marginTop: 10 }}>Sua conta aparece aqui</div>
         <p style={{ color: "#8a8a8a", fontSize: 13, marginTop: 6 }}>Faça seu primeiro pedido para entrar no Clube do Sarro.</p>
@@ -1479,7 +1728,7 @@ function AccountScreen({ store }) {
   const pct = Math.min(100, me.points);
   const mine = store.orders.filter((o) => o.customer.name === me.name);
   return (
-    <div className="px-4 py-5 pb-6">
+    <div className="px-3 sm:px-4 py-5 pb-6 max-w-[640px] mx-auto w-full">
       <div className="flex items-center gap-3 mb-5">
         <div className="flex items-center justify-center rounded-full" style={{ width: 54, height: 54, background: C.gray800, fontSize: 26 }}>😎</div>
         <div>
@@ -1543,15 +1792,16 @@ function BottomNav({ tab, setTab, cartCount }) {
   ];
   return (
     <div
-      className="fixed bottom-0 left-0 right-0 z-30 flex"
-      style={{ background: "rgba(5,5,5,.96)", borderTop: `1px solid ${C.gray800}`, backdropFilter: "blur(10px)" }}
+      className="fixed bottom-0 left-0 right-0 z-30 flex safe-bottom"
+      style={{ background: "rgba(5,5,5,.96)", borderTop: `1px solid ${C.gray800}`, backdropFilter: "blur(14px)", paddingBottom: "env(safe-area-inset-bottom)" }}
     >
       {items.map((i) => {
         const on = tab === i.id;
         return (
-          <button key={i.id} onClick={() => setTab(i.id)} className="flex-1 flex flex-col items-center gap-0.5 py-2.5 relative">
-            <span style={{ fontSize: 18, filter: on ? "none" : "grayscale(1) opacity(.55)" }}>{i.icon}</span>
-            <span style={{ fontSize: 9.5, fontWeight: 800, color: on ? C.orange : "#6a6a6a" }}>{i.label}</span>
+          <button key={i.id} onClick={() => setTab(i.id)} className="flex-1 flex flex-col items-center gap-0.5 py-2.5 relative active:scale-95 transition">
+            <span style={{ fontSize: "clamp(16px, 4.5vw, 18px)", filter: on ? "none" : "grayscale(1) opacity(.55)" }}>{i.icon}</span>
+            <span style={{ fontSize: "clamp(9px, 2.5vw, 9.5px)", fontWeight: 800, color: on ? C.orange : "#6a6a6a" }}>{i.label}</span>
+            {on && <span className="absolute -top-0 left-1/2 -translate-x-1/2 w-6 h-0.5 rounded-full" style={{ background: C.orange }} />}
             {i.id === "carrinho" && cartCount > 0 && (
               <span
                 className="absolute flex items-center justify-center"
@@ -1580,7 +1830,7 @@ function ClientApp({ store, now }) {
   };
 
   return (
-    <div style={{ background: C.black, minHeight: "100%", paddingBottom: 66 }}>
+    <div style={{ background: C.black, minHeight: "100%", paddingBottom: "calc(66px + env(safe-area-inset-bottom))" }} className="overflow-x-hidden">
       {checkout ? (
         <Checkout
           store={store} totals={checkout}
@@ -1591,13 +1841,13 @@ function ClientApp({ store, now }) {
           }}
         />
       ) : (
-        <>
+        <div className="w-full overflow-x-hidden">
           {store.tab === "inicio" && <HomeScreen store={store} onOpen={setModal} goMenu={() => store.setTab("cardapio")} />}
           {store.tab === "cardapio" && <MenuScreen store={store} onOpen={setModal} />}
           {store.tab === "carrinho" && <CartScreen store={store} onOpen={setModal} goCheckout={setCheckout} />}
           {store.tab === "pedidos" && <TrackScreen order={active} store={store} now={now} />}
           {store.tab === "conta" && <AccountScreen store={store} />}
-        </>
+        </div>
       )}
 
       {modal && <ProductModal key={modal.id} p={modal} store={store} onClose={() => setModal(null)} onAdd={addToCart} />}
@@ -1605,15 +1855,15 @@ function ClientApp({ store, now }) {
       {!checkout && store.tab !== "carrinho" && cartCount > 0 && (
         <button
           onClick={() => store.setTab("carrinho")}
-          className="fixed z-30 flex items-center gap-3 rounded-2xl px-4 py-3 font-black active:scale-95 transition"
+          className="fixed z-30 flex items-center gap-3 rounded-2xl px-4 py-3 font-black active:scale-95 transition max-w-[680px] mx-auto"
           style={{
-            left: 16, right: 16, bottom: 78,
+            left: 12, right: 12, bottom: "calc(78px + env(safe-area-inset-bottom))",
             background: `linear-gradient(100deg, ${C.orange}, ${C.yellow})`, color: C.black,
             boxShadow: "0 10px 30px rgba(245,130,0,.35)",
           }}
         >
           <span>🛒 {cartCount} {cartCount === 1 ? "item" : "itens"}</span>
-          <span className="flex-1 text-right">{brl(store.cart.reduce((s, i) => s + i.unit * i.qty, 0))} →</span>
+          <span className="flex-1 text-right truncate">{brl(store.cart.reduce((s, i) => s + i.unit * i.qty, 0))} →</span>
         </button>
       )}
 
@@ -1621,8 +1871,8 @@ function ClientApp({ store, now }) {
         <a
           onClick={(e) => { e.preventDefault(); store.toast("Abrindo WhatsApp da loja"); }}
           href="#whatsapp"
-          className="fixed z-30 flex items-center justify-center rounded-full"
-          style={{ right: 16, bottom: cartCount > 0 ? 142 : 78, width: 46, height: 46, background: "linear-gradient(135deg, #25D366, #128C7E)", fontSize: 21, boxShadow: "0 8px 22px rgba(0,0,0,.5)" }}
+          className="fixed z-30 flex items-center justify-center rounded-full active:scale-90 transition"
+          style={{ right: 16, bottom: cartCount > 0 ? "calc(142px + env(safe-area-inset-bottom))" : "calc(78px + env(safe-area-inset-bottom))", width: 46, height: 46, background: "linear-gradient(135deg, #25D366, #128C7E)", fontSize: 21, boxShadow: "0 8px 22px rgba(0,0,0,.5)" }}
         >
           <WaIcon size={24} color="#fff" />
         </a>
@@ -4176,15 +4426,18 @@ export default function App() {
   const allowed = !gate || (me && gate.includes(me.role));
 
   return (
-    <div style={{ background: C.black, minHeight: "100vh", fontFamily: font.body, color: C.white }}>
+    <div style={{ background: C.black, minHeight: "100vh", fontFamily: font.body, color: C.white }} className="overflow-x-hidden">
       <style>{css}</style>
 
       <div
-        className="flex items-center gap-1.5 px-3 py-2 overflow-x-auto"
+        className="flex items-center gap-1.5 px-3 py-2 overflow-x-auto no-scrollbar"
         style={{ background: C.gray900, borderBottom: `1px solid ${C.gray800}`, position: "sticky", top: 0, zIndex: 40 }}
       >
-        <span style={{ color: "#5a5a5a", fontSize: 10, fontWeight: 800, marginRight: 4, whiteSpace: "nowrap" }}>
+        <span className="hidden sm:inline" style={{ color: "#5a5a5a", fontSize: 10, fontWeight: 800, marginRight: 4, whiteSpace: "nowrap" }}>
           SMART FOOD SYSTEM
+        </span>
+        <span className="sm:hidden" style={{ color: "#5a5a5a", fontSize: 9, fontWeight: 800, marginRight: 2, whiteSpace: "nowrap" }}>
+          SARRO!
         </span>
         {ROLES.map((r) => {
           const locked = STAFF_GATE[r] && (!me || !STAFF_GATE[r].includes(me.role));
@@ -4193,7 +4446,7 @@ export default function App() {
               key={r.id}
               href={rolePath(r.id)}
               onClick={(e) => { e.preventDefault(); goRole(r.id); }}
-              className="shrink-0 rounded-lg px-2.5 py-1.5 font-bold"
+              className="shrink-0 rounded-lg px-2.5 py-1.5 font-bold active:scale-95 transition"
               style={{
                 background: role === r.id ? `linear-gradient(100deg, ${C.orange}, ${C.yellow})` : "transparent",
                 color: role === r.id ? C.black : "#8a8a8a",
@@ -4208,7 +4461,7 @@ export default function App() {
         <div className="flex-1" />
         {me ? (
           <span className="shrink-0 flex items-center gap-2">
-            <span style={{ color: "#8a8a8a", fontSize: 11 }}>
+            <span className="hidden sm:inline" style={{ color: "#8a8a8a", fontSize: 11 }}>
               {me.name.split(" ")[0]} · {me.role}
             </span>
             <button
@@ -4223,7 +4476,7 @@ export default function App() {
           <a
             href={rolePath("admin")}
             onClick={(e) => { e.preventDefault(); goRole("admin"); }}
-            className="shrink-0 rounded-lg px-2 py-1 font-bold"
+            className="shrink-0 rounded-lg px-2 py-1 font-bold hidden sm:inline"
             style={{ border: `1px solid ${C.gray800}`, color: "#9a9a9a", fontSize: 10.5, textDecoration: "none", whiteSpace: "nowrap" }}
           >
             Área da equipe →
