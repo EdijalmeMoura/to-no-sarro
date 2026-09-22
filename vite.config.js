@@ -37,7 +37,7 @@ export default defineConfig({
       }
     })
   ],
-  base: "./",
+  base: "/",
   server: {
     host: "0.0.0.0",
     allowedHosts: true,

@@ -154,8 +154,8 @@ app.use(helmet({
   contentSecurityPolicy: {
     directives: {
       defaultSrc: ["'self'"],
-      scriptSrc: ["'self'", "'unsafe-inline'", "'unsafe-eval'", "https://api.qrserver.com"],
-      styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
+      scriptSrc: ["'self'", "'unsafe-inline'", "'unsafe-eval'", "https://api.qrserver.com", "https://cdn.tailwindcss.com"],
+      styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com", "https://cdn.tailwindcss.com"],
       imgSrc: ["'self'", "data:", "https:", "blob:", "https://api.qrserver.com"],
       connectSrc: ["'self'", "ws:", "wss:", "https://router.project-osrm.org", "https://nominatim.openstreetmap.org", "https://api.qrserver.com"],
       fontSrc: ["'self'", "https://fonts.gstatic.com", "data:"],
