@@ -13,13 +13,13 @@ export function Logo({ size = 44, glow = false, style = {} }) {
 }
 
 export function SmartImg({ id, emoji, alt = "", fs = 34, className = "", style = {}, file, v = 0 }) {
-  const [broken, setBroken] = useState(false);
-  useEffect(() => setBroken(false), [file, id, v]);
-  const src = file
-    ? `/img-up/${file}?v=${v}`
-    : `${IMG_BASE}/${id}.jpg?v=${v}`;
+  const [stage, setStage] = useState(0); // 0=file, 1=fallback original, 2=emoji
+  useEffect(() => setStage(0), [file, id, v]);
+  const srcFile = file ? `/img-up/${file}?v=${v}` : null;
+  const srcFallback = `${IMG_BASE}/${id}.jpg?v=${v}`;
+  const src = stage === 0 && srcFile ? srcFile : srcFallback;
 
-  if (broken) {
+  if (stage >= 2) {
     return (
       <span
         className={`flex items-center justify-center w-full h-full ${className}`}
@@ -35,7 +35,7 @@ export function SmartImg({ id, emoji, alt = "", fs = 34, className = "", style =
       alt={alt}
       loading="lazy"
       draggable={false}
-      onError={() => setBroken(true)}
+      onError={() => setStage((s) => (s === 0 && srcFile ? 1 : 2))}
       className={`sarro-img ${className}`}
       style={style}
     />

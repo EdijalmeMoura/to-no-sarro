@@ -518,15 +518,16 @@ function Logo({ size = 44, glow = false, style = {} }) {
 // Foto do produto com fallback para o emoji: enquanto a foto real não existir
 // (ou estiver carregando em conexão ruim), o card continua apresentável.
 // `file` = foto enviada pelo admin (servida em /img-up); sem ela usa a foto
-// padrão img/products/<id>.jpg gerada para o catálogo.
+// padrão /img/products/<id>.jpg original do catálogo. NUNCA muda imagem, só fallback.
+// Se upload quebrar (Render sem Disk), cai para original p1.jpg..p16.jpg, só então emoji.
 function SmartImg({ id, emoji, alt = "", fs = 34, className = "", style = {}, file, v = 0 }) {
-  const [broken, setBroken] = useState(false);
-  useEffect(() => setBroken(false), [file, id, v]);
-  const src = file
-    ? `/img-up/${file}?v=${v}`
-    : `${IMG_BASE}/${id}.jpg?v=${v}`;
+  const [stage, setStage] = useState(0);
+  useEffect(() => setStage(0), [file, id, v]);
+  const srcFile = file ? `/img-up/${file}?v=${v}` : null;
+  const srcFallback = `${IMG_BASE}/${id}.jpg?v=${v}`;
+  const src = stage === 0 && srcFile ? srcFile : srcFallback;
 
-  if (broken) {
+  if (stage >= 2) {
     return (
       <span
         className={`flex items-center justify-center w-full h-full ${className}`}
@@ -542,7 +543,7 @@ function SmartImg({ id, emoji, alt = "", fs = 34, className = "", style = {}, fi
       alt={alt}
       loading="lazy"
       draggable={false}
-      onError={() => setBroken(true)}
+      onError={() => setStage((s) => (s === 0 && srcFile ? 1 : 2))}
       className={`sarro-img ${className}`}
       style={style}
     />
