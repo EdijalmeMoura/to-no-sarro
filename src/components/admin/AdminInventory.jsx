@@ -1,16 +1,8 @@
-import React, { useState, useEffect, useMemo, useRef } from "react";
-import { C, font, STATUS, FLOW, CHANNELS } from "../../constants/theme.js";
-import { brl, elapsed, fmtDT, fmtShort, toLocalInput, fromLocalInput, lastSeen, esc, channelName } from "../../utils/format.js";
-import { api } from "../../utils/api.js";
-import { printHTML, printKitchen, printExpedition, printReceipt, printLabel, printCashSummaryReceipt, printDriverSettlementReceipt, buildGoogleMapsMultiStopUrl, downloadCSV, printReport } from "../../utils/print.js";
-import { getOrderModality } from "../../utils/orderModality.js";
-import { buildMesaIndex, getOrderTableNumber } from "../../utils/mesa.js";
-import { Card, Btn, KPI, BarChart, Donut, StatusPill, SyncBadge, ChannelPill, Badge, Logo, SmartImg } from "../ui/index.jsx";
-import ServiceChargeCard from "./ServiceChargeCard.jsx";
-import WaiterReport from "./WaiterReport.jsx";
-import LowStockAlerts from "./LowStockAlerts.jsx";
+import React from "react";
+import { C } from "../../constants/theme.js";
+import { Card, Btn } from "../ui/index.jsx";
 
-function AdminInventory({ store }) {
+export default function AdminInventory({ store }) {
   const low = store.inventory.filter((i) => i.qty <= i.min);
   return (
     <div>
@@ -47,17 +39,3 @@ function AdminInventory({ store }) {
     </div>
   );
 }
-
-// ============================================================
-// FINANCEIRO — visão de caixa com dados reais dos pedidos
-// ============================================================
-
-const RANGES = [
-  ["hoje", "Hoje"],
-  ["7", "7 dias"],
-  ["30", "30 dias"],
-  ["tudo", "Tudo"],
-];
-
-
-export default AdminInventory;
