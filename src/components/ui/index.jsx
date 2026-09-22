@@ -1,7 +1,16 @@
+<<<<<<< HEAD
 import React from "react";
 import { C } from "../../constants/theme.js";
 import { font } from "../../constants/theme.js";
 
+=======
+import React, { useState, useEffect } from "react";
+import { C } from "../../constants/theme.js";
+import { font } from "../../constants/theme.js";
+
+const IMG_BASE = "/img/products";
+
+>>>>>>> 7b3f589 (fix(imagens): restaura SmartImg fallback para /img/products)
 export function Logo({ size = 44, glow = false, style = {} }) {
   return (
     <div style={{ width: size, height: size, borderRadius: "50%", background: C.orange, display: "flex", alignItems: "center", justifyContent: "center", fontFamily: font.display, fontStyle: "italic", color: C.black, fontWeight: 900, fontSize: size*0.35, boxShadow: glow ? `0 0 ${size*0.5}px ${C.orange}` : "none", ...style }}>
@@ -11,11 +20,41 @@ export function Logo({ size = 44, glow = false, style = {} }) {
 }
 
 export function SmartImg({ id, emoji, alt = "", fs = 34, className = "", style = {}, file, v = 0 }) {
+<<<<<<< HEAD
   const src = file ? `/img-up/${file}?v=${v}` : null;
   if (src) {
     return <img src={src} alt={alt} className={`sarro-img ${className}`} style={style} />;
   }
   return <span style={{ fontSize: fs, ...style }} className={className}>{emoji}</span>;
+=======
+  const [broken, setBroken] = useState(false);
+  useEffect(() => setBroken(false), [file, id, v]);
+  const src = file
+    ? `/img-up/${file}?v=${v}`
+    : `${IMG_BASE}/${id}.jpg?v=${v}`;
+
+  if (broken) {
+    return (
+      <span
+        className={`flex items-center justify-center w-full h-full ${className}`}
+        style={{ background: `linear-gradient(135deg, ${C.orange}2e, ${C.gray800})`, ...style }}
+      >
+        <span style={{ fontSize: fs, lineHeight: 1 }}>{emoji}</span>
+      </span>
+    );
+  }
+  return (
+    <img
+      src={src}
+      alt={alt}
+      loading="lazy"
+      draggable={false}
+      onError={() => setBroken(true)}
+      className={`sarro-img ${className}`}
+      style={style}
+    />
+  );
+>>>>>>> 7b3f589 (fix(imagens): restaura SmartImg fallback para /img/products)
 }
 
 export function Badge({ children, color = C.orange, text = C.black }) {
@@ -27,6 +66,11 @@ export function Btn({ children, onClick, variant = "primary", full, disabled, sm
     primary: { background: C.orange, color: C.black },
     ghost: { background: "transparent", color: C.white, border: `1px solid ${C.gray700}` },
     danger: { background: C.red, color: C.white },
+<<<<<<< HEAD
+=======
+    dark: { background: C.gray800, color: C.white, border: `1px solid ${C.gray700}` },
+    green: { background: C.green, color: C.black },
+>>>>>>> 7b3f589 (fix(imagens): restaura SmartImg fallback para /img/products)
   }[variant] || { background: C.orange, color: C.black };
   return (
     <button
