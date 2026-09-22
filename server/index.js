@@ -734,12 +734,29 @@ app.patch("/api/orders/:id/status", requireRole("ADMIN", "GERENTE", "ATENDIMENTO
   res.json({ order: updated });
 });
 
-app.patch("/api/orders/:id/driver", requireRole("ADMIN", "GERENTE", "EXPEDICAO"), (req, res) => {
+app.patch("/api/orders/:id/driver", requireRole("ADMIN", "GERENTE", "EXPEDICAO", "ENTREGADOR"), (req, res) => {
   const { driverId } = req.body || {};
   const o = db.prepare("SELECT * FROM orders WHERE id = ?").get(req.params.id);
   if (!o) return res.status(404).json({ error: "Pedido não encontrado." });
   const d = db.prepare("SELECT * FROM drivers WHERE id = ?").get(String(driverId || ""));
   if (!d) return res.status(400).json({ error: "Entregador inválido." });
+
+  // O motoboy pode ACEITAR para si mesmo na área do entregador (/entregador):
+  // só o próprio driverId vinculado ao login, e só de pedido ainda solto.
+  if (req.user.role === "ENTREGADOR") {
+    if (String(driverId) !== String(req.user.driver_id || "")) {
+      return res.status(403).json({ error: "Você só pode aceitar entregas para o seu próprio cadastro de motoboy." });
+    }
+    if (o.driver_id && o.driver_id !== req.user.driver_id) {
+      return res.status(403).json({ error: "Esta corrida já está com outro motoboy." });
+    }
+    if (o.status !== "AGUARDANDO") {
+      return res.status(403).json({ error: "Só dá para aceitar pedido que a expedição liberou para entrega." });
+    }
+    if (o.type !== "delivery") {
+      return res.status(400).json({ error: "Este pedido não é de entrega." });
+    }
+  }
 
   db.prepare("UPDATE orders SET driver_id = ?, status = CASE WHEN status = 'AGUARDANDO' THEN 'ROTA' ELSE status END, started_at = COALESCE(started_at, ?) WHERE id = ?")
     .run(d.id, Date.now(), o.id);

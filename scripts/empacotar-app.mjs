@@ -12,7 +12,15 @@ await esbuild.build({
   bundle: true,
   format: "iife",
   jsx: "automatic",
-  define: { "process.env.NODE_ENV": '"production"' },
+  // No IIFE do jsdom não existe import.meta, então o env do Vite é
+  // substituído por um objeto equivalente ao build de produção.
+  banner: {
+    js: "var __CHECK_ENV__ = { MODE: 'production', PROD: true, DEV: false, BASE_URL: '/', VITE_SENTRY_DSN: '' };",
+  },
+  define: {
+    "process.env.NODE_ENV": '"production"',
+    "import.meta.env": "__CHECK_ENV__",
+  },
   logLevel: "error",
 });
 

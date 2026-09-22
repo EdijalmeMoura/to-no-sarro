@@ -7,6 +7,9 @@ import { printHTML, printKitchen, printExpedition, printReceipt, printLabel, pri
 import { getOrderModality } from "../../utils/orderModality.js";
 import { buildMesaIndex, getOrderTableNumber } from "../../utils/mesa.js";
 import { Card, Btn, KPI, BarChart, Donut, StatusPill, SyncBadge, ChannelPill, Badge, Logo, SmartImg } from "../ui/index.jsx";
+// getAudioContext vivia só no App.jsx; sem isto o sino do KDS era engolido
+// pelo try/catch e nunca tocava.
+import { getAudioContext } from "../../utils/sound.js";
 
 
 function beep(freq = 880, dur = 0.14) {
