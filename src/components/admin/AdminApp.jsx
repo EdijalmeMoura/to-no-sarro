@@ -18,23 +18,7 @@ import AdminStoreCard from "./AdminStoreCard.jsx";
 import AdminModalitiesCard from "./AdminModalitiesCard.jsx";
 import ServiceChargeCard from "./ServiceChargeCard.jsx";
 import AdminTables from "../tables/AdminTables.jsx";
-
-function AdminOrdersFallback({ store, now }) {
-  const { orders = [] } = store;
-  return (
-    <div className="space-y-3">
-      <div style={{ color: "#8a8a8a", fontSize: 12 }}>{orders.length} pedidos no total</div>
-      <div className="grid md:grid-cols-2 xl:grid-cols-3 gap-3">
-        {orders.slice(0, 20).map((o) => (
-          <Card key={o.id} className="p-3">
-            <div style={{ color: C.white, fontWeight: 800, fontSize: 13 }}>#{o.code} · {o.status}</div>
-            <div style={{ color: "#8a8a8a", fontSize: 11 }}>{o.customer?.name} · {o.total}</div>
-          </Card>
-        ))}
-      </div>
-    </div>
-  );
-}
+import AdminOrders from "./AdminOrders.jsx";
 
 const ADMIN_NAV = [
   { id: "dashboard", label: "Dashboard", icon: "📊" },
@@ -201,7 +185,7 @@ export default function AdminApp({ store, now }) {
         )}
 
         {sec === "dashboard" && <AdminDashboard store={store} now={now} setSec={setSec} />}
-        {sec === "pedidos" && <AdminOrdersFallback store={store} now={now} />}
+        {sec === "pedidos" && <AdminOrders store={store} now={now} />}
         {sec === "caixa" && <AdminCashRegister store={store} now={now} />}
         {sec === "mesas" && (
           tablesOn ? (
