@@ -1,20 +1,82 @@
-import React, { useState, useEffect, useMemo, useRef } from "react";
-import { C, font, STATUS, FLOW, CHANNELS } from "../../constants/theme.js";
-import { brl, elapsed, fmtDT, fmtShort, toLocalInput, fromLocalInput, lastSeen, esc, channelName } from "../../utils/format.js";
-import { api } from "../../utils/api.js";
-import { printHTML, printKitchen, printExpedition, printReceipt, printLabel, printCashSummaryReceipt, printDriverSettlementReceipt, buildGoogleMapsMultiStopUrl, downloadCSV, printReport } from "../../utils/print.js";
-import { getOrderModality } from "../../utils/orderModality.js";
-import { buildMesaIndex, getOrderTableNumber } from "../../utils/mesa.js";
-import { Card, Btn, KPI, BarChart, Donut, StatusPill, SyncBadge, ChannelPill, Badge, Logo, SmartImg } from "../ui/index.jsx";
+import React, { useState } from "react";
+import { C, font } from "../../constants/theme.js";
+import { Card, Btn, Logo } from "../ui/index.jsx";
+import AdminDashboard from "./AdminDashboard.jsx";
+import AdminCashRegister from "./AdminCashRegister.jsx";
+import AdminProducts from "./AdminProducts.jsx";
+import AdminCustomers from "./AdminCustomers.jsx";
+import AdminFinance from "./AdminFinance.jsx";
+import AdminReports from "./AdminReports.jsx";
+import AdminPromos from "./AdminPromos.jsx";
+import AdminCategories from "./AdminCategories.jsx";
+import AdminInventory from "./AdminInventory.jsx";
+import AdminIntegrations from "./AdminIntegrations.jsx";
+import AdminPaymentsCard from "./AdminPaymentsCard.jsx";
+import AdminPrinterCard from "./AdminPrinterCard.jsx";
+import AdminStoreCard from "./AdminStoreCard.jsx";
+import AdminModalitiesCard from "./AdminModalitiesCard.jsx";
 import ServiceChargeCard from "./ServiceChargeCard.jsx";
-import WaiterReport from "./WaiterReport.jsx";
-import LowStockAlerts from "./LowStockAlerts.jsx";
+import AdminTables from "../tables/AdminTables.jsx";
+
+// Fallback components for those not yet modularized
+function AdminOrdersFallback({ store, now }) {
+  const { orders = [] } = store;
+  return (
+    <div className="space-y-3">
+      <div style={{ color: "#8a8a8a", fontSize: 12 }}>{orders.length} pedidos no total</div>
+      <div className="grid md:grid-cols-2 xl:grid-cols-3 gap-3">
+        {orders.slice(0, 20).map((o) => (
+          <Card key={o.id} className="p-3">
+            <div style={{ color: C.white, fontWeight: 800, fontSize: 13 }}>#{o.code} · {o.status}</div>
+            <div style={{ color: "#8a8a8a", fontSize: 11 }}>{o.customer?.name} · {o.total}</div>
+          </Card>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function AdminUsersFallback({ store }) {
+  return <div style={{ color: "#8a8a8a", fontSize: 12 }}>Usuários gerenciados no App.jsx principal.</div>;
+}
+
+const ADMIN_NAV = [
+  { id: "dashboard", label: "Dashboard", icon: "📊" },
+  { id: "pedidos", label: "Pedidos", icon: "🧾" },
+  { id: "caixa", label: "Caixa / PDV", icon: "💵" },
+  { id: "mesas", label: "Mesas / Salão", icon: "🍽️" },
+  { id: "produtos", label: "Produtos", icon: "🍔" },
+  { id: "categorias", label: "Categorias", icon: "📂" },
+  { id: "clientes", label: "Clientes", icon: "👥" },
+  { id: "promos", label: "Promoções", icon: "🏷️" },
+  { id: "estoque", label: "Estoque", icon: "📦" },
+  { id: "financeiro", label: "Financeiro", icon: "💰" },
+  { id: "relatorios", label: "Relatórios", icon: "📈" },
+  { id: "integracoes", label: "Integrações", icon: "🔌" },
+  { id: "config", label: "Configurações", icon: "⚙️" },
+];
+
+function AdminSettingsModular({ store, now }) {
+  return (
+    <div className="grid lg:grid-cols-2 gap-3">
+      <AdminPaymentsCard store={store} />
+      <AdminPrinterCard store={store} />
+      <AdminStoreCard store={store} />
+      <AdminModalitiesCard store={store} />
+      <ServiceChargeCard store={store} />
+      <Card className="p-4 lg:col-span-2">
+        <div style={{ color: C.white, fontWeight: 900, fontSize: 14 }}>Configurações gerais</div>
+        <div style={{ color: "#8a8a8a", fontSize: 12, marginTop: 4 }}>Gerenciamento completo no App principal.</div>
+      </Card>
+    </div>
+  );
+}
 
 function AdminApp({ store, now }) {
   const [sec, setSec] = useState("dashboard");
   const [menu, setMenu] = useState(false);
   const navItems = ADMIN_NAV.filter((n) => n.id !== "mesas" || store.settings?.tablesEnabled);
-  const title = navItems.find((n) => n.id === sec)?.label || ADMIN_NAV.find((n) => n.id === sec)?.label;
+  const title = navItems.find((n) => n.id === sec)?.label || ADMIN_NAV.find((n) => n.id === sec)?.label || "Admin";
 
   return (
     <div className="flex" style={{ background: C.black, minHeight: "100%" }}>
@@ -68,20 +130,6 @@ function AdminApp({ store, now }) {
               {title.toUpperCase()}
             </h2>
           </div>
-          <div className="flex items-center gap-2">
-            <Btn small variant="dark" onClick={() => store.injectExternal("IFOOD")}>+ Pedido iFood</Btn>
-            <div className="relative">
-              <span style={{ fontSize: 19 }}>🔔</span>
-              {store.notifications.length > 0 && (
-                <span
-                  className="absolute flex items-center justify-center"
-                  style={{ top: -4, right: -6, width: 16, height: 16, borderRadius: 99, background: C.orange, color: C.black, fontSize: 9.5, fontWeight: 900 }}
-                >
-                  {store.notifications.length}
-                </span>
-              )}
-            </div>
-          </div>
         </div>
 
         {menu && (
@@ -100,7 +148,7 @@ function AdminApp({ store, now }) {
         )}
 
         {sec === "dashboard" && <AdminDashboard store={store} now={now} setSec={setSec} />}
-        {sec === "pedidos" && <AdminOrders store={store} now={now} />}
+        {sec === "pedidos" && <AdminOrdersFallback store={store} now={now} />}
         {sec === "caixa" && <AdminCashRegister store={store} now={now} />}
         {sec === "mesas" && (
           store.settings?.tablesEnabled ? (
@@ -124,14 +172,10 @@ function AdminApp({ store, now }) {
         {sec === "financeiro" && <AdminFinance store={store} now={now} />}
         {sec === "relatorios" && <AdminReports store={store} now={now} />}
         {sec === "integracoes" && <AdminIntegrations store={store} />}
-        {sec === "config" && <AdminSettings store={store} now={now} />}
+        {sec === "config" && <AdminSettingsModular store={store} now={now} />}
       </main>
     </div>
   );
 }
-// ============================================================
-// COZINHA — KDS
-// ============================================================
-
 
 export default AdminApp;

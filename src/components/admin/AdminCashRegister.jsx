@@ -784,21 +784,4 @@ function AdminCashRegister({ store, now }) {
   );
 }
 
-const ADMIN_NAV = [
-  { id: "dashboard", icon: "📊", label: "Dashboard" },
-  { id: "pedidos", icon: "🧾", label: "Pedidos" },
-  { id: "caixa", icon: "💵", label: "Frente de Caixa" },
-  { id: "mesas", icon: "🍽️", label: "Mesas / Salão" },
-  { id: "produtos", icon: "🍔", label: "Cardápio" },
-  { id: "categorias", icon: "🗂", label: "Categorias" },
-  { id: "clientes", icon: "👥", label: "Clientes" },
-  { id: "promos", icon: "🎟", label: "Promoções" },
-  { id: "estoque", icon: "📦", label: "Estoque" },
-  { id: "financeiro", icon: "💰", label: "Financeiro" },
-  { id: "relatorios", icon: "📈", label: "Relatórios" },
-  { id: "integracoes", icon: "🔌", label: "Integrações" },
-  { id: "config", icon: "⚙️", label: "Configurações" },
-];
-
-
 export default AdminCashRegister;
