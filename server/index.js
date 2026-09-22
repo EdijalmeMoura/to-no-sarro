@@ -23,7 +23,7 @@ import { fileURLToPath } from "node:url";
 import { WebSocketServer } from "ws";
 
 import {
-  db, audit, seedIfEmpty,
+  db, audit, seedIfEmpty, ensureDefaultUsers,
   getProducts, getOptionGroups, getBuilder, getCategories, getCoupons,
   getDrivers, getCustomers, getInventory, getPromos, getSettings,
   getSetting, setSetting, getOrders, getPaymentSettings, getUsers,
@@ -147,6 +147,7 @@ const APP_VERSION = process.env.APP_VERSION || (() => {
 })();
 
 seedIfEmpty();
+ensureDefaultUsers();
 
 const app = express();
 app.set('trust proxy', 1);

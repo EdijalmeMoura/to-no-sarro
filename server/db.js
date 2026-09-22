@@ -351,6 +351,41 @@ export function audit(user, action, detail = "") {
 }
 
 // ------------------------------------------------------------
+// Garante que usuários padrão existam mesmo se banco já foi semeado
+// e alguém excluiu cozinha/entregador — recoloca sem apagar existentes
+// ------------------------------------------------------------
+export function ensureDefaultUsers() {
+  try {
+    const existing = db.prepare("SELECT username FROM users").all().map(r => r.username);
+    const has = new Set(existing);
+    const insUser = db.prepare("INSERT OR IGNORE INTO users (id, name, username, pass_hash, role, driver_id, active) VALUES (?, ?, ?, ?, ?, ?, 1)");
+    let added = 0;
+    for (const u of USERS) {
+      if (!has.has(u.username)) {
+        insUser.run(u.id, u.name, u.username, bcrypt.hashSync(u.password, 10), u.role, u.driver_id);
+        added++;
+        console.log(`[db] Usuário padrão recolocado: ${u.username} (${u.role})`);
+      }
+    }
+    // Garante também drivers padrão
+    const existingDrivers = db.prepare("SELECT id FROM drivers").all().map(r => r.id);
+    const hasDrv = new Set(existingDrivers);
+    const insDrv = db.prepare("INSERT OR IGNORE INTO drivers (id, name, phone, vehicle, status, deliveries) VALUES (?, ?, ?, ?, ?, ?)");
+    for (const d of DRIVERS) {
+      if (!hasDrv.has(d.id)) {
+        insDrv.run(d.id, d.name, d.phone, d.vehicle, d.status, d.deliveries);
+        console.log(`[db] Entregador padrão recolocado: ${d.name}`);
+      }
+    }
+    if (added > 0) audit("sistema", "ensure_users", `${added} usuários padrão recolocados`);
+    return added;
+  } catch (e) {
+    console.error("[db] falha ensureDefaultUsers", e);
+    return 0;
+  }
+}
+
+// ------------------------------------------------------------
 // Semente — só povoa se o banco estiver vazio
 // ------------------------------------------------------------
 export function seedIfEmpty() {

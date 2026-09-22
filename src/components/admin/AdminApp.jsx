@@ -19,6 +19,7 @@ import AdminModalitiesCard from "./AdminModalitiesCard.jsx";
 import ServiceChargeCard from "./ServiceChargeCard.jsx";
 import AdminTables from "../tables/AdminTables.jsx";
 import AdminOrders from "./AdminOrders.jsx";
+import AdminUsers from "./AdminUsers.jsx";
 
 const ADMIN_NAV = [
   { id: "dashboard", label: "Dashboard", icon: "📊" },
@@ -38,19 +39,50 @@ const ADMIN_NAV = [
 
 function AdminSettingsModular({ store, now }) {
   return (
-    <div className="space-y-3">
+    <div className="space-y-4">
       {/* MODALIDADES - primeiro e em destaque, ocupa largura total */}
       <AdminModalitiesCard store={store} />
+
       <div className="grid lg:grid-cols-2 gap-3">
         <AdminPaymentsCard store={store} />
         <AdminPrinterCard store={store} />
         <AdminStoreCard store={store} />
         <ServiceChargeCard store={store} />
-        <Card className="p-4 lg:col-span-2">
-          <div style={{ color: C.white, fontWeight: 900, fontSize: 14 }}>Configurações gerais</div>
-          <div style={{ color: "#8a8a8a", fontSize: 12, marginTop: 4 }}>Outras configurações do sistema.</div>
-        </Card>
       </div>
+
+      {/* USUÁRIOS E PERMISSÕES - funcional com botão novo usuário */}
+      <Card className="p-4">
+        <div className="flex items-center gap-2 mb-1">
+          <span style={{ fontSize: 18 }}>👥</span>
+          <div style={{ color: C.white, fontWeight: 900, fontSize: 15 }}>Usuários e permissões</div>
+        </div>
+        <div style={{ color: "#8a8a8a", fontSize: 11.5, marginBottom: 12, lineHeight: 1.4 }}>
+          Gerencie acessos da equipe: cozinha, expedição, entregadores, gerente e admin. O botão <strong style={{ color: C.white }}>+ Novo usuário</strong> está funcional — cria login com senha, perfil e vínculo com entregador quando for ENTREGADOR.
+        </div>
+        <AdminUsers store={store} now={now} />
+      </Card>
+
+      <Card className="p-4">
+        <div style={{ color: C.white, fontWeight: 900, fontSize: 13, marginBottom: 8 }}>Perfis disponíveis</div>
+        <div className="grid sm:grid-cols-2 gap-2">
+          {[
+            ["ADMIN", "Administrador", "Acesso total, incluindo usuários, financeiro e integrações"],
+            ["GERENTE", "Gerente", "Tudo, exceto gerenciar usuários"],
+            ["COZINHA", "Cozinha", "Somente painel da cozinha — iniciar preparo, marcar pronto, cancelar"],
+            ["EXPEDICAO", "Expedição", "Pedidos prontos e atribuição de entregador"],
+            ["ATENDIMENTO", "Atendimento", "Pedidos, clientes e cupons"],
+            ["ENTREGADOR", "Entregador", "Somente as próprias entregas vinculadas"],
+          ].map(([role, label, desc]) => (
+            <div key={role} className="rounded-xl p-3" style={{ background: C.gray850, border: `1px solid ${C.gray800}` }}>
+              <div style={{ color: C.white, fontWeight: 800, fontSize: 12 }}>{label} <span style={{ color: "#666", fontSize: 10 }}>({role})</span></div>
+              <div style={{ color: "#8a8a8a", fontSize: 11, marginTop: 2 }}>{desc}</div>
+            </div>
+          ))}
+        </div>
+        <div className="mt-3 rounded-lg px-3 py-2" style={{ background: `${C.orange}12`, border: `1px solid ${C.orange}33`, color: C.orange, fontSize: 11 }}>
+          💡 Contas padrão: <strong>admin/admin123</strong>, <strong>cozinha/cozinha123</strong>, <strong>expedicao/expedicao123</strong>, <strong>rafael/entregador123</strong>, <strong>jonas/entregador123</strong>, <strong>bia/entregador123</strong> — se não aparecerem, o banco será re-semeado no próximo boot do servidor.
+        </div>
+      </Card>
     </div>
   );
 }
