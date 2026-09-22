@@ -11,6 +11,8 @@
 
 import express from "express";
 import cookieParser from "cookie-parser";
+import helmet from "helmet";
+import cors from "cors";
 import bcrypt from "bcryptjs";
 import http from "node:http";
 import { execSync } from "node:child_process";
@@ -28,15 +30,114 @@ import {
   logIntegration, enqueueWhatsApp, markOutbox, getOutbox, getIntegrationLogs,
   getCurrentCashRegister, openCashRegister, addCashTransaction, closeCashRegister, getCashHistory,
   dispatchMultiStopRoute, getDriverPendingSettlement, settleDriver, getSettlementsHistory,
+  getOrderPayments, addOrderPayment, getWaiterReport, getLowStockAlerts, getLoyaltyPoints, addLoyaltyPoints,
 } from "./db.js";
-import { attachUser, requireRole, login, logout, publicUser, ROLES } from "./auth.js";
+import { attachUser, requireRole, login, logout, logoutAll, refreshSession, publicUser, ROLES } from "./auth.js";
 import { createCheckoutLink, paymentCheck, cents } from "./payments/infinitepay.js";
 import { generatePixBRCode } from "./payments/pix.js";
+import { validateOrder } from "./schemas/orders.js";
+import { validateSettings } from "./schemas/settings.js";
+import { validateProduct } from "./schemas/products.js";
+import { optimizeDeliveryRoute } from "./routing/osrm.js";
+import { logger, requestLogger, setupErrorHandlers } from "./observability/logger.js";
+import { xssSanitizer } from "./utils/sanitize.js";
 import { waCredentials, normalizePhone, buildOrderMessage, sendWhatsApp } from "./messaging/whatsapp.js";
 import * as ifood from "./integrations/ifood.js";
 import * as escpos from "./printing/escpos.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+setupErrorHandlers();
+
+// Rate limiter simples em memória para rotas públicas
+const rateBuckets = new Map();
+function rateLimit({ windowMs = 60000, max = 20, key = (req) => req.ip } = {}) {
+  return (req, res, next) => {
+    const k = `${key(req)}:${req.path}`;
+    const now = Date.now();
+    let bucket = rateBuckets.get(k);
+    if (!bucket || now - bucket.start > windowMs) {
+      bucket = { start: now, count: 0 };
+      rateBuckets.set(k, bucket);
+    }
+    bucket.count++;
+    if (bucket.count > max) {
+      const retry = Math.ceil((bucket.start + windowMs - now)/1000);
+      res.setHeader("Retry-After", retry);
+      return res.status(429).json({ error: "Muitas requisições. Tente novamente em instantes." });
+    }
+    next();
+  };
+}
+// limpeza periódica
+setInterval(() => {
+  const now = Date.now();
+  for (const [k, b] of rateBuckets) if (now - b.start > 60000*5) rateBuckets.delete(k);
+}, 60000).unref?.();
+
+// Idempotency keys persistidos em DB para evitar duplicação de pedidos ao recarregar
+// Fallback em memória se tabela ainda não existir (durante migração)
+const idempotencyMemory = new Map();
+function idempotencyMiddleware(req, res, next) {
+  const key = req.headers['x-idempotency-key'] || req.headers['idempotency-key'];
+  if (!key) return next();
+  
+  // Sanitiza key
+  const cleanKey = String(key).slice(0, 100).replace(/[^a-zA-Z0-9-_]/g, "");
+  if (!cleanKey) return next();
+  
+  try {
+    // Tenta buscar no DB
+    const row = db.prepare("SELECT * FROM idempotency_keys WHERE key = ?").get(cleanKey);
+    if (row) {
+      if (Date.now() - row.created_at < 24*60*60*1000) {
+        try {
+          const body = JSON.parse(row.body);
+          return res.status(row.status).json(body);
+        } catch {
+          // se falhar parse, apaga
+          db.prepare("DELETE FROM idempotency_keys WHERE key = ?").run(cleanKey);
+        }
+      } else {
+        db.prepare("DELETE FROM idempotency_keys WHERE key = ?").run(cleanKey);
+      }
+    }
+  } catch (e) {
+    // Tabela pode não existir ainda, usa memória como fallback
+    const existing = idempotencyMemory.get(cleanKey);
+    if (existing && Date.now() - existing.createdAt < 24*60*60*1000) {
+      return res.status(existing.status).json(existing.body);
+    }
+  }
+  
+  // Intercepta res.json para cachear
+  const originalJson = res.json.bind(res);
+  res.json = (body) => {
+    if (res.statusCode < 400) {
+      try {
+        db.prepare("INSERT INTO idempotency_keys (key, status, body, created_at) VALUES (?, ?, ?, ?) ON CONFLICT(key) DO UPDATE SET status=excluded.status, body=excluded.body, created_at=excluded.created_at")
+          .run(cleanKey, res.statusCode, JSON.stringify(body), Date.now());
+        // limpeza periódica de chaves antigas
+        if (Math.random() < 0.05) {
+          db.prepare("DELETE FROM idempotency_keys WHERE created_at < ?").run(Date.now() - 24*60*60*1000);
+        }
+      } catch (e) {
+        // fallback memória
+        idempotencyMemory.set(cleanKey, {
+          status: res.statusCode,
+          body,
+          createdAt: Date.now(),
+        });
+        if (idempotencyMemory.size > 1000) {
+          const first = idempotencyMemory.keys().next().value;
+          idempotencyMemory.delete(first);
+        }
+      }
+    }
+    return originalJson(body);
+  };
+  next();
+}
+
 const PORT = Number(process.env.PORT) || 3001;
 const HOST = process.env.HOST || "0.0.0.0";
 // Versão exibida no app (diagnóstico: confirma qual build está rodando)
@@ -48,6 +149,29 @@ const APP_VERSION = process.env.APP_VERSION || (() => {
 seedIfEmpty();
 
 const app = express();
+app.set('trust proxy', 1);
+app.use(helmet({
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc: ["'self'"],
+      scriptSrc: ["'self'", "'unsafe-inline'", "'unsafe-eval'", "https://api.qrserver.com", "https://cdn.tailwindcss.com"],
+      styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com", "https://cdn.tailwindcss.com"],
+      imgSrc: ["'self'", "data:", "https:", "blob:", "https://api.qrserver.com"],
+      connectSrc: ["'self'", "ws:", "wss:", "https://router.project-osrm.org", "https://nominatim.openstreetmap.org", "https://api.qrserver.com"],
+      fontSrc: ["'self'", "https://fonts.gstatic.com", "data:"],
+      objectSrc: ["'none'"],
+      baseUri: ["'self'"],
+      formAction: ["'self'"],
+      frameAncestors: ["'self'"],
+    },
+  },
+  crossOriginEmbedderPolicy: false,
+  crossOriginOpenerPolicy: { policy: "same-origin-allow-popups" },
+}));
+app.use(cors({
+  origin: process.env.CORS_ORIGIN || true,
+  credentials: true,
+}));
 app.disable("x-powered-by");
 // Atrás de proxy com TLS (Render, Nginx etc.): req.secure reflete o https real
 app.set("trust proxy", 1);
@@ -86,6 +210,8 @@ app.use((req, res, next) => {
   next();
 });
 
+app.use(requestLogger);
+app.use(xssSanitizer);
 app.use(attachUser);
 
 // ------------------------------------------------------------
@@ -209,13 +335,33 @@ server.on("upgrade", (req, socket, head) => {
 // ------------------------------------------------------------
 // AUTH
 // ------------------------------------------------------------
-app.post("/api/auth/login", login);
+app.post("/api/auth/login", rateLimit({ windowMs: 60000, max: 8, key: (req) => req.body?.username || req.ip }), login);
 app.post("/api/auth/logout", logout);
+app.post("/api/auth/logout-all", requireRole("ADMIN", "GERENTE", "ATENDIMENTO", "COZINHA", "EXPEDICAO", "ENTREGADOR"), logoutAll);
+app.post("/api/auth/refresh", refreshSession);
 app.get("/api/auth/me", (req, res) => res.json({ user: publicUser(req.user) }));
 
 // ------------------------------------------------------------
 // BOOTSTRAP — tudo que o app precisa em uma chamada
 // ------------------------------------------------------------
+app.get("/api/health", (req, res) => {
+  try {
+    const dbOk = db.prepare("SELECT 1 as ok").get()?.ok === 1;
+    const migrations = db.prepare("SELECT COUNT(*) as c FROM migrations").get()?.c ?? 0;
+    res.json({
+      ok: true,
+      status: "healthy",
+      version: APP_VERSION,
+      uptime: process.uptime(),
+      db: dbOk ? "ok" : "fail",
+      migrations,
+      timestamp: Date.now(),
+    });
+  } catch (e) {
+    res.status(500).json({ ok: false, status: "unhealthy", error: e.message });
+  }
+});
+
 app.get("/api/bootstrap", (req, res) => {
   res.json({
     ...(req.user ? snapshot() : publicSnapshot()),
@@ -239,6 +385,22 @@ app.post("/api/coupons/validate", (req, res) => {
     return res.status(400).json({ error: `Esse cupom vale a partir de R$ ${c.min.toFixed(2).replace(".", ",")}.` });
   }
   res.json({ coupon: { code: c.code, type: c.type, value: c.value, min: c.min, note: c.note } });
+});
+
+// ------------------------------------------------------------
+// PEDIDOS — listagem com paginação e filtro por mesa
+// ------------------------------------------------------------
+app.get("/api/orders", requireRole("ADMIN","GERENTE","ATENDIMENTO","COZINHA","EXPEDICAO","ENTREGADOR"), (req, res) => {
+  const { limit, offset, tableNumber, table_number, status, type } = req.query;
+  const tn = tableNumber ?? table_number;
+  const orders = getOrders({
+    limit: limit || 50,
+    offset: offset || 0,
+    tableNumber: tn,
+    status,
+    type,
+  });
+  res.json({ orders, count: orders.length });
 });
 
 // ------------------------------------------------------------
@@ -320,10 +482,10 @@ function shapeOrder(o) {
   return o; // getOrders() já devolve o formato do frontend
 }
 
-app.post("/api/orders", (req, res) => {
-  const body = req.body || {};
+app.post("/api/orders", idempotencyMiddleware, rateLimit({ windowMs: 60000, max: 15, key: (req) => req.body?.customer?.phone || req.ip }), (req, res) => {
+  const rawBody = req.body || {};
   const settings = getSettings();
-  const isStaffChannel = ["IFOOD", "NNFOOD", "WHATSAPP"].includes(body.channel);
+  const isStaffChannel = ["IFOOD", "NNFOOD", "WHATSAPP"].includes(rawBody.channel);
   if (isStaffChannel && !req.user) {
     return res.status(401).json({ error: "Canais externos exigem autenticação." });
   }
@@ -332,20 +494,19 @@ app.post("/api/orders", (req, res) => {
     return res.status(409).json({ error: "A loja está fechada agora. Voltamos às 18h!" });
   }
 
-  const { customer = {}, items = [], type = "delivery", payment = "PIX", couponCode, note = "" } = body;
+  let body;
+  try {
+    body = validateOrder(rawBody);
+  } catch (err) {
+    return res.status(400).json({ error: err.message });
+  }
+
+  const { customer = {}, items = [], type = "delivery", payment = "PIX", couponCode, note = "", tableNumber: bodyTableNumber, tableName: bodyTableName } = body;
   const name = String(customer.name || "").trim();
   const phone = String(customer.phone || "").trim();
   const addr = String(customer.addr || "").trim();
 
-  if (name.length < 3) return res.status(400).json({ error: "Informe seu nome completo." });
-  if (phone.replace(/\D/g, "").length < 10) return res.status(400).json({ error: "WhatsApp inválido." });
-  if (!["delivery", "pickup", "dine_in", "mesa"].includes(type)) return res.status(400).json({ error: "Tipo de pedido inválido." });
   if (type === "delivery" && addr.length < 8) return res.status(400).json({ error: "Informe o endereço de entrega." });
-  const PM_METHODS = new Set(["PIX", "CARTAO_ONLINE", "Cartão", "Dinheiro", "No fechamento da mesa", "Mesa", "Balcão"]);
-  if (!PM_METHODS.has(payment)) {
-    return res.status(400).json({ error: "Forma de pagamento inválida." });
-  }
-  if (typeof note !== "string" || note.length > 200) return res.status(400).json({ error: "Observação muito longa." });
 
   let parsed;
   try {
@@ -390,13 +551,29 @@ app.post("/api/orders", (req, res) => {
   // Token de capability: só quem criou o pedido (e o staff) consegue acompanhá-lo
   const trackToken = crypto.randomBytes(12).toString("hex");
 
+  // Extrai número da mesa para campo dedicado (robustez para filtro)
+  let tableNumber = bodyTableNumber ?? null;
+  let tableName = bodyTableName ?? null;
+  if (type === "dine_in" || type === "mesa" || /^Mesa\s*\d+/i.test(addr) || /^Mesa\s*\d+/i.test(name) || tableNumber) {
+    const extractNum = (s) => {
+      const m = String(s || "").match(/Mesa\s*0?(\d+)/i);
+      return m ? parseInt(m[1], 10) : null;
+    };
+    tableNumber = tableNumber ?? extractNum(addr) ?? extractNum(name) ?? extractNum(tableName);
+    if (tableNumber) {
+      tableName = tableName || `Mesa ${String(tableNumber).padStart(2, "0")}`;
+    } else if (/^Mesa\s*\d+/i.test(addr)) {
+      tableName = tableName || addr.split("·")[0].trim();
+    }
+  }
+
   db.exec("BEGIN");
   try {
     db.prepare(`
-      INSERT INTO orders (id, code, channel, status, created_at, customer_name, customer_phone, customer_addr, payment, type, note, subtotal, fee, discount, total, payment_status, track_token)
-      VALUES (?, ?, ?, 'NOVO', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO orders (id, code, channel, status, created_at, customer_name, customer_phone, customer_addr, payment, type, note, subtotal, fee, discount, total, payment_status, track_token, table_number, table_name)
+      VALUES (?, ?, ?, 'NOVO', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(id, code, channel, now, name, phone, type === "pickup" ? "Retirada na loja" : addr,
-      paymentLabel, type, note, subtotal, fee, discount, total, paymentStatus, trackToken);
+      paymentLabel, type, note, subtotal, fee, discount, total, paymentStatus, trackToken, tableNumber, tableName);
 
     const insItem = db.prepare("INSERT INTO order_items (id, order_id, product_id, name, emoji, qty, unit, opts, note) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)");
     for (const it of cleanItems) {
@@ -467,10 +644,37 @@ app.post("/api/orders/external", requireRole("ADMIN", "GERENTE", "ATENDIMENTO", 
 const VALID_STATUS = new Set(["NOVO", "CONFIRMADO", "PREPARO", "PRONTO", "EMBALADO", "AGUARDANDO", "ROTA", "ENTREGUE", "CANCELADO"]);
 
 app.patch("/api/orders/:id/status", requireRole("ADMIN", "GERENTE", "ATENDIMENTO", "COZINHA", "EXPEDICAO", "ENTREGADOR"), (req, res) => {
-  const { status } = req.body || {};
+  const { status, payment: newPayment } = req.body || {};
   const o = db.prepare("SELECT * FROM orders WHERE id = ?").get(req.params.id);
   if (!o) return res.status(404).json({ error: "Pedido não encontrado." });
   if (!VALID_STATUS.has(status)) return res.status(400).json({ error: "Status inválido." });
+
+  // REGRA DE MESA: só pode dar baixa (ENTREGUE) quando paga no módulo Mesas
+  // Se pedido é de mesa e ainda está "No fechamento da mesa", bloqueia ENTREGUE fora do fluxo de pagamento
+  const isMesaOrder = o.table_number != null || o.type === "dine_in" || o.type === "mesa" || /^Mesa\s*\d+/i.test(o.customer_addr || "") || /^Mesa\s*\d+/i.test(o.customer_name || "");
+  const currentPayment = o.payment || "";
+  const incomingPayment = typeof newPayment === "string" ? newPayment.trim() : "";
+  const willStillBeNoFechamento = !incomingPayment || incomingPayment === "No fechamento da mesa";
+  
+  if (isMesaOrder && status === "ENTREGUE" && currentPayment === "No fechamento da mesa" && willStillBeNoFechamento) {
+    // Verifica se tem pagamentos parciais que cobrem total
+    try {
+      const payments = db.prepare("SELECT COALESCE(SUM(amount),0) as paid FROM order_payments WHERE order_id = ?").get(o.id);
+      const paid = payments?.paid || 0;
+      if (paid < o.total) {
+        return res.status(400).json({ 
+          error: "Mesa só pode dar baixa quando paga no módulo Mesas. Use Fechar Conta para registrar pagamento.",
+          code: "MESA_NOT_PAID"
+        });
+      }
+    } catch {
+      // Se tabela order_payments não existir ou erro, bloqueia mesmo
+      return res.status(400).json({ 
+        error: "Mesa só pode dar baixa quando paga no módulo Mesas. Use Fechar Conta para registrar pagamento.",
+        code: "MESA_NOT_PAID"
+      });
+    }
+  }
 
   const role = req.user.role;
   if (role === "COZINHA" && !["PREPARO", "PRONTO", "CANCELADO"].includes(status)) {
@@ -486,11 +690,24 @@ app.patch("/api/orders/:id/status", requireRole("ADMIN", "GERENTE", "ATENDIMENTO
   }
 
   const startedAt = o.started_at ?? (status !== "NOVO" ? Date.now() : null);
-  db.prepare("UPDATE orders SET status = ?, started_at = ?, payment_status = CASE WHEN payment_status = 'pendente' AND ? IN ('CONFIRMADO','PREPARO','PRONTO','EMBALADO','AGUARDANDO','ROTA','ENTREGUE') THEN 'pago' ELSE payment_status END WHERE id = ?")
-    .run(status, startedAt, status, o.id);
+  // Para mesa com pagamento pendente "No fechamento da mesa", NÃO marca como pago automaticamente
+  const isMesaWithPendingPayment = isMesaOrder && currentPayment === "No fechamento da mesa" && willStillBeNoFechamento;
+  if (isMesaWithPendingPayment) {
+    db.prepare("UPDATE orders SET status = ?, started_at = ? WHERE id = ?")
+      .run(status, startedAt, o.id);
+  } else {
+    db.prepare("UPDATE orders SET status = ?, started_at = ?, payment_status = CASE WHEN payment_status = 'pendente' AND ? IN ('CONFIRMADO','PREPARO','PRONTO','EMBALADO','AGUARDANDO','ROTA','ENTREGUE') THEN 'pago' ELSE payment_status END WHERE id = ?")
+      .run(status, startedAt, status, o.id);
+  }
 
   if (typeof req.body?.payment === "string" && req.body.payment.trim()) {
-    db.prepare("UPDATE orders SET payment = ? WHERE id = ?").run(req.body.payment.trim(), o.id);
+    const newPay = req.body.payment.trim();
+    // Se mudou de "No fechamento da mesa" para forma real, marca como pago
+    if (currentPayment === "No fechamento da mesa" && newPay !== "No fechamento da mesa") {
+      db.prepare("UPDATE orders SET payment = ?, payment_status = 'pago' WHERE id = ?").run(newPay, o.id);
+    } else {
+      db.prepare("UPDATE orders SET payment = ? WHERE id = ?").run(newPay, o.id);
+    }
   }
 
   // contador do entregador
@@ -547,6 +764,142 @@ app.post("/api/routes/dispatch", requireRole("ADMIN", "GERENTE", "ATENDIMENTO", 
     res.status(400).json({ error: e.message });
   }
 });
+
+app.post("/api/routes/optimize", requireRole("ADMIN", "GERENTE", "ATENDIMENTO", "EXPEDICAO"), async (req, res) => {
+  const { orderIds } = req.body || {};
+  if (!Array.isArray(orderIds) || orderIds.length === 0) {
+    return res.status(400).json({ error: "Selecione pedidos para otimizar." });
+  }
+  try {
+    const allOrders = getOrders();
+    const orders = allOrders.filter(o => orderIds.includes(o.id));
+    if (orders.length === 0) return res.status(404).json({ error: "Nenhum pedido encontrado." });
+    const settings = getSettings();
+    const storeAddress = settings.address || "Av. Cláudio José Gueiros Leite, 3200 — Janga, Paulista/PE";
+    const result = await optimizeDeliveryRoute(orders, storeAddress);
+    audit(req.user.username, "rota_otimizada", `${orders.length} pedidos · ${result.optimized ? 'otimizada' : 'original'} · ${Math.round(result.distance||0)}m`);
+    res.json(result);
+  } catch (e) {
+    console.error("[osrm] optimize erro:", e);
+    res.status(500).json({ error: "Falha ao otimizar rota: " + e.message });
+  }
+});
+
+// ============================================================
+// SPLIT CONTA & PAGAMENTOS PARCIAIS (Sprint 6)
+// ============================================================
+
+app.get("/api/orders/:id/payments", requireRole("ADMIN", "GERENTE", "ATENDIMENTO"), (req, res) => {
+  try {
+    const payments = getOrderPayments(req.params.id);
+    res.json({ payments });
+  } catch (e) {
+    res.status(404).json({ error: e.message });
+  }
+});
+
+app.post("/api/orders/:id/payments", requireRole("ADMIN", "GERENTE", "ATENDIMENTO"), (req, res) => {
+  const { personIndex, personName, method, amount } = req.body || {};
+  try {
+    const payments = addOrderPayment({
+      orderId: req.params.id,
+      personIndex: parseInt(personIndex)||0,
+      personName,
+      method: method || "Dinheiro",
+      amount,
+      createdBy: req.user.username,
+    });
+    audit(req.user.username, "pagamento_parcial", `${req.params.id} · ${personName||personIndex} · ${method} · R$ ${amount}`);
+    broadcast();
+    res.status(201).json({ payments });
+  } catch (e) {
+    res.status(400).json({ error: e.message });
+  }
+});
+
+app.patch("/api/orders/:id/tip", requireRole("ADMIN", "GERENTE", "ATENDIMENTO"), (req, res) => {
+  const { tipAmount, tipPercent, waiterName } = req.body || {};
+  const order = db.prepare("SELECT * FROM orders WHERE id = ?").get(req.params.id);
+  if (!order) return res.status(404).json({ error: "Pedido não encontrado" });
+  
+  const tip = Math.max(0, parseFloat(tipAmount)||0);
+  const percent = Math.max(0, Math.min(30, parseFloat(tipPercent)||0));
+  
+  db.prepare("UPDATE orders SET tip_amount = ?, tip_percent = ?, waiter_name = ? WHERE id = ?")
+    .run(tip, percent, waiterName ? String(waiterName).slice(0,50) : order.waiter_name, order.id);
+  
+  audit(req.user.username, "gorjeta", `${req.params.id} · R$ ${tip} (${percent}%) · ${waiterName||""}`);
+  broadcast();
+  res.json({ ok: true, order: getOrders().find(o => o.id === req.params.id) });
+});
+
+// ============================================================
+// RELATÓRIOS AVANÇADOS (Sprint 6)
+// ============================================================
+
+app.get("/api/reports/waiters", requireRole("ADMIN", "GERENTE"), (req, res) => {
+  const from = parseInt(req.query.from) || 0;
+  const to = parseInt(req.query.to) || Date.now();
+  try {
+    const report = getWaiterReport(from, to);
+    res.json({ report });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.get("/api/reports/low-stock", requireRole("ADMIN", "GERENTE", "ATENDIMENTO", "COZINHA"), (req, res) => {
+  try {
+    const alerts = getLowStockAlerts();
+    res.json({ alerts });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.get("/api/loyalty/:phone", requireRole("ADMIN", "GERENTE", "ATENDIMENTO"), (req, res) => {
+  try {
+    const data = getLoyaltyPoints(req.params.phone);
+    if (!data) return res.status(404).json({ error: "Cliente não encontrado" });
+    res.json(data);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ============================================================
+// GEOCODING PERSISTIDO (Sprint 6)
+// ============================================================
+
+app.patch("/api/orders/:id/geo", requireRole("ADMIN", "GERENTE", "EXPEDICAO"), async (req, res) => {
+  const { lat, lng } = req.body || {};
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+    return res.status(400).json({ error: "Lat/lng inválidos" });
+  }
+  try {
+    db.prepare("UPDATE orders SET customer_lat = ?, customer_lng = ? WHERE id = ?").run(lat, lng, req.params.id);
+    broadcast();
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post("/api/orders/:id/geocode", requireRole("ADMIN", "GERENTE", "EXPEDICAO"), async (req, res) => {
+  try {
+    const order = getOrders().find(o => o.id === req.params.id);
+    if (!order) return res.status(404).json({ error: "Pedido não encontrado" });
+    const { geocodeAddress } = await import("./routing/osrm.js");
+    const geo = await geocodeAddress(order.customer?.addr || "");
+    if (!geo) return res.status(404).json({ error: "Não foi possível geocodificar endereço" });
+    db.prepare("UPDATE orders SET customer_lat = ?, customer_lng = ? WHERE id = ?").run(geo.lat, geo.lng, order.id);
+    broadcast();
+    res.json({ ok: true, lat: geo.lat, lng: geo.lng, display: geo.display });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 
 // ============================================================
 // ACERTO DE CONTAS DO MOTOBOY
@@ -652,7 +1005,14 @@ app.patch("/api/orders/:id/table", requireRole("ADMIN", "GERENTE", "ATENDIMENTO"
     newName = `${nextTable} · ${newName}`;
   }
 
-  db.prepare("UPDATE orders SET customer_addr = ?, customer_name = ? WHERE id = ?").run(nextTable, newName, o.id);
+  const extractNum = (s) => {
+    const m = String(s || "").match(/Mesa\s*0?(\d+)/i);
+    return m ? parseInt(m[1], 10) : null;
+  };
+  const nextNum = extractNum(nextTable);
+  const nextTableName = nextNum ? `Mesa ${String(nextNum).padStart(2, "0")}` : nextTable;
+
+  db.prepare("UPDATE orders SET customer_addr = ?, customer_name = ?, table_number = ?, table_name = ? WHERE id = ?").run(nextTable, newName, nextNum, nextTableName, o.id);
 
   audit(req.user.username, "pedido_mesa_transferida", `#${o.code} (${o.customer_addr} → ${nextTable})`);
   broadcast();
@@ -1822,6 +2182,8 @@ app.patch("/api/settings", requireRole("ADMIN", "GERENTE"), (req, res) => {
   }
   if (typeof b.printer_enabled === "boolean") setSetting("printer_enabled", b.printer_enabled ? "1" : "0");
   if (typeof b.printer_auto === "boolean") setSetting("printer_auto", b.printer_auto ? "1" : "0");
+  if (typeof b.service_charge_enabled === "boolean") setSetting("service_charge_enabled", b.service_charge_enabled ? "1" : "0");
+  if (typeof b.service_charge_percent === "number" && b.service_charge_percent >= 0 && b.service_charge_percent <= 30) setSetting("service_charge_percent", String(b.service_charge_percent));
   audit(req.user.username, "config", JSON.stringify(b).slice(0, 200));
   broadcast();
   res.json({ ok: true });

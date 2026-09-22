@@ -1,11 +1,43 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
+import { VitePWA } from "vite-plugin-pwa";
 
-// Em dev: Vite na 5173 com proxy para a API/WS na 3001 (npm run dev:all).
-// Em produção: `npm run build && npm start` — o Express serve o dist/ sozinho.
 export default defineConfig({
-  plugins: [react()],
-  base: "./",
+  plugins: [
+    react(),
+    VitePWA({
+      registerType: "autoUpdate",
+      includeAssets: ["favicon.ico", "robots.txt"],
+      manifest: {
+        name: "TÔ NO SARRO! — Smart Food",
+        short_name: "Sarro",
+        description: "Burgers artesanais — Delivery, Balcão e Salão",
+        theme_color: "#F58200",
+        background_color: "#050505",
+        display: "standalone",
+        icons: [
+          { src: "/icon-192.png", sizes: "192x192", type: "image/png" },
+          { src: "/icon-512.png", sizes: "512x512", type: "image/png", purpose: "any maskable" }
+        ]
+      },
+      workbox: {
+        globPatterns: ["**/*.{js,css,html,ico,png,svg,woff2}"],
+        runtimeCaching: [
+          {
+            urlPattern: /^https:\/\/api\.qrserver\.com\/.*/i,
+            handler: "CacheFirst",
+            options: { cacheName: "qr-cache", expiration: { maxEntries: 50, maxAgeSeconds: 60*60*24*7 } }
+          },
+          {
+            urlPattern: /^\/api\/.*/i,
+            handler: "NetworkFirst",
+            options: { cacheName: "api-cache", networkTimeoutSeconds: 3, expiration: { maxEntries: 50, maxAgeSeconds: 60*5 } }
+          }
+        ]
+      }
+    })
+  ],
+  base: "/",
   server: {
     host: "0.0.0.0",
     allowedHosts: true,

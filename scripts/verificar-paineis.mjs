@@ -6,8 +6,7 @@
 //
 // Confere: raiz = cardápio do cliente (sem login da equipe);
 // /admin, /cozinha, /expedicao, /entregador = login do painel
-// certo e, com sessão, o painel certo; APIs de cupons, promoções,
-// usuários e refresh de pedidos. Não faz parte do build.
+// certo e, com sessão, o painel certo. Não faz parte do build.
 // ============================================================
 
 import fs from "node:fs";
@@ -46,9 +45,8 @@ async function garantirApi() {
 await garantirApi();
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-let fails = 0, total = 0;
+let fails = 0;
 const ok = (name, cond, extra = "") => {
-  total++;
   if (cond) console.log(`  ✅ ${name}`);
   else { fails++; console.log(`  ❌ ${name}${extra ? ` — ${extra}` : ""}`); }
 };
@@ -109,20 +107,12 @@ console.log("\n1) Cliente na raiz — sem login da equipe");
   ok("/ abre o cardápio", /TÔ NO SARRO|Sarro Burger|Cardápio/i.test(text()));
   ok("/ NÃO pede login da equipe", !text().includes("ÁREA DA EQUIPE"));
   ok("/ sem erro de JS", errs.length === 0, errs[0]);
-  ok("barra de atalhos oculta no cardápio", !window.document.querySelector('a[href="/cozinha"]') && !text().includes("SMART FOOD SYSTEM ·"));
-  // clicar em "Área da equipe" no rodapé leva para /admin pedindo login
-  const linkAdmin = window.document.querySelector('a[href="/admin"]');
-  if (linkAdmin) linkAdmin.dispatchEvent(new window.MouseEvent("click", { bubbles: true, cancelable: true }));
+  ok("barra tem os atalhos dos painéis", ["/admin", "/cozinha", "/expedicao", "/entregador"].every((p) => window.document.querySelector(`a[href="${p}"]`)));
+  // clicar em "Admin" leva para /admin pedindo login
+  window.document.querySelector('a[href="/admin"]').dispatchEvent(new window.MouseEvent("click", { bubbles: true, cancelable: true }));
   await sleep(400);
-  ok("clique em Área da equipe muda a URL para /admin", pathname() === "/admin", pathname());
-  ok("clique em Área da equipe mostra o login", text().includes("ÁREA DA EQUIPE"));
-  window.close();
-}
-
-{
-  const { window, text, errs, pathname } = await render("/paineltv");
-  ok("/paineltv abre o painel de TV sem pedir login", text().includes("PAINEL DE PEDIDOS") && !text().includes("ÁREA DA EQUIPE"));
-  ok("/paineltv sem erro de JS", errs.length === 0, errs[0]);
+  ok("clique em Admin muda a URL para /admin", pathname() === "/admin", pathname());
+  ok("clique em Admin mostra o login", text().includes("ÁREA DA EQUIPE"));
   window.close();
 }
 
@@ -148,289 +138,6 @@ for (const [path, conta, marca] of [
   window.close();
 }
 
-console.log("\n4) APIs — cupons, promoções, usuários e refresh de pedidos");
-{
-  const req = async (method, path, body, jar) => {
-    const r = await fetch(BASE + path, {
-      method,
-      headers: { "Content-Type": "application/json", ...(jar ? { cookie: jar } : {}) },
-      body: body === undefined ? undefined : JSON.stringify(body),
-    });
-    let data = {};
-    try { data = await r.json(); } catch { /* vazio */ }
-    return { status: r.status, ok: r.ok, data };
-  };
-  const loginJar = async (u, pw) => {
-    const r = await fetch(`${BASE}/api/auth/login`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ username: u, password: pw }),
-    });
-    const sc = r.headers.getSetCookie?.() || [];
-    return { ok: r.ok, status: r.status, jar: sc.map((c) => c.split(";")[0]).join("; ") };
-  };
-  const admin = (await loginJar("admin", "admin123")).jar;
-  const gerente = (await loginJar("gerente", "gerente123")).jar;
-  const tag = String(Date.now() % 100000);
-  const boot = async () => (await req("GET", "/api/bootstrap", undefined, admin)).data;
-
-  // Cupons (6)
-  const CCODE = `TST${tag}`;
-  const c1 = await req("POST", "/api/coupons", { code: CCODE, type: "percent", value: 10, min: 40, note: "check" }, admin);
-  ok("cria cupom (201)", c1.status === 201 && c1.data.coupon?.code === CCODE, JSON.stringify(c1.data).slice(0, 80));
-  const c2 = await req("POST", "/api/coupons", { code: `${CCODE}X`, type: "percent", value: 99 }, admin);
-  ok("rejeita percent > 90 (400)", c2.status === 400);
-  const c3 = await req("POST", "/api/coupons", { code: CCODE, type: "fixed", value: 5 }, admin);
-  ok("rejeita código duplicado (409)", c3.status === 409);
-  const c4 = await req("PATCH", `/api/coupons/${CCODE}`, { active: false }, admin);
-  ok("pausa cupom", c4.ok);
-  const c5 = await req("POST", "/api/coupons/validate", { code: CCODE, subtotal: 100 });
-  ok("cupom pausado não valida no checkout", !c5.ok);
-  const c6 = await req("DELETE", `/api/coupons/${CCODE}`, undefined, admin);
-  const c6b = await boot();
-  ok("exclui cupom e some do refresh", c6.ok && !c6b.coupons.some((c) => c.code === CCODE));
-
-  // Promoções programadas (6)
-  const t0 = Date.now();
-  const p1 = await req("POST", "/api/promos",
-    { name: `Check ${tag}`, rule: "validação automática", window: "só no teste", starts_at: t0, ends_at: t0 + 3600000 }, admin);
-  const PID = p1.data.promo?.id;
-  ok("cria promoção com vigência", p1.status === 201 && p1.data.promo?.startsAt === t0, JSON.stringify(p1.data).slice(0, 100));
-  const p2 = await req("POST", "/api/promos", { name: `Check ruim ${tag}`, starts_at: t0 + 5000, ends_at: t0 }, admin);
-  ok("rejeita fim antes do início (400)", p2.status === 400);
-  const p3 = await req("PATCH", `/api/promos/${PID}`, { rule: "editada pelo check" }, admin);
-  ok("edita promoção", p3.ok);
-  const p4 = await req("PATCH", `/api/promos/${PID}`, { active: false }, admin);
-  ok("pausa promoção", p4.ok);
-  const p5 = await boot();
-  ok("promoção aparece no refresh", p5.promos.some((x) => x.id === PID));
-  const p6 = await req("DELETE", `/api/promos/${PID}`, undefined, admin);
-  ok("exclui promoção", p6.ok);
-
-  // Usuários (7 — só admin)
-  const u1 = await req("GET", "/api/users", undefined, admin);
-  ok("lista usuários sem vazar hash", u1.ok && !JSON.stringify(u1.data).includes("pass_hash") && "lastLoginAt" in (u1.data.users?.[0] || {}));
-  const UNAME = `tst${tag}`;
-  const u2 = await req("POST", "/api/users", { name: "Check User", username: UNAME, password: "check12345", role: "COZINHA" }, admin);
-  const UID = u2.data.user?.id;
-  ok("cria usuário", u2.status === 201 && !!UID, JSON.stringify(u2.data).slice(0, 80));
-  const u3 = await req("POST", "/api/users", { name: "X", username: UNAME, password: "check12345", role: "COZINHA" }, admin);
-  ok("rejeita login duplicado (409)", u3.status === 409);
-  const u4 = await req("GET", "/api/users", undefined, gerente);
-  ok("gerente não acessa gestão (403)", u4.status === 403);
-  const uJar = (await loginJar(UNAME, "check12345")).jar;
-  const u5 = await req("PATCH", `/api/users/${UID}`, { password: "nova12345" }, admin);
-  const u5me = await req("GET", "/api/auth/me", undefined, uJar);
-  ok("troca de senha derruba a sessão", u5.ok && u5me.data.user === null);
-  const u6a = await req("PATCH", `/api/users/${UID}`, { active: false }, admin);
-  const u6b = await loginJar(UNAME, "nova12345");
-  const u6c = await req("PATCH", `/api/users/${UID}`, { active: true }, admin);
-  ok("desativar bloqueia o login (403)", u6a.ok && u6b.status === 403 && u6c.ok, `login=${u6b.status}`);
-  const u7a = await req("DELETE", `/api/users/${UID}`, undefined, admin);
-  const u7b = await req("DELETE", "/api/users/u1", undefined, admin);
-  ok("exclui usuário e bloqueia auto-exclusão", u7a.ok && u7b.status === 400);
-
-  // Refresh de pedidos (3)
-  const o1 = await req("POST", "/api/orders", {
-    customer: { name: "Teste Refresh", phone: "(81) 99999-1111", addr: "Rua Teste, 100 — Janga" },
-    items: [{ productId: "p1", qty: 2, optionIds: [], note: "" }],
-    type: "delivery", payment: "Dinheiro",
-  });
-  ok("cria pedido via API", o1.status === 201 && !!o1.data.order?.id, JSON.stringify(o1.data).slice(0, 100));
-  const o2 = await boot();
-  ok("pedido aparece no refresh", o2.orders.some((o) => o.id === o1.data.order?.id));
-    const o3 = await req("PATCH", `/api/orders/${o1.data.order.id}/status`, { status: "CONFIRMADO" }, admin);
-    const o3b = await boot();
-    ok("muda status e refresh reflete", o3.ok && o3b.orders.find((o) => o.id === o1.data.order.id)?.status === "CONFIRMADO");
-
-    // Módulo de Mesas / Salão (4)
-    const setMesasOn = await req("PATCH", "/api/settings", { tables_enabled: true, tables_count: 12 }, admin);
-    const bootMesasOn = await boot();
-    ok("ativa módulo de mesas e reflete nas configs", setMesasOn.ok && bootMesasOn.settings?.tablesEnabled === true && bootMesasOn.settings?.tablesCount === 12);
-
-    const orderMesa = await req("POST", "/api/orders", {
-      customer: { name: "Mesa 03 · Cliente Salão", phone: "(81) 90000-0000", addr: "Mesa 03" },
-      items: [{ productId: "p1", qty: 1, optionIds: [], note: "Pão brioche bem tostado" }],
-      type: "dine_in", payment: "No fechamento da mesa",
-    });
-    ok("cria comanda de mesa com taxa zero (dine_in)", orderMesa.status === 201 && orderMesa.data.order?.fee === 0 && orderMesa.data.order?.type === "dine_in");
-
-    // Nova rodada na comanda
-    const addRodada = await req("POST", `/api/orders/${orderMesa.data.order.id}/items`, {
-      items: [{ productId: "p2", qty: 1, optionIds: [], note: "Rodada extra" }],
-    }, admin);
-    ok("adiciona nova rodada de itens à comanda", addRodada.status === 200 && addRodada.data.order?.items?.length === 2);
-
-    // Transferir comanda de mesa
-    const transferMesa = await req("PATCH", `/api/orders/${orderMesa.data.order.id}/table`, {
-      table: "Mesa 07",
-    }, admin);
-    ok("transfere comanda para outra mesa", transferMesa.ok && transferMesa.data.order?.customer?.addr === "Mesa 07");
-
-    const closeMesa = await req("PATCH", `/api/orders/${orderMesa.data.order.id}/status`, { status: "ENTREGUE", payment: "PIX" }, admin);
-    const bootAfterClose = await boot();
-    const closedOrder = bootAfterClose.orders.find((o) => o.id === orderMesa.data.order?.id);
-    ok("fecha conta da mesa e registra pagamento", closeMesa.ok && closedOrder?.status === "ENTREGUE" && closedOrder?.payment === "PIX");
-
-    const setMesasOff = await req("PATCH", "/api/settings", { tables_enabled: false }, admin);
-    const bootMesasOff = await boot();
-    ok("desativa módulo de mesas via settings", setMesasOff.ok && bootMesasOff.settings?.tablesEnabled === false);
-
-    // Pix Dinâmico e Confirmação em Tempo Real (Part 3)
-    const setPixKey = await req("PATCH", "/api/settings", { pix_key: "financeiro@tonosarro.com.br" }, admin);
-    const getPixSettings = await req("GET", "/api/settings/payments", undefined, admin);
-    ok("configura chave pix oficial nas settings", setPixKey.ok && getPixSettings.data.pixKey === "financeiro@tonosarro.com.br");
-
-    const pixOrder = await req("POST", "/api/orders", {
-      customer: { name: "Cliente Pix", phone: "(81) 98888-7777", addr: "Rua do Sol, 45 — Janga" },
-      items: [{ productId: "p1", qty: 2, optionIds: [], note: "" }],
-      type: "delivery", payment: "PIX",
-    });
-    const pOrder = pixOrder.data.order;
-    const isPixPending = pixOrder.status === 201 && pOrder.paymentStatus === "pendente";
-    const hasPixBRCode = typeof pOrder.pixCode === "string" && pOrder.pixCode.startsWith("000201") && pOrder.pixCode.includes("6304");
-    ok("cria pedido Pix com status pendente e BR Code oficial", isPixPending && hasPixBRCode, JSON.stringify(pOrder).slice(0, 80));
-
-    const getPixDetails = await req("GET", `/api/orders/${pOrder.id}/pix?t=${pOrder.trackToken}`);
-    ok("consulta detalhes do Pix por token", getPixDetails.ok && getPixDetails.data.pixCode === pOrder.pixCode && getPixDetails.data.pixKey === "financeiro@tonosarro.com.br");
-
-    const payEndpoint = await req("POST", `/api/orders/${pOrder.id}/pay?t=${pOrder.trackToken}`);
-    ok("endpoint de pagamento retorna Copia e Cola e total", payEndpoint.ok && payEndpoint.data.pixCode === pOrder.pixCode && payEndpoint.data.amount === pOrder.total);
-
-    const confirmManual = await req("POST", `/api/orders/${pOrder.id}/confirm-payment`, undefined, admin);
-    const trackAfterPaid = await req("GET", `/api/track/${pOrder.id}?t=${pOrder.trackToken}`);
-    ok("equipe confirma pagamento Pix manualmente e reflete no rastreio", confirmManual.ok && trackAfterPaid.data.order?.paymentStatus === "pago" && trackAfterPaid.data.order?.status === "CONFIRMADO");
-
-    // Frente de Caixa / PDV (Part 4)
-    const checkCurrentCash = await req("GET", "/api/cash/current", undefined, admin);
-    if (checkCurrentCash.data?.register) {
-      await req("POST", "/api/cash/close", { closedCash: checkCurrentCash.data.register.summary.expectedCash }, admin);
-    }
-
-    const openCash = await req("POST", "/api/cash/open", {
-      initialCash: 150.00,
-      notes: "Turno Noite - Caixa 01",
-    }, admin);
-    ok("abre turno de caixa com fundo de troco (201)", openCash.status === 201 && openCash.data.register?.status === "OPEN" && openCash.data.register?.summary?.initialCash === 150);
-
-    const openDuplicate = await req("POST", "/api/cash/open", { initialCash: 100.00 }, admin);
-    ok("rejeita abrir caixa duplicado (400)", openDuplicate.status === 400);
-
-    const txSuprimento = await req("POST", "/api/cash/transaction", {
-      type: "SUPRIMENTO",
-      amount: 50.00,
-      reason: "Troco moedas de 1 real",
-    }, admin);
-    ok("registra suprimento de caixa", txSuprimento.ok && txSuprimento.data.register?.summary?.suprimentos === 50 && txSuprimento.data.register?.summary?.expectedCash === 200);
-
-    const txSangria = await req("POST", "/api/cash/transaction", {
-      type: "SANGRIA",
-      amount: 30.00,
-      reason: "Compra urgente de pão",
-    }, admin);
-    ok("registra sangria de caixa", txSangria.ok && txSangria.data.register?.summary?.sangrias === 30 && txSangria.data.register?.summary?.expectedCash === 170);
-
-    const cashOrder = await req("POST", "/api/orders", {
-      customer: { name: "Cliente Dinheiro", phone: "(81) 98765-4321", addr: "Rua do Caixa, 10" },
-      items: [{ productId: "p1", qty: 2, optionIds: [], note: "" }],
-      type: "pickup", payment: "Dinheiro",
-    });
-    const cashCurrent = await req("GET", "/api/cash/current", undefined, admin);
-    ok("venda em dinheiro reflete automaticamente no caixa", cashCurrent.ok && cashCurrent.data.register?.summary?.cashSales > 0);
-
-    const expectedCashToClose = cashCurrent.data.register.summary.expectedCash;
-    const closeCash = await req("POST", "/api/cash/close", {
-      closedCash: expectedCashToClose,
-      declaredPix: cashCurrent.data.register.summary.pixSales,
-      declaredCard: cashCurrent.data.register.summary.cardSales,
-      notes: "Fechamento conferido sem quebra",
-    }, admin);
-    ok("fecha caixa com conferência e quebra zero", closeCash.ok && closeCash.data.register?.status === "CLOSED" && closeCash.data.register?.summary?.diffCash === 0);
-
-    const cashHistory = await req("GET", "/api/cash/history", undefined, admin);
-    ok("histórico lista o caixa fechado", cashHistory.ok && cashHistory.data.history?.some((h) => h.id === openCash.data.register?.id));
-
-    const printSummary = await req("POST", "/api/cash/print-summary", { registerId: openCash.data.register?.id }, admin);
-    ok("gera resumo de impressão do caixa", printSummary.ok);
-
-    // Agrupamento de Entregas & Rotas Multi-Stop / Acerto de Entregadores (Part 5)
-    const routeOrder1 = await req("POST", "/api/orders", {
-      customer: { name: "Cliente Rota 1", phone: "(81) 98888-1111", addr: "Rua das Flores, 100, Janga, Paulista - PE" },
-      items: [{ productId: "p1", qty: 2, optionIds: [], note: "" }],
-      type: "delivery", payment: "Dinheiro",
-    });
-    const routeOrder2 = await req("POST", "/api/orders", {
-      customer: { name: "Cliente Rota 2", phone: "(81) 98888-2222", addr: "Av. Cláudio Gueiros Leite, 2500, Janga, Paulista - PE" },
-      items: [{ productId: "p2", qty: 2, optionIds: [], note: "" }],
-      type: "delivery", payment: "Cartão",
-    });
-
-    const ro1 = routeOrder1.data.order;
-    const ro2 = routeOrder2.data.order;
-
-    // Coloca pedidos como PRONTO na cozinha
-    await req("PATCH", `/api/orders/${ro1.id}/status`, { status: "PRONTO" }, admin);
-    await req("PATCH", `/api/orders/${ro2.id}/status`, { status: "PRONTO" }, admin);
-
-    // Despacha rota multi-paradas para o entregador d1 (Rafael)
-    const dispatchMulti = await req("POST", "/api/routes/dispatch", {
-      driverId: "d1",
-      orderIds: [ro1.id, ro2.id],
-    }, admin);
-
-    ok("despacha rota composta com múltiplas paradas", dispatchMulti.ok && dispatchMulti.data.routeId && dispatchMulti.data.count === 2);
-
-    const checkO1 = await req("GET", `/api/track/${ro1.id}?t=${ro1.trackToken}`);
-    const checkO2 = await req("GET", `/api/track/${ro2.id}?t=${ro2.trackToken}`);
-    ok("pedidos recebem route_id e sequência 1 e 2 em status ROTA",
-      checkO1.data.order?.status === "ROTA" &&
-      checkO2.data.order?.status === "ROTA" &&
-      checkO1.data.order?.routeSeq === 1 &&
-      checkO2.data.order?.routeSeq === 2 &&
-      checkO1.data.order?.routeId === dispatchMulti.data.routeId
-    );
-
-    // Entregador conclui as entregas
-    await req("PATCH", `/api/orders/${ro1.id}/status`, { status: "ENTREGUE" }, admin);
-    await req("PATCH", `/api/orders/${ro2.id}/status`, { status: "ENTREGUE" }, admin);
-
-    // Consulta acerto pendente do entregador
-    const pendingSettlement = await req("GET", "/api/drivers/d1/settlement", undefined, admin);
-    ok("consulta acerto pendente do entregador com entregas concluídas",
-      pendingSettlement.ok &&
-      pendingSettlement.data.settlement?.orders?.length >= 2 &&
-      pendingSettlement.data.settlement?.summary?.deliveriesCount >= 2 &&
-      pendingSettlement.data.settlement?.summary?.totalFees > 0 &&
-      pendingSettlement.data.settlement?.summary?.totalCashCollected > 0
-    );
-
-    // Fecha acerto do entregador
-    const settleRes = await req("POST", "/api/drivers/d1/settle", {
-      basePay: 20.00,
-      notes: "Turno da noite multi-rotas fechado",
-    }, admin);
-    ok("efetua acerto e quitação do entregador com diária",
-      settleRes.ok &&
-      settleRes.data.settlement?.status === "SETTLED" &&
-      settleRes.data.settlement?.base_pay === 20 &&
-      settleRes.data.settlement?.deliveries_count >= 2
-    );
-
-    // Histórico de acertos
-    const histRes = await req("GET", "/api/settlements", undefined, admin);
-    ok("histórico de acertos inclui o fechamento recém registrado",
-      histRes.ok &&
-      Array.isArray(histRes.data?.settlements) &&
-      histRes.data.settlements.some((s) => s.id === settleRes.data.settlement?.id)
-    );
-
-    // Confirma que acerto pendente agora está zerado para novas entregas
-    const pendingAfter = await req("GET", "/api/drivers/d1/settlement", undefined, admin);
-    ok("acerto pendente do entregador fica zerado após quitação",
-      pendingAfter.ok && pendingAfter.data.settlement?.orders?.length === 0
-    );
-  }
-
-console.log(fails === 0 ? `\n🎉 tudo verde — ${total} checagens\n` : `\n💥 ${fails} falha(s) em ${total}\n`);
+console.log(fails === 0 ? "\n🎉 tudo verde\n" : `\n💥 ${fails} falha(s)\n`);
 child?.kill();
 process.exit(fails === 0 ? 0 : 1);

@@ -14,6 +14,7 @@ import {
   DRIVERS, CUSTOMERS, INVENTORY, PROMOS, USERS, SETTINGS,
 } from "./data.js";
 import { generatePixBRCode } from "./payments/pix.js";
+import { runMigrationsSync } from "./migrations/index.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // Em produção (ex.: Render Disk), aponte DATA_DIR para o volume persistente
@@ -137,7 +138,9 @@ db.exec(`
     subtotal REAL DEFAULT 0,
     fee REAL DEFAULT 0,
     discount REAL DEFAULT 0,
-    total REAL DEFAULT 0
+    total REAL DEFAULT 0,
+    table_number INTEGER,
+    table_name TEXT
   );
 
   CREATE TABLE IF NOT EXISTS order_items (
@@ -219,6 +222,7 @@ db.exec(`
   );
 
   CREATE INDEX IF NOT EXISTS idx_orders_created ON orders(created_at DESC);
+  CREATE INDEX IF NOT EXISTS idx_orders_status ON orders(status);
   CREATE INDEX IF NOT EXISTS idx_items_order ON order_items(order_id);
   CREATE INDEX IF NOT EXISTS idx_cash_reg_status ON cash_registers(status);
   CREATE INDEX IF NOT EXISTS idx_cash_tx_reg ON cash_transactions(register_id);
@@ -240,6 +244,10 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_settle_driver ON driver_settlements(driver_id);
 `);
 
+// Sistema de migrations versionado (Sprint 3)
+try { runMigrationsSync(db); } catch (e) { console.error('[db] falha nas migrations', e); }
+
+
 // Migrações leves: adiciona colunas novas em bancos já existentes
 function addColumnIfMissing(table, col, ddl) {
   const cols = db.prepare(`PRAGMA table_info(${table})`).all().map((c) => c.name);
@@ -253,6 +261,11 @@ addColumnIfMissing("orders", "track_token", "track_token TEXT");
 addColumnIfMissing("orders", "route_id", "route_id TEXT");
 addColumnIfMissing("orders", "route_seq", "route_seq INTEGER DEFAULT 1");
 addColumnIfMissing("orders", "settlement_id", "settlement_id TEXT");
+addColumnIfMissing("orders", "table_number", "table_number INTEGER");
+addColumnIfMissing("orders", "table_name", "table_name TEXT");
+// Índices que dependem de colunas adicionadas via addColumnIfMissing
+try { db.exec(`CREATE INDEX IF NOT EXISTS idx_orders_table_number ON orders(table_number)`); } catch {}
+try { db.exec(`CREATE INDEX IF NOT EXISTS idx_orders_table_name ON orders(table_name)`); } catch {}
 addColumnIfMissing("users", "active", "active INTEGER DEFAULT 1");
 addColumnIfMissing("users", "last_login_at", "last_login_at INTEGER");
 addColumnIfMissing("promos", "starts_at", "starts_at INTEGER");
@@ -553,6 +566,11 @@ export function getSettings() {
     pixKey: s.pix_key || "",
     tablesEnabled: s.tables_enabled === "1",
     tablesCount: parseInt(s.tables_count || "10", 10),
+    serviceChargeEnabled: s.service_charge_enabled === "1",
+    serviceChargePercent: parseFloat(s.service_charge_percent || "10"),
+    loyaltyEnabled: s.loyalty_enabled === "1",
+    loyaltyPointsPerReal: parseFloat(s.loyalty_points_per_real || "1"),
+    stockAlertEnabled: s.stock_alert_enabled !== "0",
   };
 }
 
@@ -578,9 +596,35 @@ export function setSetting(key, value) {
     .run(key, String(value));
 }
 
-export function getOrders() {
-  const rows = db.prepare("SELECT * FROM orders ORDER BY created_at DESC LIMIT 200").all();
-  const items = db.prepare("SELECT * FROM order_items").all();
+export function getOrders(opts = {}) {
+  const limit = Math.min(Math.max(parseInt(opts.limit) || 200, 1), 500);
+  const offset = Math.max(parseInt(opts.offset) || 0, 0);
+  const tableNumber = opts.tableNumber != null ? parseInt(opts.tableNumber, 10) : null;
+  const statusFilter = opts.status ? String(opts.status).toUpperCase() : null;
+  const typeFilter = opts.type ? String(opts.type).toLowerCase() : null;
+
+  let where = [];
+  let params = [];
+  if (tableNumber != null && !Number.isNaN(tableNumber)) {
+    where.push("table_number = ?");
+    params.push(tableNumber);
+  }
+  if (statusFilter && statusFilter !== "ALL") {
+    where.push("status = ?");
+    params.push(statusFilter);
+  }
+  if (typeFilter && typeFilter !== "all") {
+    where.push("type = ?");
+    params.push(typeFilter);
+  }
+  const whereClause = where.length ? "WHERE " + where.join(" AND ") : "";
+  const rows = db.prepare(`SELECT * FROM orders ${whereClause} ORDER BY created_at DESC LIMIT ? OFFSET ?`).all(...params, limit, offset);
+  // só carrega itens dos pedidos retornados
+  let items = [];
+  if (rows.length) {
+    const placeholders = rows.map(() => "?").join(",");
+    items = db.prepare(`SELECT * FROM order_items WHERE order_id IN (${placeholders})`).all(...rows.map(r=>r.id));
+  }
   const byOrder = new Map();
   for (const it of items) {
     if (!byOrder.has(it.order_id)) byOrder.set(it.order_id, []);
@@ -590,7 +634,10 @@ export function getOrders() {
     });
   }
   const pays = new Map();
-  for (const p of db.prepare("SELECT * FROM payments").all()) pays.set(p.order_id, p);
+  if (rows.length) {
+    const placeholders = rows.map(() => "?").join(",");
+    for (const p of db.prepare(`SELECT * FROM payments WHERE order_id IN (${placeholders})`).all(...rows.map(r=>r.id))) pays.set(p.order_id, p);
+  }
 
   const pixKeyRow = db.prepare("SELECT value FROM settings WHERE key = 'pix_key'").get();
   const storeNameRow = db.prepare("SELECT value FROM settings WHERE key = 'store_name'").get();
@@ -622,6 +669,17 @@ export function getOrders() {
       routeId: o.route_id || null,
       routeSeq: o.route_seq || 1,
       settlementId: o.settlement_id || null,
+      tableNumber: o.table_number || null,
+      tableName: o.table_name || null,
+      serviceCharge: o.service_charge || 0,
+      serviceChargePercent: o.service_charge_percent || 0,
+      tipAmount: o.tip_amount || 0,
+      tipPercent: o.tip_percent || 0,
+      waiterName: o.waiter_name || null,
+      customerLat: o.customer_lat || null,
+      customerLng: o.customer_lng || null,
+      splitGroup: o.split_group || null,
+      splitPeople: o.split_people || 1,
       items: byOrder.get(o.id) || [],
     };
   });
@@ -634,41 +692,34 @@ export function getOrders() {
 export function getCashSummary(reg) {
   if (!reg) return null;
 
-  const txs = db.prepare(`
-    SELECT * FROM cash_transactions WHERE register_id = ? ORDER BY created_at DESC
-  `).all(reg.id);
+  const txAgg = db.prepare(`
+    SELECT
+      COALESCE(SUM(CASE WHEN type='SUPRIMENTO' THEN amount ELSE 0 END),0) AS suprimentos,
+      COALESCE(SUM(CASE WHEN type='SANGRIA' THEN amount ELSE 0 END),0) AS sangrias
+    FROM cash_transactions WHERE register_id = ?
+  `).get(reg.id);
 
-  let suprimentos = 0;
-  let sangrias = 0;
-  for (const t of txs) {
-    if (t.type === "SUPRIMENTO") suprimentos += t.amount;
-    if (t.type === "SANGRIA") sangrias += t.amount;
-  }
+  let suprimentos = Number(txAgg?.suprimentos || 0);
+  let sangrias = Number(txAgg?.sangrias || 0);
 
   const endAt = reg.closed_at || Date.now();
-  const orders = db.prepare(`
-    SELECT total, payment, status FROM orders
+  const agg = db.prepare(`
+    SELECT
+      COUNT(*) as cnt,
+      COALESCE(SUM(CASE WHEN UPPER(payment) LIKE '%DINHEIRO%' THEN total ELSE 0 END),0) AS cashSales,
+      COALESCE(SUM(CASE WHEN UPPER(payment) LIKE '%PIX%' THEN total ELSE 0 END),0) AS pixSales,
+      COALESCE(SUM(CASE WHEN UPPER(payment) LIKE '%CART%' OR UPPER(payment) LIKE '%CREDITO%' OR UPPER(payment) LIKE '%DEBITO%' THEN total ELSE 0 END),0) AS cardSales,
+      COALESCE(SUM(CASE WHEN UPPER(payment) NOT LIKE '%DINHEIRO%' AND UPPER(payment) NOT LIKE '%PIX%' AND UPPER(payment) NOT LIKE '%CART%' AND UPPER(payment) NOT LIKE '%CREDITO%' AND UPPER(payment) NOT LIKE '%DEBITO%' THEN total ELSE 0 END),0) AS otherSales
+    FROM orders
     WHERE created_at >= ? AND created_at <= ? AND status != 'CANCELADO'
-  `).all(reg.opened_at, endAt);
+  `).get(reg.opened_at, endAt);
 
-  let cashSales = 0;
-  let pixSales = 0;
-  let cardSales = 0;
-  let otherSales = 0;
-  let orderCount = orders.length;
+  let cashSales = Number(agg?.cashSales || 0);
+  let pixSales = Number(agg?.pixSales || 0);
+  let cardSales = Number(agg?.cardSales || 0);
+  let otherSales = Number(agg?.otherSales || 0);
+  let orderCount = Number(agg?.cnt || 0);
 
-  for (const o of orders) {
-    const p = String(o.payment || "").toUpperCase();
-    if (p.includes("DINHEIRO")) {
-      cashSales += o.total;
-    } else if (p.includes("PIX")) {
-      pixSales += o.total;
-    } else if (p.includes("CART") || p.includes("CREDITO") || p.includes("DEBITO")) {
-      cardSales += o.total;
-    } else {
-      otherSales += o.total;
-    }
-  }
 
   const initialCash = Number(reg.initial_cash || 0);
   const totalSales = cashSales + pixSales + cardSales + otherSales;
@@ -716,6 +767,90 @@ export function getCashSummary(reg) {
     })),
   };
 }
+
+
+export function getOrderPayments(orderId) {
+  return db.prepare("SELECT * FROM order_payments WHERE order_id = ? ORDER BY created_at").all(orderId).map(p => ({
+    id: p.id,
+    orderId: p.order_id,
+    personIndex: p.person_index,
+    personName: p.person_name,
+    method: p.method,
+    amount: p.amount,
+    createdAt: p.created_at,
+    createdBy: p.created_by,
+  }));
+}
+
+export function addOrderPayment({ orderId, personIndex = 0, personName = "", method, amount, createdBy }) {
+  const order = db.prepare("SELECT * FROM orders WHERE id = ?").get(orderId);
+  if (!order) throw new Error("Pedido não encontrado");
+  const cleanAmount = Math.max(0, parseFloat(amount) || 0);
+  if (cleanAmount <= 0) throw new Error("Valor deve ser maior que zero");
+  
+  const id = crypto.randomUUID();
+  const now = Date.now();
+  db.prepare(`
+    INSERT INTO order_payments (id, order_id, person_index, person_name, method, amount, created_at, created_by)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(id, orderId, personIndex, personName || "", method, cleanAmount, now, createdBy || "sistema");
+  
+  return getOrderPayments(orderId);
+}
+
+export function getWaiterReport(fromTs = 0, toTs = Date.now()) {
+  const rows = db.prepare(`
+    SELECT waiter_name, COUNT(*) as mesas, 
+           COALESCE(SUM(total),0) as total,
+           COALESCE(SUM(service_charge),0) as service,
+           COALESCE(SUM(tip_amount),0) as tips,
+           AVG(CASE WHEN created_at AND started_at THEN (started_at - created_at) ELSE NULL END) as avgPrep
+    FROM orders
+    WHERE waiter_name IS NOT NULL AND waiter_name != '' AND created_at >= ? AND created_at <= ? AND status != 'CANCELADO'
+    GROUP BY waiter_name
+    ORDER BY total DESC
+  `).all(fromTs, toTs);
+  
+  return rows.map(r => ({
+    waiterName: r.waiter_name,
+    mesas: r.mesas,
+    total: Math.round(r.total*100)/100,
+    service: Math.round(r.service*100)/100,
+    tips: Math.round(r.tips*100)/100,
+    avgPrepMs: r.avgPrep,
+  }));
+}
+
+export function getLowStockAlerts() {
+  return db.prepare("SELECT * FROM inventory WHERE qty <= min ORDER BY qty ASC").all().map(i => ({
+    id: i.id, name: i.name, unit: i.unit, qty: i.qty, min: i.min,
+    critical: i.qty <= 0,
+  }));
+}
+
+export function getLoyaltyPoints(phone) {
+  const digits = String(phone||"").replace(/\D/g,"");
+  if (!digits) return null;
+  const customer = db.prepare("SELECT * FROM customers WHERE phone LIKE ?").get(`%${digits.slice(-8)}%`);
+  if (!customer) return null;
+  return { id: customer.id, name: customer.name, points: customer.points || 0, tier: customer.tier };
+}
+
+export function addLoyaltyPoints(phone, amount) {
+  const settings = getSettings();
+  if (!settings.loyaltyEnabled) return null;
+  const pointsPerReal = settings.loyaltyPointsPerReal || 1;
+  const points = Math.floor(amount * pointsPerReal);
+  if (points <= 0) return null;
+  
+  const digits = String(phone||"").replace(/\D/g,"");
+  const customer = db.prepare("SELECT * FROM customers WHERE phone LIKE ?").get(`%${digits.slice(-8)}%`);
+  if (!customer) return null;
+  
+  db.prepare("UPDATE customers SET points = points + ? WHERE id = ?").run(points, customer.id);
+  return { customerId: customer.id, pointsAdded: points, total: (customer.points||0)+points };
+}
+
 
 export function getCurrentCashRegister() {
   const reg = db.prepare(`

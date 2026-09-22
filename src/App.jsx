@@ -1,5 +1,40 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import QRCode from "qrcode";
+import { getOrderModality as getOrderModalityUtil } from "./utils/orderModality.js";
+import { useKeyboardShortcuts } from "./hooks/useKeyboardShortcuts.js";
+import { extractTableNumber, getOrderTableNumber, buildMesaIndex } from "./utils/mesa.js";
+import ServiceChargeCard from "./components/admin/ServiceChargeCard.jsx";
+// Lazy load heavy panels for code splitting
+const AdminTablesModular = React.lazy(() => import("./components/tables/AdminTables.jsx"));
+const TrackScreenModular = React.lazy(() => import("./components/track/TrackScreen.jsx"));
+const AdminDashboardModular = React.lazy(() => import("./components/admin/AdminDashboard.jsx"));
+const AdminProductsModular = React.lazy(() => import("./components/admin/AdminProducts.jsx"));
+const AdminCustomersModular = React.lazy(() => import("./components/admin/AdminCustomers.jsx"));
+const AdminInventoryModular = React.lazy(() => import("./components/admin/AdminInventory.jsx"));
+const AdminFinanceModular = React.lazy(() => import("./components/admin/AdminFinance.jsx"));
+const AdminReportsModular = React.lazy(() => import("./components/admin/AdminReports.jsx"));
+const AdminPromosModular = React.lazy(() => import("./components/admin/AdminPromos.jsx"));
+const AdminUsersModular = React.lazy(() => import("./components/admin/AdminUsers.jsx"));
+const AdminCategoriesModular = React.lazy(() => import("./components/admin/AdminCategories.jsx"));
+const AdminIntegrationsModular = React.lazy(() => import("./components/admin/AdminIntegrations.jsx"));
+const AdminPaymentsCardModular = React.lazy(() => import("./components/admin/AdminPaymentsCard.jsx"));
+const AdminPrinterCardModular = React.lazy(() => import("./components/admin/AdminPrinterCard.jsx"));
+const AdminStoreCardModular = React.lazy(() => import("./components/admin/AdminStoreCard.jsx"));
+const AdminModalitiesCardModular = React.lazy(() => import("./components/admin/AdminModalitiesCard.jsx"));
+const AdminCashRegisterModular = React.lazy(() => import("./components/admin/AdminCashRegister.jsx"));
+const AdminAppModular = React.lazy(() => import("./components/admin/AdminApp.jsx"));
+const MenuScreenModular = React.lazy(() => import("./components/client/MenuScreen.jsx"));
+const HomeScreenModular = React.lazy(() => import("./components/client/HomeScreen.jsx"));
+const CartScreenModular = React.lazy(() => import("./components/client/CartScreen.jsx"));
+const CheckoutModular = React.lazy(() => import("./components/client/Checkout.jsx"));
+const ClientAppModular = React.lazy(() => import("./components/client/ClientApp.jsx"));
+const KitchenAppModular = React.lazy(() => import("./components/kitchen/KitchenApp.jsx"));
+const ExpeditionAppModular = React.lazy(() => import("./components/expedition/ExpeditionApp.jsx"));
+const TVPanelAppModular = React.lazy(() => import("./components/tv/TVPanelApp.jsx"));
+const DriverAppModular = React.lazy(() => import("./components/driver/DriverApp.jsx"));
+
+
+
 
 // ============================================================
 // TÔ NO SARRO! — SMART FOOD SYSTEM
@@ -158,53 +193,185 @@ function playReadyChime() {
 }
 
 function getOrderModality(o) {
-  if (!o) return { id: "delivery", label: "DELIVERY", badge: "DELIVERY", color: "#f58200", bg: "#ea580c22", border: "#f58200", icon: "🛵", isMesa: false, isPickup: false, instruction: "EMBALAGEM DE VIAGEM" };
-  const isMesa = o.type === "dine_in" || o.type === "mesa" || /^Mesa \d+/i.test(o.customer?.addr || "") || /^Mesa \d+/i.test(o.customer?.name || "");
-  if (isMesa) {
-    const match = (o.customer?.addr || o.customer?.name || "").match(/Mesa \d+/i);
-    const mesaTag = match ? match[0].toUpperCase() : "SALÃO";
-    return {
-      id: "mesa",
-      label: `SALÃO · ${mesaTag}`,
-      badge: mesaTag,
-      color: "#10b981",
-      bg: "#064e3b33",
-      border: "#10b981",
-      icon: "🍽️",
-      isMesa: true,
-      isPickup: false,
-      instruction: "SERVIÇO NO SALÃO (NÃO EMBALAR)",
-    };
-  }
-  const isPickup = o.type === "pickup" || /Retirada/i.test(o.customer?.addr || "");
-  if (isPickup) {
-    return {
-      id: "pickup",
-      label: "BALCÃO · RETIRADA",
-      badge: "BALCÃO",
-      color: "#3b82f6",
-      bg: "#1d4ed833",
-      border: "#3b82f6",
-      icon: "🏪",
-      isMesa: false,
-      isPickup: true,
-      instruction: "RETIRADA NO BALCÃO",
-    };
-  }
-  return {
-    id: "delivery",
-    label: "DELIVERY",
-    badge: "DELIVERY",
-    color: "#f58200",
-    bg: "#ea580c22",
-    border: "#f58200",
-    icon: "🛵",
-    isMesa: false,
-    isPickup: false,
-    instruction: "EMBALAGEM DE VIAGEM",
-  };
+  return getOrderModalityUtil(o);
 }
 
+
+// ============================================================
+// CARROSSEL — hook + componentes reutilizáveis
+// Responsivo, drag com pointer events, snap proximity, setas, fade
+// ============================================================
+
+function useDragScroll() {
+  const ref = useRef(null);
+  const [isDragging, setIsDragging] = useState(false);
+  const [canLeft, setCanLeft] = useState(false);
+  const [canRight, setCanRight] = useState(false);
+  const drag = useRef({ startX: 0, scrollLeft: 0, moved: false, suppress: false, pointerId: null });
+
+  const update = () => {
+    const el = ref.current;
+    if (!el) return;
+    const left = el.scrollLeft > 8;
+    const right = el.scrollLeft + el.clientWidth < el.scrollWidth - 10;
+    setCanLeft(left);
+    setCanRight(right);
+  };
+
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    update();
+    const onScroll = () => update();
+    el.addEventListener("scroll", onScroll, { passive: true });
+    const ro = new ResizeObserver(update);
+    ro.observe(el);
+    const t = setTimeout(update, 300);
+    return () => { el.removeEventListener("scroll", onScroll); ro.disconnect(); clearTimeout(t); };
+  }, []);
+
+  const onPointerDown = (e) => {
+    if (e.pointerType === "mouse" && e.button !== 0) return;
+    const el = ref.current;
+    if (!el) return;
+    drag.current.startX = e.clientX;
+    drag.current.scrollLeft = el.scrollLeft;
+    drag.current.moved = false;
+    drag.current.suppress = false;
+    drag.current.pointerId = e.pointerId;
+    setIsDragging(true);
+    el.classList.add("dragging");
+    try { el.setPointerCapture(e.pointerId); } catch {}
+  };
+
+  const onPointerMove = (e) => {
+    const el = ref.current;
+    if (!isDragging || !el) return;
+    if (drag.current.pointerId !== null && e.pointerId !== drag.current.pointerId) return;
+    const dx = e.clientX - drag.current.startX;
+    if (!drag.current.moved && Math.abs(dx) < 5) return;
+    if (Math.abs(dx) >= 5) {
+      drag.current.moved = true;
+      drag.current.suppress = true;
+    }
+    el.scrollLeft = drag.current.scrollLeft - dx;
+  };
+
+  const endDrag = (e) => {
+    const el = ref.current;
+    if (!el) return;
+    if (drag.current.pointerId !== null) {
+      try { el.releasePointerCapture(drag.current.pointerId); } catch {}
+    }
+    setIsDragging(false);
+    el.classList.remove("dragging");
+    if (drag.current.suppress) {
+      el.style.scrollSnapType = "none";
+      setTimeout(() => {
+        if (el) el.style.scrollSnapType = "";
+        drag.current.moved = false;
+        drag.current.suppress = false;
+        update();
+      }, 180);
+    } else {
+      drag.current.moved = false;
+      drag.current.suppress = false;
+    }
+    drag.current.pointerId = null;
+    update();
+  };
+
+  const onClickCapture = (e) => {
+    if (drag.current.suppress) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+  };
+
+  const scrollBy = (dir) => {
+    const el = ref.current;
+    if (!el) return;
+    const amount = Math.max(180, el.clientWidth * 0.82) * dir;
+    el.scrollBy({ left: amount, behavior: "smooth" });
+  };
+
+  const handlers = {
+    onPointerDown,
+    onPointerMove,
+    onPointerUp: endDrag,
+    onPointerCancel: endDrag,
+    onPointerLeave: (e) => { if (isDragging) endDrag(e); },
+    onClickCapture,
+  };
+
+  return { ref, isDragging, canLeft, canRight, scrollBy, handlers, update };
+}
+
+function CarouselShell({ children, className = "", gap = 12, showArrows = true, fade = true }) {
+  const { ref, canLeft, canRight, scrollBy, handlers, isDragging } = useDragScroll();
+  return (
+    <div className={`relative group/carousel ${fade ? "sarro-fade" : ""} ${!canLeft ? "no-left" : ""} ${!canRight ? "no-right" : ""}`}>
+      <div
+        ref={ref}
+        className={`sarro-carousel no-scrollbar ${isDragging ? "dragging" : ""} ${className}`}
+        style={{ gap, touchAction: "pan-y pinch-zoom" }}
+        {...handlers}
+      >
+        {children}
+      </div>
+      {showArrows && (
+        <>
+          <button
+            onClick={() => scrollBy(-1)}
+            aria-label="Voltar"
+            className={`hidden md:flex absolute left-0 top-1/2 -translate-y-1/2 z-10 w-9 h-9 rounded-full items-center justify-center transition-all duration-200 ${canLeft ? "opacity-90 translate-x-0" : "opacity-0 -translate-x-2 pointer-events-none"}`}
+            style={{ background: C.gray850, border: `1px solid ${C.gray800}`, color: C.white, boxShadow: "0 4px 18px rgba(0,0,0,.5)" }}
+          >
+            ‹
+          </button>
+          <button
+            onClick={() => scrollBy(1)}
+            aria-label="Avançar"
+            className={`hidden md:flex absolute right-0 top-1/2 -translate-y-1/2 z-10 w-9 h-9 rounded-full items-center justify-center transition-all duration-200 ${canRight ? "opacity-90 translate-x-0" : "opacity-0 translate-x-2 pointer-events-none"}`}
+            style={{ background: C.gray850, border: `1px solid ${C.gray800}`, color: C.white, boxShadow: "0 4px 18px rgba(0,0,0,.5)" }}
+          >
+            ›
+          </button>
+        </>
+      )}
+    </div>
+  );
+}
+
+function ProductCarouselCard({ p, onOpen }) {
+  return (
+    <Card
+      onClick={() => p.available && onOpen(p)}
+      className="sarro-carousel-item p-2.5 sarro-imgzoom select-none"
+      style={{
+        width: "clamp(142px, 42vw, 174px)",
+        cursor: p.available ? "pointer" : "not-allowed",
+        opacity: p.available ? 1 : 0.5,
+      }}
+    >
+      <div className="rounded-xl overflow-hidden mb-2 relative" style={{ height: "clamp(84px, 26vw, 110px)", border: `1px solid ${p.promo ? `${C.orange}70` : C.gray800}` }}>
+        <SmartImg id={p.id} emoji={p.emoji} alt={p.name} fs={36} file={p.img} v={p.updatedAt} />
+        {p.promo && (
+          <span className="absolute top-1.5 left-1.5 rounded-full px-1.5 py-0.5 font-black" style={{ background: C.red, color: C.white, fontSize: 9, lineHeight: 1 }}>
+            OFERTA
+          </span>
+        )}
+      </div>
+      <div style={{ color: C.white, fontWeight: 800, fontSize: "clamp(12px, 3.2vw, 13.5px)", lineHeight: 1.2 }} className="line-clamp-2 min-h-[2.4em]">
+        {p.name}
+      </div>
+      <div className="flex items-baseline gap-1.5 mt-1 flex-wrap">
+        <span style={{ color: C.yellowLight, fontWeight: 900, fontSize: 14 }}>{brl(p.promo || p.price)}</span>
+        {p.promo && <span style={{ color: "#6e6e6e", fontSize: 10.5, textDecoration: "line-through" }}>{brl(p.price)}</span>}
+      </div>
+    </Card>
+  );
+}
 
 // Fotos dos produtos (servidas de /public/img). A foto do produto usa o id
 // (ex.: p1.jpg). Enquanto uma foto não existir, o SmartImg cai para o emoji.
@@ -233,11 +400,81 @@ const css = `
     0% { transform: translateY(0) rotate(0deg); opacity: 1; }
     100% { transform: translateY(110vh) rotate(280deg); opacity: 0; }
   }
+  @keyframes sarroshimmer {
+    0% { transform: translateX(-100%); }
+    100% { transform: translateX(200%); }
+  }
   .sarro-img { width: 100%; height: 100%; object-fit: cover; display: block; }
   .sarro-imgzoom { overflow: hidden; }
   .sarro-imgzoom img { width: 100%; height: 100%; object-fit: cover; display: block; }
   * { box-sizing: border-box; }
-  body { margin: 0; }
+  html { overflow-x: hidden; -webkit-text-size-adjust: 100%; }
+  body { margin: 0; overflow-x: hidden; width: 100%; max-width: 100vw; overscroll-behavior-y: contain; -webkit-tap-highlight-color: transparent; }
+  #root { overflow-x: hidden; max-width: 100vw; }
+  .no-scrollbar { scrollbar-width: none; -ms-overflow-style: none; }
+  .no-scrollbar::-webkit-scrollbar { display: none; width: 0; height: 0; }
+  /* Carrossel base — proximity evita o loop de voltar pro início no mobile */
+  .sarro-carousel {
+    display: flex;
+    gap: 12px;
+    overflow-x: auto;
+    overflow-y: hidden;
+    scroll-snap-type: x proximity;
+    scroll-padding-left: 16px;
+    scroll-padding-right: 24px;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+    overscroll-behavior-x: contain;
+    overscroll-behavior-y: auto;
+    cursor: grab;
+    touch-action: pan-y pinch-zoom;
+    scroll-behavior: auto;
+  }
+  .sarro-carousel:active { cursor: grabbing; }
+  .sarro-carousel::-webkit-scrollbar { display: none; }
+  .sarro-carousel-item { scroll-snap-align: start; scroll-snap-stop: normal; flex-shrink: 0; }
+  .sarro-carousel.dragging, .sarro-chips.dragging { scroll-snap-type: none !important; user-select: none; -webkit-user-select: none; }
+  .sarro-carousel.dragging * , .sarro-chips.dragging * { pointer-events: none; }
+  .sarro-chips {
+    display: flex;
+    gap: 8px;
+    overflow-x: auto;
+    overflow-y: hidden;
+    scroll-snap-type: x proximity;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+    overscroll-behavior-x: contain;
+    padding-bottom: 2px;
+    cursor: grab;
+    scroll-padding-left: 12px;
+    scroll-padding-right: 12px;
+    touch-action: pan-y pinch-zoom;
+  }
+  .sarro-chips:active { cursor: grabbing; }
+  .sarro-chips::-webkit-scrollbar { display: none; }
+  .sarro-chip { scroll-snap-align: start; flex-shrink: 0; }
+  .sarro-fade { position: relative; }
+  .sarro-fade::before, .sarro-fade::after {
+    content: '';
+    position: absolute;
+    top: 0; bottom: 0;
+    width: 20px;
+    pointer-events: none;
+    z-index: 2;
+    transition: opacity .2s;
+  }
+  .sarro-fade::before { left: 0; background: linear-gradient(90deg, #050505 0%, transparent 100%); }
+  .sarro-fade::after { right: 0; background: linear-gradient(270deg, #050505 0%, transparent 100%); }
+  .sarro-fade.no-left::before { opacity: 0; }
+  .sarro-fade.no-right::after { opacity: 0; }
+  @media (max-width: 360px) {
+    .sarro-carousel { gap: 10px; scroll-padding-left: 12px; }
+  }
+  @media (min-width: 640px) {
+    .sarro-carousel { gap: 14px; }
+  }
+  .safe-bottom { padding-bottom: env(safe-area-inset-bottom); }
+  .safe-bottom-plus { padding-bottom: calc(12px + env(safe-area-inset-bottom)); }
 `;
 
 function beep(freq = 880, dur = 0.14) {
@@ -362,10 +599,16 @@ function Toast({ msg }) {
   if (!msg) return null;
   return (
     <div
-      className="fixed left-1/2 z-50 px-4 py-3 rounded-xl font-bold flex items-center gap-2"
+      className="fixed left-1/2 z-50 px-4 py-3 rounded-xl font-bold flex items-center gap-2 safe-bottom"
       style={{
-        bottom: 96, transform: "translateX(-50%)", background: C.white, color: C.black,
-        fontSize: 13, boxShadow: "0 12px 40px rgba(0,0,0,.6)", maxWidth: "88vw",
+        bottom: "calc(96px + env(safe-area-inset-bottom))",
+        transform: "translateX(-50%)",
+        background: C.white,
+        color: C.black,
+        fontSize: "clamp(12px, 3.4vw, 13px)",
+        boxShadow: "0 12px 40px rgba(0,0,0,.6)",
+        maxWidth: "min(88vw, 360px)",
+        whiteSpace: "nowrap",
       }}
     >
       🔥 {msg}
@@ -470,7 +713,6 @@ function ChannelPill({ channel }) {
   );
 }
 
-// ============================================================
 // IMPRESSÃO — comandas 80mm via iframe (cozinha, expedição,
 // cupom do cliente e etiqueta de sacola)
 // ============================================================
@@ -749,56 +991,56 @@ function Hero({ store, onOrder }) {
         }}
       />
       <div
-        className="absolute pointer-events-none"
+        className="absolute pointer-events-none hidden sm:block"
         style={{ left: "-14%", top: "13%", width: "68%", height: 3, background: `linear-gradient(90deg, transparent, ${C.orange}aa, transparent)`, transform: "rotate(-8deg)" }}
       />
       <div
-        className="absolute pointer-events-none"
+        className="absolute pointer-events-none hidden sm:block"
         style={{ left: "-10%", top: "21%", width: "52%", height: 2, background: `linear-gradient(90deg, transparent, ${C.yellow}77, transparent)`, transform: "rotate(-8deg)" }}
       />
 
-      <div className="relative px-5 pt-5 pb-7">
-        <div className="flex items-center justify-between mb-5 gap-2">
-          <Logo size={54} glow />
+      <div className="relative px-4 sm:px-5 pt-4 sm:pt-5 pb-6 sm:pb-7 max-w-[640px] mx-auto w-full">
+        <div className="flex items-center justify-between mb-4 sm:mb-5 gap-2">
+          <Logo size={50} glow style={{ width: "clamp(44px, 12vw, 54px)", height: "clamp(44px, 12vw, 54px)" }} />
           <div
-            className="flex items-center gap-2 px-3 py-1.5 rounded-full shrink-0"
+            className="flex items-center gap-2 px-2.5 sm:px-3 py-1 sm:py-1.5 rounded-full shrink-0"
             style={{ background: C.gray850, border: `1px solid ${store.open ? C.green : C.red}55` }}
           >
             <span
               style={{ width: 8, height: 8, borderRadius: 99, background: store.open ? C.green : C.red, display: "inline-block", animation: "sarropulse 1.8s infinite" }}
             />
-            <span style={{ fontSize: 11, fontWeight: 800, color: store.open ? C.green : C.red }}>
-              {store.open ? "Aberto agora" : "Fechado · voltamos 18h"}
+            <span style={{ fontSize: "clamp(10px, 2.8vw, 11px)", fontWeight: 800, color: store.open ? C.green : C.red, whiteSpace: "nowrap" }}>
+              {store.open ? "Aberto agora" : "Fechado · 18h"}
             </span>
           </div>
         </div>
 
         <div style={{ fontFamily: font.display, fontStyle: "italic", letterSpacing: "-0.03em" }}>
-          <div style={{ fontSize: 38, lineHeight: 0.94, color: C.white }}>BATEU A FOME?</div>
-          <div style={{ fontSize: 43, lineHeight: 1, color: C.orange, textShadow: `3px 3px 0 ${C.black}, 0 0 36px ${C.orange}55` }}>
+          <div style={{ fontSize: "clamp(26px, 8vw, 38px)", lineHeight: 0.94, color: C.white }}>BATEU A FOME?</div>
+          <div style={{ fontSize: "clamp(28px, 9.2vw, 43px)", lineHeight: 0.98, color: C.orange, textShadow: `3px 3px 0 ${C.black}, 0 0 36px ${C.orange}55` }}>
             ENTÃO TÁ NO SARRO! 🔥
           </div>
         </div>
 
-        <p style={{ color: "#bdbdbd", fontSize: 13, marginTop: 12, maxWidth: 430, lineHeight: 1.55 }}>
+        <p style={{ color: "#bdbdbd", fontSize: "clamp(12px, 3.4vw, 13px)", marginTop: 12, maxWidth: 430, lineHeight: 1.55 }}>
           Burger artesanal na chapa e açaí batido na hora, saindo do Janga direto
           pra sua casa. {store.open ? "Entrega em 35–45 min." : "Voltamos às 18h."}
         </p>
 
-        <div className="flex flex-wrap items-center gap-x-4 gap-y-3 mt-5">
-          <Btn onClick={onOrder} style={{ paddingLeft: 28, paddingRight: 28, boxShadow: `0 10px 32px ${C.orange}45` }}>
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-3 mt-5">
+          <Btn onClick={onOrder} full={false} style={{ paddingLeft: "clamp(20px, 5vw, 28px)", paddingRight: "clamp(20px, 5vw, 28px)", boxShadow: `0 10px 32px ${C.orange}45`, flex: "0 0 auto", minWidth: 140 }}>
             PEDIR AGORA
           </Btn>
-          <div className="flex items-center gap-2 flex-wrap" style={{ color: "#8a8a8a", fontSize: 11 }}>
+          <div className="flex items-center gap-2 flex-wrap" style={{ color: "#8a8a8a", fontSize: "clamp(10px, 2.9vw, 11px)" }}>
             <span>⭐ 4,9</span><span>•</span><span>🛵 {brl(store.fee)}</span><span>•</span><span>⏱ 35–45min</span>
           </div>
         </div>
 
         {/* foto hero: apetite vende pedido */}
         <div
-          className="sarro-imgzoom rounded-2xl overflow-hidden mt-6"
+          className="sarro-imgzoom rounded-2xl overflow-hidden mt-5 sm:mt-6"
           style={{
-            height: 220,
+            height: "clamp(160px, 52vw, 220px)",
             border: `1px solid ${C.gray800}`,
             boxShadow: `0 20px 60px rgba(0,0,0,.65), 0 0 0 1px ${C.orange}1f`,
           }}
@@ -815,34 +1057,34 @@ function ProductCard({ p, onOpen }) {
   return (
     <Card
       onClick={() => p.available && onOpen(p)}
-      className="p-3 flex gap-3 items-center"
+      className="p-2.5 sm:p-3 flex gap-2.5 sm:gap-3 items-center group"
       style={{ opacity: p.available ? 1 : 0.45, cursor: p.available ? "pointer" : "not-allowed" }}
     >
       <div
         className="shrink-0 rounded-xl overflow-hidden sarro-imgzoom"
-        style={{ width: 88, height: 88, border: `1px solid ${p.promo ? `${C.orange}70` : C.gray800}` }}
+        style={{ width: "clamp(68px, 20vw, 88px)", height: "clamp(68px, 20vw, 88px)", border: `1px solid ${p.promo ? `${C.orange}70` : C.gray800}` }}
       >
-        <SmartImg id={p.id} emoji={p.emoji} alt={p.name} fs={36} file={p.img} v={p.updatedAt} />
+        <SmartImg id={p.id} emoji={p.emoji} alt={p.name} fs={32} file={p.img} v={p.updatedAt} />
       </div>
       <div className="min-w-0 flex-1">
-        <div className="flex items-center gap-1.5 flex-wrap mb-1">
+        <div className="flex items-center gap-1 sm:gap-1.5 flex-wrap mb-1">
           {p.badges.includes("maisvendido") && <Badge color={C.yellow}>MAIS VENDIDO</Badge>}
           {p.badges.includes("novidade") && <Badge color={C.white}>NOVIDADE</Badge>}
           {p.badges.includes("promocao") && <Badge color={C.red} text={C.white}>PROMO</Badge>}
         </div>
-        <div style={{ fontWeight: 800, color: C.white, fontSize: 15 }}>{p.name}</div>
-        <div style={{ color: "#9a9a9a", fontSize: 11.5, lineHeight: 1.35, marginTop: 2 }} className="line-clamp-2">
+        <div style={{ fontWeight: 800, color: C.white, fontSize: "clamp(13.5px, 3.8vw, 15px)", lineHeight: 1.2 }} className="line-clamp-2">{p.name}</div>
+        <div style={{ color: "#9a9a9a", fontSize: "clamp(10.5px, 3vw, 11.5px)", lineHeight: 1.35, marginTop: 2 }} className="line-clamp-2">
           {p.desc}
         </div>
-        <div className="flex items-center gap-2 mt-1.5">
-          <span style={{ color: C.yellowLight, fontWeight: 900, fontSize: 15 }}>{brl(price)}</span>
+        <div className="flex items-center gap-1.5 sm:gap-2 mt-1.5 flex-wrap">
+          <span style={{ color: C.yellowLight, fontWeight: 900, fontSize: "clamp(13px, 3.6vw, 15px)" }}>{brl(price)}</span>
           {p.promo && <span style={{ color: "#6e6e6e", fontSize: 11, textDecoration: "line-through" }}>{brl(p.price)}</span>}
           <span style={{ color: "#6e6e6e", fontSize: 10 }}>• {p.time} min</span>
         </div>
       </div>
       <button
-        className="shrink-0 rounded-xl flex items-center justify-center font-black active:scale-90 transition"
-        style={{ width: 40, height: 40, background: C.orange, color: C.black, fontSize: 22, lineHeight: 1 }}
+        className="shrink-0 rounded-xl flex items-center justify-center font-black active:scale-90 transition group-active:scale-95"
+        style={{ width: "clamp(36px, 10vw, 40px)", height: "clamp(36px, 10vw, 40px)", background: C.orange, color: C.black, fontSize: 22, lineHeight: 1 }}
         aria-label={`Adicionar ${p.name}`}
       >
         +
@@ -896,12 +1138,12 @@ function ProductModal({ p, store, onClose, onAdd }) {
   };
 
   return (
-    <div className="fixed inset-0 z-40 flex items-end sm:items-center justify-center" style={{ background: "rgba(0,0,0,.78)" }}>
+    <div className="fixed inset-0 z-40 flex items-end sm:items-center justify-center p-0 sm:p-4" style={{ background: "rgba(0,0,0,.78)", paddingBottom: "env(safe-area-inset-bottom)" }}>
       <div
-        className="w-full sm:max-w-lg max-h-[92vh] overflow-y-auto"
+        className="w-full sm:max-w-lg max-h-[92dvh] sm:max-h-[92vh] overflow-y-auto no-scrollbar flex flex-col"
         style={{ background: C.gray900, borderTop: `3px solid ${C.orange}`, borderRadius: "22px 22px 0 0" }}
       >
-        <div className="relative sarro-imgzoom" style={{ height: 172, background: `linear-gradient(135deg, ${C.orange}33, ${C.black})` }}>
+        <div className="relative sarro-imgzoom shrink-0" style={{ height: "clamp(148px, 42vw, 172px)", background: `linear-gradient(135deg, ${C.orange}33, ${C.black})` }}>
           <SmartImg id={p.id} emoji={p.emoji} alt={p.name} fs={72} file={p.img} v={p.updatedAt} />
           <div
             className="absolute inset-x-0 bottom-0 pointer-events-none"
@@ -916,8 +1158,8 @@ function ProductModal({ p, store, onClose, onAdd }) {
           </button>
         </div>
 
-        <div className="p-5">
-          <h3 style={{ fontFamily: font.display, fontStyle: "italic", fontSize: 26, color: C.white, letterSpacing: "-0.02em" }}>
+        <div className="p-4 sm:p-5 flex-1">
+          <h3 style={{ fontFamily: font.display, fontStyle: "italic", fontSize: "clamp(20px, 5.5vw, 26px)", color: C.white, letterSpacing: "-0.02em" }}>
             {p.name.toUpperCase()}
           </h3>
           <p style={{ color: "#a5a5a5", fontSize: 13, marginTop: 6, lineHeight: 1.5 }}>{p.desc}</p>
@@ -962,9 +1204,9 @@ function ProductModal({ p, store, onClose, onAdd }) {
 
           {groups.map((g) => (
             <div key={g.id} className="mt-5">
-              <div className="flex items-center justify-between mb-2">
+              <div className="flex items-center justify-between mb-2 gap-2">
                 <span style={{ color: C.yellowLight, fontWeight: 800, fontSize: 13 }}>{g.name}</span>
-                <span style={{ color: "#777", fontSize: 10.5 }}>
+                <span style={{ color: "#777", fontSize: 10.5, whiteSpace: "nowrap" }}>
                   {g.required ? "Obrigatório" : "Opcional"} · até {g.max}
                 </span>
               </div>
@@ -1014,13 +1256,13 @@ function ProductModal({ p, store, onClose, onAdd }) {
           </div>
         </div>
 
-        <div className="sticky bottom-0 p-4 flex items-center gap-3" style={{ background: C.black, borderTop: `1px solid ${C.gray800}` }}>
-          <div className="flex items-center gap-3 rounded-xl px-3 py-2" style={{ background: C.gray850, border: `1px solid ${C.gray800}` }}>
+        <div className="sticky bottom-0 p-4 flex items-center gap-3 safe-bottom" style={{ background: C.black, borderTop: `1px solid ${C.gray800}` }}>
+          <div className="flex items-center gap-3 rounded-xl px-3 py-2 shrink-0" style={{ background: C.gray850, border: `1px solid ${C.gray800}` }}>
             <button onClick={() => setQty(Math.max(1, qty - 1))} style={{ color: C.orange, fontSize: 20, fontWeight: 900 }}>−</button>
             <span style={{ color: C.white, fontWeight: 900, minWidth: 18, textAlign: "center" }}>{qty}</span>
             <button onClick={() => setQty(qty + 1)} style={{ color: C.orange, fontSize: 20, fontWeight: 900 }}>+</button>
           </div>
-          <Btn full onClick={add} disabled={missing.length > 0}>
+          <Btn full onClick={add} disabled={missing.length > 0} style={{ minWidth: 0 }}>
             {missing.length > 0 ? `Escolha: ${missing[0].name}` : `Adicionar · ${brl(unit * qty)}`}
           </Btn>
         </div>
@@ -1062,321 +1304,13 @@ function smartSearch(q, products) {
 // ============================================================
 
 function MenuScreen({ store, onOpen }) {
-  const [cat, setCat] = useState("burgers");
-  const [q, setQ] = useState("");
-  const refs = useRef({});
-
-  const results = smartSearch(q, store.products);
-  const searching = q.trim().length > 0;
-
-  const go = (id) => {
-    setCat(id);
-    refs.current[id]?.scrollIntoView({ behavior: "smooth", block: "start" });
-  };
-
-  const byCat = (id) =>
-    id === "promocoes"
-      ? store.products.filter((p) => p.promo)
-      : store.products.filter((p) => p.cat === id);
-
   return (
-    <div>
-      <div className="px-4 pt-4 pb-2 sticky top-0 z-20" style={{ background: C.black }}>
-        <div className="relative">
-          <input
-            value={q}
-            onChange={(e) => setQ(e.target.value)}
-            placeholder="Busque: “burger com bacon”, “combo barato”, “açaí”…"
-            className="w-full rounded-2xl pl-10 pr-4 py-3 outline-none"
-            style={{ background: C.gray850, border: `1px solid ${C.gray800}`, color: C.white, fontSize: 13 }}
-          />
-          <span className="absolute left-3.5 top-3.5" style={{ fontSize: 15 }}>🔍</span>
-        </div>
-
-        {!searching && (
-          <div className="flex gap-2 overflow-x-auto pb-2 pt-3" style={{ scrollbarWidth: "none" }}>
-            {CATEGORIES.map((c) => {
-              const on = cat === c.id;
-              return (
-                <button
-                  key={c.id}
-                  onClick={() => go(c.id)}
-                  className="shrink-0 rounded-full px-3.5 py-2 font-bold"
-                  style={{
-                    background: on ? `linear-gradient(100deg, ${C.orange}, ${C.yellow})` : C.gray850,
-                    color: on ? C.black : "#c9c9c9",
-                    border: `1px solid ${on ? "transparent" : C.gray800}`, fontSize: 12.5, whiteSpace: "nowrap",
-                  }}
-                >
-                  {c.icon} {c.label}
-                </button>
-              );
-            })}
-          </div>
-        )}
-      </div>
-
-      <div className="px-4 pb-6">
-        {searching ? (
-          <>
-            <div style={{ color: "#8a8a8a", fontSize: 12, margin: "10px 2px" }}>
-              {results.length} resultado{results.length === 1 ? "" : "s"} para “{q}”
-            </div>
-            {results.length === 0 ? (
-              <Card className="p-6 text-center">
-                <div style={{ fontSize: 34 }}>🕵️</div>
-                <div style={{ color: C.white, fontWeight: 800, marginTop: 8 }}>Não achamos esse aqui</div>
-                <div style={{ color: "#8a8a8a", fontSize: 12.5, marginTop: 4 }}>
-                  Tenta “bacon”, “combo”, “açaí” ou toca numa categoria.
-                </div>
-              </Card>
-            ) : (
-              <div className="space-y-3">
-                {results.map((p) => <ProductCard key={p.id} p={p} onOpen={onOpen} />)}
-              </div>
-            )}
-          </>
-        ) : (
-          CATEGORIES.map((c) => {
-            const items = byCat(c.id);
-            if (!items.length) return null;
-            return (
-              <div key={c.id} ref={(el) => (refs.current[c.id] = el)} className="pt-5" style={{ scrollMarginTop: 130 }}>
-                <h3 style={{ fontFamily: font.display, fontStyle: "italic", fontSize: 20, color: C.white, marginBottom: 12, letterSpacing: "-0.02em" }}>
-                  {c.icon} {c.label.toUpperCase()}
-                </h3>
-                <div className="space-y-3">
-                  {items.map((p) => <ProductCard key={p.id} p={p} onOpen={onOpen} />)}
-                </div>
-              </div>
-            );
-          })
-        )}
-      </div>
-    </div>
+    <React.Suspense fallback={<div style={{ padding: 20, textAlign: 'center', color: '#888' }}>Carregando MenuScreen...</div>}>
+      <MenuScreenModular store={store} onOpen={onOpen}  />
+    </React.Suspense>
   );
 }
 
-function HomeScreen({ store, onOpen, goMenu }) {
-  const top = store.products.filter((p) => p.badges.includes("maisvendido"));
-  const promos = store.products.filter((p) => p.promo);
-  const novos = store.products.filter((p) => p.badges.includes("novidade"));
-
-  const Row = ({ title, sub, items }) => (
-    <div className="pt-6">
-      <div className="px-4 mb-3">
-        <h3 style={{ fontFamily: font.display, fontStyle: "italic", fontSize: 20, color: C.white, letterSpacing: "-0.02em" }}>
-          {title}
-        </h3>
-        {sub && <div style={{ color: "#8a8a8a", fontSize: 12, marginTop: 2 }}>{sub}</div>}
-      </div>
-      <div className="flex gap-3 overflow-x-auto px-4 pb-1" style={{ scrollbarWidth: "none" }}>
-        {items.map((p) => (
-          <Card key={p.id} onClick={() => onOpen(p)} className="shrink-0 p-2.5 sarro-imgzoom" style={{ width: 174, cursor: "pointer" }}>
-            <div className="rounded-xl overflow-hidden mb-2" style={{ height: 110, border: `1px solid ${C.gray800}` }}>
-              <SmartImg id={p.id} emoji={p.emoji} alt={p.name} fs={44} file={p.img} v={p.updatedAt} />
-            </div>
-            <div style={{ color: C.white, fontWeight: 800, fontSize: 13.5 }}>{p.name}</div>
-            <div className="flex items-baseline gap-2 mt-1">
-              <span style={{ color: C.yellowLight, fontWeight: 900, fontSize: 14 }}>{brl(p.promo || p.price)}</span>
-              {p.promo && <span style={{ color: "#6e6e6e", fontSize: 10.5, textDecoration: "line-through" }}>{brl(p.price)}</span>}
-            </div>
-          </Card>
-        ))}
-      </div>
-    </div>
-  );
-
-  return (
-    <div className="pb-6">
-      <Hero store={store} onOrder={goMenu} />
-
-      <div className="px-4 -mt-4 relative z-10">
-        <Card className="p-4 flex items-center gap-3" style={{ borderColor: `${C.orange}55` }}>
-          <div className="rounded-xl overflow-hidden shrink-0 sarro-imgzoom" style={{ width: 50, height: 50, border: `1px solid ${C.orange}55` }}>
-            <SmartImg id="p16" emoji="🛠️" alt="Monte seu Sarro" fs={24} />
-          </div>
-          <div className="flex-1">
-            <div style={{ color: C.white, fontWeight: 900, fontSize: 14 }}>Monte seu Sarro</div>
-            <div style={{ color: "#9a9a9a", fontSize: 11.5 }}>Pão, carne, queijo e molho do seu jeito</div>
-          </div>
-          <Btn small onClick={() => onOpen(store.products.find((p) => p.builder))}>Montar</Btn>
-        </Card>
-      </div>
-
-      <Row title="🔥 OS QUERIDINHOS DO SARRO" sub="O que mais sai da chapa" items={top} />
-      <Row title="💥 OFERTAS DE HOJE" sub="Enquanto durar o estoque" items={promos} />
-      {novos.length > 0 && <Row title="✨ NOVIDADES" sub="Recém-chegados no cardápio" items={novos} />}
-
-      <div className="px-4 pt-7">
-        <Card className="p-4" style={{ background: `linear-gradient(120deg, ${C.orange}22, ${C.gray850})`, borderColor: `${C.orange}44` }}>
-          <div style={{ color: C.white, fontWeight: 900, fontSize: 15 }}>🔥 Happy Hour do Sarro</div>
-          <div style={{ color: "#c9c9c9", fontSize: 12.5, marginTop: 4 }}>
-            Das 18h às 20h, todo combo sai com 15% de desconto. Sem cupom, o preço já cai no carrinho.
-          </div>
-        </Card>
-      </div>
-    </div>
-  );
-}
-
-// ============================================================
-// CARRINHO
-// ============================================================
-
-function CartScreen({ store, goCheckout, onOpen }) {
-  const { cart } = store;
-  const [code, setCode] = useState("");
-  const [err, setErr] = useState("");
-
-  const subtotal = cart.reduce((s, i) => s + i.unit * i.qty, 0);
-  const coupon = store.coupon;
-  let discount = 0;
-  let fee = store.fee;
-  if (coupon) {
-    if (coupon.type === "percent") discount = subtotal * (coupon.value / 100);
-    if (coupon.type === "fixed") discount = coupon.value;
-    if (coupon.type === "freeship") fee = 0;
-  }
-  const total = Math.max(0, subtotal + fee - discount);
-
-  const apply = async () => {
-    try {
-      const c = await store.validateCoupon(code.trim().toUpperCase(), subtotal);
-      setErr("");
-      store.setCoupon(c);
-      store.toast(`Cupom ${c.code} aplicado`);
-    } catch (e) {
-      setErr(e.message);
-    }
-  };
-
-  const upsell = store.products
-    .filter((p) => ["porcoes", "bebidas", "sobremesas"].includes(p.cat))
-    .filter((p) => !cart.find((i) => i.productId === p.id))
-    .slice(0, 4);
-
-  if (!cart.length) {
-    return (
-      <div className="px-4 py-16 text-center">
-        <div style={{ fontSize: 56 }}>🛒</div>
-        <div style={{ fontFamily: font.display, fontStyle: "italic", fontSize: 22, color: C.white, marginTop: 12 }}>
-          CARRINHO VAZIO
-        </div>
-        <p style={{ color: "#8a8a8a", fontSize: 13, marginTop: 8 }}>Escolhe um burger e a gente resolve o resto.</p>
-        <div className="mt-6 flex justify-center">
-          <Btn onClick={() => store.setTab("cardapio")}>Ver cardápio</Btn>
-        </div>
-      </div>
-    );
-  }
-
-  return (
-    <div className="px-4 py-5 pb-6">
-      <h2 style={{ fontFamily: font.display, fontStyle: "italic", fontSize: 24, color: C.white, marginBottom: 14 }}>
-        SEU PEDIDO
-      </h2>
-
-      <div className="space-y-3">
-        {cart.map((i) => (
-          <Card key={i.id} className="p-3">
-            <div className="flex gap-3">
-              <div className="shrink-0 rounded-xl overflow-hidden" style={{ width: 56, height: 56, border: `1px solid ${C.gray800}` }}>
-                <SmartImg id={i.productId} emoji={i.emoji} alt={i.name} fs={26} />
-              </div>
-              <div className="flex-1 min-w-0">
-                <div className="flex justify-between gap-2">
-                  <span style={{ color: C.white, fontWeight: 800, fontSize: 14 }}>{i.name}</span>
-                  <span style={{ color: C.yellowLight, fontWeight: 900, fontSize: 14 }}>{brl(i.unit * i.qty)}</span>
-                </div>
-                {i.opts.map((o) => (
-                  <div key={o.id + o.name} style={{ color: "#8f8f8f", fontSize: 11.5 }}>
-                    + {o.name}{o.price > 0 ? ` (${brl(o.price)})` : ""}
-                  </div>
-                ))}
-                {i.note && <div style={{ color: C.yellow, fontSize: 11.5, marginTop: 2 }}>📝 {i.note}</div>}
-                <div className="flex items-center justify-between mt-2">
-                  <div className="flex items-center gap-3 rounded-lg px-2.5 py-1" style={{ background: C.gray800 }}>
-                    <button onClick={() => store.setQty(i.id, i.qty - 1)} style={{ color: C.orange, fontWeight: 900, fontSize: 17 }}>−</button>
-                    <span style={{ color: C.white, fontWeight: 800, fontSize: 13, minWidth: 14, textAlign: "center" }}>{i.qty}</span>
-                    <button onClick={() => store.setQty(i.id, i.qty + 1)} style={{ color: C.orange, fontWeight: 900, fontSize: 17 }}>+</button>
-                  </div>
-                  <button onClick={() => store.removeItem(i.id)} style={{ color: "#7a7a7a", fontSize: 11.5 }}>Remover</button>
-                </div>
-              </div>
-            </div>
-          </Card>
-        ))}
-      </div>
-
-      <div className="pt-6">
-        <div style={{ color: C.white, fontWeight: 900, fontSize: 14, marginBottom: 10 }}>COMBINA COM SEU PEDIDO 🔥</div>
-        <div className="flex gap-3 overflow-x-auto pb-1" style={{ scrollbarWidth: "none" }}>
-          {upsell.map((p) => (
-            <Card key={p.id} className="shrink-0 p-2.5 sarro-imgzoom" style={{ width: 138 }}>
-              <div className="rounded-lg overflow-hidden mb-2" style={{ height: 66, border: `1px solid ${C.gray800}` }}>
-                <SmartImg id={p.id} emoji={p.emoji} alt={p.name} fs={30} file={p.img} v={p.updatedAt} />
-              </div>
-              <div style={{ color: C.white, fontSize: 12, fontWeight: 700, lineHeight: 1.25 }}>{p.name}</div>
-              <div style={{ color: C.yellowLight, fontWeight: 900, fontSize: 12.5, margin: "4px 0 8px" }}>{brl(p.promo || p.price)}</div>
-              <Btn small full onClick={() => onOpen(p)}>Adicionar</Btn>
-            </Card>
-          ))}
-        </div>
-      </div>
-
-      <div className="pt-6">
-        <div className="flex gap-2">
-          <input
-            value={code}
-            onChange={(e) => setCode(e.target.value.toUpperCase())}
-            placeholder="Cupom de desconto"
-            className="flex-1 rounded-xl px-3 py-3 outline-none"
-            style={{ background: C.gray850, border: `1px solid ${C.gray800}`, color: C.white, fontSize: 13 }}
-          />
-          <Btn variant="dark" onClick={apply}>Aplicar</Btn>
-        </div>
-        {err && <div style={{ color: C.red, fontSize: 11.5, marginTop: 6 }}>{err}</div>}
-        {coupon && (
-          <div className="flex items-center justify-between mt-2">
-            <span style={{ color: C.green, fontSize: 12 }}>✓ {coupon.code} — {coupon.note}</span>
-            <button onClick={() => store.setCoupon(null)} style={{ color: "#7a7a7a", fontSize: 11 }}>remover</button>
-          </div>
-        )}
-      </div>
-
-      <Card className="p-4 mt-5 space-y-2">
-        {[["Subtotal", brl(subtotal)], ["Taxa de entrega", fee === 0 ? "Grátis" : brl(fee)]].map(([k, v]) => (
-          <div key={k} className="flex justify-between" style={{ color: "#a5a5a5", fontSize: 13 }}>
-            <span>{k}</span><span>{v}</span>
-          </div>
-        ))}
-        {discount > 0 && (
-          <div className="flex justify-between" style={{ color: C.green, fontSize: 13 }}>
-            <span>Desconto</span><span>−{brl(discount)}</span>
-          </div>
-        )}
-        <div className="flex justify-between pt-2" style={{ borderTop: `1px solid ${C.gray800}` }}>
-          <span style={{ color: C.white, fontWeight: 900, fontSize: 15 }}>Total</span>
-          <span style={{ color: C.yellowLight, fontWeight: 900, fontSize: 19 }}>{brl(total)}</span>
-        </div>
-      </Card>
-
-      <div className="mt-4">
-        <Btn full onClick={() => goCheckout({ subtotal, fee, discount, total })} disabled={!store.open}>
-          {store.open ? "FINALIZAR PEDIDO" : "LOJA FECHADA — VOLTAMOS ÀS 18H"}
-        </Btn>
-      </div>
-    </div>
-  );
-}
-
-// ============================================================
-// CHECKOUT
-// ============================================================
-
-// Declarados fora do Checkout: se ficassem dentro, o React remontaria os
-// inputs a cada tick do relógio e o campo perderia o foco a cada tecla.
 function Field({ label, value, onChange, ph, type = "text" }) {
   return (
     <label className="block">
@@ -1408,225 +1342,12 @@ function Choice({ on, onClick, icon, title, sub }) {
 }
 
 function Checkout({ store, totals, onBack, onDone }) {
-  const isTable = !!store.tableParam;
-  const [step, setStep] = useState(1);
-  const [f, setF] = useState({
-    name: "", phone: "", cpf: "", type: isTable ? "dine_in" : "delivery",
-    street: "", number: "", district: "", city: "Paulista/PE", ref: "",
-    payment: isTable ? "No fechamento da mesa" : "PIX", changeFor: "", needChange: false,
-  });
-  const set = (k, v) => setF((p) => ({ ...p, [k]: v }));
-
-  const fee = (f.type === "pickup" || f.type === "dine_in") ? 0 : totals.fee;
-  const total = Math.max(0, totals.subtotal + fee - totals.discount);
-
-  const steps = ["Você", "Entrega", "Local", "Pagamento", "Confirmar"];
-  const valid = {
-    1: f.name.trim().length > 2 && f.phone.replace(/\D/g, "").length >= 10,
-    2: true,
-    3: f.type === "pickup" || f.type === "dine_in" || (f.street.trim() && f.number.trim() && f.district.trim()),
-    4: f.payment !== "Dinheiro" || !f.needChange || f.changeFor.trim(),
-    5: true,
-  };
-
-  const finish = () => {
-    // O servidor recalcula preços, cupom, taxa e total — aqui vai só a intenção.
-    onDone({
-      customer: {
-        name: f.type === "dine_in" ? `${store.tableParam} · ${f.name}` : f.name,
-        phone: f.phone,
-        addr: f.type === "dine_in" ? store.tableParam : f.type === "pickup" ? "Retirada na loja" : `${f.street}, ${f.number} — ${f.district}, ${f.city}`,
-      },
-      type: f.type,
-      payment: f.payment,
-      changeFor: f.payment === "Dinheiro" && f.needChange ? f.changeFor : undefined,
-      couponCode: store.coupon?.code || undefined,
-      note: f.ref,
-      items: store.cart.map((i) => ({
-        productId: i.productId,
-        qty: i.qty,
-        optionIds: i.optionIds || [],
-        note: i.note || "",
-      })),
-    });
-  };
-
   return (
-    <div className="px-4 py-5 pb-6">
-      <button onClick={step === 1 ? onBack : () => setStep(step - 1)} style={{ color: "#8a8a8a", fontSize: 13 }}>
-        ← Voltar
-      </button>
-
-      <div className="flex gap-1.5 mt-4 mb-5">
-        {steps.map((s, i) => (
-          <div key={s} className="flex-1">
-            <div style={{ height: 4, borderRadius: 9, background: i < step ? C.orange : C.gray800 }} />
-            <div style={{ color: i < step ? C.white : "#6a6a6a", fontSize: 9.5, marginTop: 5, fontWeight: 700 }}>{s}</div>
-          </div>
-        ))}
-      </div>
-
-      {step === 1 && (
-        <div className="space-y-4">
-          <h3 style={{ fontFamily: font.display, fontStyle: "italic", fontSize: 22, color: C.white }}>QUEM TÁ PEDINDO?</h3>
-          <Field label="Nome completo" value={f.name} onChange={(v) => set("name", v)} ph="João Silva" />
-          <Field label="WhatsApp" value={f.phone} onChange={(v) => set("phone", v)} ph="(81) 99999-9999" />
-          <Field label="CPF na nota (opcional)" value={f.cpf} onChange={(v) => set("cpf", v)} ph="000.000.000-00" />
-        </div>
-      )}
-
-      {step === 2 && (
-        <div className="space-y-3">
-          <h3 style={{ fontFamily: font.display, fontStyle: "italic", fontSize: 22, color: C.white, marginBottom: 6 }}>
-            COMO VOCÊ QUER RECEBER?
-          </h3>
-          {store.tableParam && (
-            <Choice
-              on={f.type === "dine_in"}
-              onClick={() => { set("type", "dine_in"); set("payment", "No fechamento da mesa"); }}
-              icon="🍽️"
-              title={`Consumo na ${store.tableParam}`}
-              sub="Comanda enviada direto para a cozinha · sem taxa de entrega"
-            />
-          )}
-          <Choice on={f.type === "delivery"} onClick={() => set("type", "delivery")} icon="🛵"
-            title="Delivery" sub={`35–45 min · taxa ${brl(store.fee)}`} />
-          <Choice on={f.type === "pickup"} onClick={() => set("type", "pickup")} icon="🏪"
-            title="Retirar na loja" sub="Pronto em ~20 min · sem taxa" />
-        </div>
-      )}
-
-      {step === 3 && (
-        f.type === "dine_in" ? (
-          <div>
-            <h3 style={{ fontFamily: font.display, fontStyle: "italic", fontSize: 22, color: C.white }}>CONSUMO NO SALÃO</h3>
-            <Card className="p-4 mt-4 space-y-2">
-              <div style={{ color: C.yellowLight, fontWeight: 800, fontSize: 16 }}>🍽️ {store.tableParam || "Mesa do Salão"}</div>
-              <div style={{ color: "#9a9a9a", fontSize: 12.5, lineHeight: 1.5 }}>
-                Seu pedido será preparado na cozinha e entregue diretamente na sua mesa no salão.
-                Não é necessário informar endereço de entrega.
-              </div>
-            </Card>
-          </div>
-        ) : f.type === "pickup" ? (
-          <div>
-            <h3 style={{ fontFamily: font.display, fontStyle: "italic", fontSize: 22, color: C.white }}>RETIRADA NA LOJA</h3>
-            <Card className="p-4 mt-4">
-              <div style={{ color: C.white, fontWeight: 800, fontSize: 14 }}>TÔ NO SARRO! Burgers & Açaí</div>
-              <div style={{ color: "#9a9a9a", fontSize: 12.5, marginTop: 6, lineHeight: 1.5 }}>
-                Av. Cláudio José Gueiros Leite, 3200 — Janga, Paulista/PE<br />
-                Aberto de terça a domingo, 18h às 23h30
-              </div>
-            </Card>
-          </div>
-        ) : (
-          <div className="space-y-4">
-            <h3 style={{ fontFamily: font.display, fontStyle: "italic", fontSize: 22, color: C.white }}>ONDE ENTREGAMOS?</h3>
-            <Field label="Rua" value={f.street} onChange={(v) => set("street", v)} ph="Rua das Palmeiras" />
-            <div className="grid grid-cols-2 gap-3">
-              <Field label="Número" value={f.number} onChange={(v) => set("number", v)} ph="220" />
-              <Field label="Bairro" value={f.district} onChange={(v) => set("district", v)} ph="Janga" />
-            </div>
-            <Field label="Cidade" value={f.city} onChange={(v) => set("city", v)} ph="Paulista/PE" />
-            <Field label="Ponto de referência" value={f.ref} onChange={(v) => set("ref", v)} ph="Portão preto, ao lado da padaria" />
-          </div>
-        )
-      )}
-
-      {step === 4 && (
-        <div className="space-y-3">
-          <h3 style={{ fontFamily: font.display, fontStyle: "italic", fontSize: 22, color: C.white, marginBottom: 6 }}>
-            COMO VAI PAGAR?
-          </h3>
-          {f.type === "dine_in" && (
-            <Choice
-              on={f.payment === "No fechamento da mesa"}
-              onClick={() => set("payment", "No fechamento da mesa")}
-              icon="🍽️"
-              title="No fechamento da mesa"
-              sub="Acerto com o garçom/caixa ao encerrar a conta"
-            />
-          )}
-          <Choice on={f.payment === "PIX"} onClick={() => set("payment", "PIX")} icon="⚡" title="Pix" sub="Aprovação na hora · checkout seguro InfinitePay" />
-          <Choice on={f.payment === "CARTAO_ONLINE"} onClick={() => set("payment", "CARTAO_ONLINE")} icon="💳" title="Cartão online" sub="Crédito em até 12x · link seguro InfinitePay" />
-          <Choice on={f.payment === "Cartão"} onClick={() => set("payment", "Cartão")} icon="💳" title={f.type === "dine_in" ? "Cartão na mesa" : "Cartão na entrega"} sub="Maquininha com a equipe" />
-          <Choice on={f.payment === "Dinheiro"} onClick={() => set("payment", "Dinheiro")} icon="💵" title="Dinheiro" sub="Pagamento em cédulas" />
-
-          {f.payment === "CARTAO_ONLINE" && (
-            <Card className="p-4">
-              <div style={{ color: "#9a9a9a", fontSize: 12, lineHeight: 1.5 }}>
-                Você recebe um <strong style={{ color: C.yellowLight }}>link seguro da InfinitePay</strong> ♾️ para pagar com
-                crédito em até 12x. Nenhum dado de cartão passa pelo nosso sistema.
-              </div>
-            </Card>
-          )}
-
-          {f.payment === "Dinheiro" && (
-            <Card className="p-4 space-y-3">
-              <div style={{ color: C.white, fontWeight: 800, fontSize: 13.5 }}>Precisa de troco?</div>
-              <div className="flex gap-2">
-                <Btn small variant={f.needChange ? "primary" : "dark"} onClick={() => set("needChange", true)}>Sim</Btn>
-                <Btn small variant={!f.needChange ? "primary" : "dark"} onClick={() => set("needChange", false)}>Não precisa</Btn>
-              </div>
-              {f.needChange && <Field label="Troco para quanto?" value={f.changeFor} onChange={(v) => set("changeFor", v)} ph="R$ 100,00" />}
-            </Card>
-          )}
-
-          {f.payment === "PIX" && (
-            <Card className="p-4">
-              <div style={{ color: "#9a9a9a", fontSize: 12, lineHeight: 1.5 }}>
-                Ao confirmar, a gente te leva para o <strong style={{ color: C.yellowLight }}>checkout seguro da InfinitePay</strong> ♾️
-                com o QR Code do Pix. A confirmação é automática — quando cair, seu pedido entra na cozinha na hora.
-              </div>
-            </Card>
-          )}
-        </div>
-      )}
-
-      {step === 5 && (
-        <div>
-          <h3 style={{ fontFamily: font.display, fontStyle: "italic", fontSize: 22, color: C.white }}>CONFIRA TUDO</h3>
-          <Card className="p-4 mt-4 space-y-2">
-            {store.cart.map((i) => (
-              <div key={i.id} className="flex justify-between" style={{ color: "#d0d0d0", fontSize: 13 }}>
-                <span>{i.qty}x {i.name}</span><span>{brl(i.unit * i.qty)}</span>
-              </div>
-            ))}
-            <div className="pt-2 space-y-1" style={{ borderTop: `1px solid ${C.gray800}` }}>
-              <div className="flex justify-between" style={{ color: "#9a9a9a", fontSize: 12.5 }}>
-                <span>Entrega</span><span>{fee === 0 ? "Grátis" : brl(fee)}</span>
-              </div>
-              {totals.discount > 0 && (
-                <div className="flex justify-between" style={{ color: C.green, fontSize: 12.5 }}>
-                  <span>Desconto</span><span>−{brl(totals.discount)}</span>
-                </div>
-              )}
-              <div className="flex justify-between pt-1">
-                <span style={{ color: C.white, fontWeight: 900 }}>Total</span>
-                <span style={{ color: C.yellowLight, fontWeight: 900, fontSize: 18 }}>{brl(total)}</span>
-              </div>
-            </div>
-          </Card>
-          <Card className="p-4 mt-3" style={{ fontSize: 12.5, color: "#9a9a9a", lineHeight: 1.6 }}>
-            <div><strong style={{ color: C.white }}>{f.name}</strong> · {f.phone}</div>
-            <div>{f.type === "dine_in" ? `🍽️ ${store.tableParam} (Salão)` : f.type === "pickup" ? "🏪 Retirada na loja" : `🛵 ${f.street}, ${f.number} — ${f.district}`}</div>
-            <div>💳 {f.payment}{f.needChange && f.changeFor ? ` · troco para ${f.changeFor}` : ""}</div>
-          </Card>
-        </div>
-      )}
-
-      <div className="mt-6">
-        <Btn full disabled={!valid[step]} onClick={() => (step === 5 ? finish() : setStep(step + 1))}>
-          {step === 5 ? `CONFIRMAR PEDIDO · ${brl(total)}` : "Continuar"}
-        </Btn>
-      </div>
-    </div>
+    <React.Suspense fallback={<div style={{ padding: 20, textAlign: 'center', color: '#888' }}>Carregando Checkout...</div>}>
+      <CheckoutModular store={store} totals={totals} onBack={onBack} onDone={onDone}  />
+    </React.Suspense>
   );
 }
-
-// ============================================================
-// ACOMPANHAMENTO
-// ============================================================
 
 function QRCodeImage({ value, size = 160, className = "" }) {
   const [src, setSrc] = useState("");
@@ -1681,377 +1402,30 @@ const TRACK_STEPS = [
   { key: "ENTREGUE", label: "Entregue", icon: "✓" },
 ];
 
+const TRACK_STEPS_MESA = [
+  { key: "NOVO", label: "Comanda aberta", icon: "📝" },
+  { key: "CONFIRMADO", label: "Enviado à cozinha", icon: "✓" },
+  { key: "PREPARO", label: "Na chapa agora", icon: "🔥" },
+  { key: "PRONTO", label: "Pronto no salão", icon: "🍽️" },
+  { key: "ENTREGUE", label: "Entregue na mesa", icon: "✓" },
+];
+
+const TRACK_STEPS_PICKUP = [
+  { key: "NOVO", label: "Pedido recebido", icon: "✓" },
+  { key: "CONFIRMADO", label: "Confirmado", icon: "✓" },
+  { key: "PREPARO", label: "Na chapa agora", icon: "🔥" },
+  { key: "PRONTO", label: "Pronto para retirada", icon: "🏪" },
+  { key: "ENTREGUE", label: "Retirado", icon: "✓" },
+];
+
 function TrackScreen({ order, store, now }) {
-  const [copied, setCopied] = useState(false);
-  const [showRaw, setShowRaw] = useState(false);
-  const [pixInfo, setPixInfo] = useState(null);
-  const [justApproved, setJustApproved] = useState(false);
-  const prevPaymentStatus = useRef(order?.paymentStatus);
-
-  // Atualização do próprio pedido: polling autenticado por token
-  // (o canal público não carrega pedidos de outros clientes).
-  useEffect(() => {
-    if (!order) return;
-    store.refreshMyOrder?.().catch(() => {});
-    const t = setInterval(() => store.refreshMyOrder?.().catch(() => {}), 5000);
-    return () => clearInterval(t);
-  }, [order?.id]);
-
-  // Polling de verificação instantânea enquanto o pagamento estiver pendente
-  useEffect(() => {
-    if (order?.paymentStatus !== "pendente") return;
-    const t = setInterval(() => {
-      store.checkPayment(order.id).then((res) => {
-        if (res?.paid) {
-          store.refreshMyOrder?.().catch(() => {});
-        }
-      }).catch(() => {});
-    }, 3500);
-    return () => clearInterval(t);
-  }, [order?.id, order?.paymentStatus]);
-
-  // Carrega dados dinâmicos do Pix caso necessário
-  useEffect(() => {
-    if (!order) return;
-    if (order.pixCode) {
-      setPixInfo({ pixCode: order.pixCode, amount: order.total, pixKey: order.pixKey, url: order.payUrl });
-      return;
-    }
-    const t = encodeURIComponent(order.trackToken || localStorage.getItem("sarro_my_token") || "");
-    api(`/api/orders/${order.id}/pix?t=${t}`)
-      .then((data) => setPixInfo(data))
-      .catch(() => {});
-  }, [order?.id, order?.pixCode]);
-
-  // Transição de status de pagamento: pendente -> pago
-  useEffect(() => {
-    if (prevPaymentStatus.current === "pendente" && order?.paymentStatus === "pago") {
-      playSuccessChime();
-      store.triggerConfetti?.();
-      setJustApproved(true);
-      store.toast("✅ Pagamento Aprovado com Sucesso!");
-    }
-    prevPaymentStatus.current = order?.paymentStatus;
-  }, [order?.paymentStatus]);
-
-  // Contagem regressiva dinâmica de 15 minutos (900s)
-  const [secondsLeft, setSecondsLeft] = useState(() => {
-    if (!order?.createdAt) return 900;
-    const elapsedSec = Math.floor((Date.now() - order.createdAt) / 1000);
-    return Math.max(0, 900 - elapsedSec);
-  });
-
-  useEffect(() => {
-    if (order?.paymentStatus !== "pendente") return;
-    const interval = setInterval(() => {
-      const elapsedSec = Math.floor((Date.now() - (order?.createdAt || Date.now())) / 1000);
-      setSecondsLeft(Math.max(0, 900 - elapsedSec));
-    }, 1000);
-    return () => clearInterval(interval);
-  }, [order?.createdAt, order?.paymentStatus]);
-
-  if (!order) {
-    return (
-      <div className="px-4 py-16 text-center">
-        <div style={{ fontSize: 52 }}>📦</div>
-        <div style={{ color: C.white, fontFamily: font.display, fontStyle: "italic", fontSize: 20, marginTop: 10 }}>
-          NENHUM PEDIDO ATIVO
-        </div>
-        <p style={{ color: "#8a8a8a", fontSize: 13, marginTop: 6 }}>Quando você pedir, o acompanhamento aparece aqui.</p>
-        <div className="mt-5 flex justify-center"><Btn onClick={() => store.setTab("cardapio")}>Ver cardápio</Btn></div>
-      </div>
-    );
-  }
-
-  const idx = TRACK_STEPS.findIndex((s) => s.key === order.status);
-  const pos = order.status === "AGUARDANDO" ? 4 : idx;
-  const done = order.status === "ENTREGUE";
-  const driver = store.drivers.find((d) => d.id === order.driverId);
-
-  const isPixOrder = order.payment === "PIX" || (typeof order.payment === "string" && order.payment.toUpperCase().includes("PIX"));
-  const currentPixCode = order.pixCode || pixInfo?.pixCode;
-  const mins = Math.floor(secondsLeft / 60);
-  const secs = secondsLeft % 60;
-  const timeFormatted = `${String(mins).padStart(2, "0")}:${String(secs).padStart(2, "0")}`;
-
-  const handleCopyPix = () => {
-    if (!currentPixCode) return;
-    if (navigator.clipboard?.writeText) {
-      navigator.clipboard.writeText(currentPixCode).then(
-        () => {
-          setCopied(true);
-          store.toast("✓ Código Pix copiado! Cole no seu banco");
-          beep(880, 0.12);
-          setTimeout(() => setCopied(false), 3500);
-        },
-        () => {
-          setCopied(true);
-          store.toast("Código selecionado abaixo");
-          setShowRaw(true);
-        }
-      );
-    } else {
-      setCopied(true);
-      setShowRaw(true);
-    }
-  };
-
-  const handleSendReceipt = () => {
-    const phone = (store.settings.whatsapp || "81999990000").replace(/\D/g, "");
-    const text = encodeURIComponent(
-      `Olá Tô no Sarro! Fiz o pagamento Pix do pedido #${order.code} no valor de ${brl(order.total)}.\nSegue comprovante!`
-    );
-    window.open(`https://wa.me/55${phone}?text=${text}`, "_blank");
-  };
-
   return (
-    <div className="px-4 py-5 pb-6">
-      <div
-        className="rounded-2xl p-5 mb-4"
-        style={{ background: `linear-gradient(130deg, ${C.orange}, ${C.yellow})`, color: C.black }}
-      >
-        <div style={{ fontSize: 11, fontWeight: 800, opacity: 0.75 }}>Pedido #{order.code}</div>
-          <div style={{ fontFamily: font.display, fontStyle: "italic", fontSize: 26, lineHeight: 1.02, marginTop: 4 }}>
-            {done ? "SEU SARRO CHEGOU! 🔥" : order.type === "pickup" ? "SEU SARRO TÁ SAINDO!" : "SEU SARRO ESTÁ A CAMINHO!"}
-        </div>
-        <div style={{ fontSize: 12.5, fontWeight: 700, marginTop: 8 }}>
-          {done ? "Bom apetite. Volta sempre!" : order.type === "pickup" ? "Pronto para retirada em ~20 min" : "Previsão: 35–45 minutos"}
-        </div>
-      </div>
-
-      {/* CARD DO PIX DINÂMICO QUANDO PENDENTE */}
-      {order.paymentStatus === "pendente" && isPixOrder && (
-        <Card className="p-4 mb-4" style={{ borderColor: `${C.orange}88`, background: "linear-gradient(180deg, #181411 0%, #0d0b0a 100%)" }}>
-          {/* Topo do Card Pix */}
-          <div className="flex items-center justify-between pb-3" style={{ borderBottom: `1px solid ${C.gray800}` }}>
-            <div className="flex items-center gap-2">
-              <span className="text-xl">💠</span>
-              <div>
-                <div style={{ color: C.white, fontWeight: 900, fontSize: 14 }}>PIX COPIA E COLA</div>
-                <div style={{ color: "#a0a0a0", fontSize: 11 }}>Pagamento Instantâneo Oficial</div>
-              </div>
-            </div>
-            <div className="text-right">
-              <div style={{ color: C.yellowLight, fontWeight: 900, fontSize: 18 }}>{brl(order.total)}</div>
-              <div
-                className="font-mono text-xs font-bold px-2 py-0.5 rounded-full inline-block mt-0.5"
-                style={{
-                  background: secondsLeft < 120 ? "#ef444422" : "#eab30822",
-                  color: secondsLeft < 120 ? "#ef4444" : "#eab308",
-                  border: `1px solid ${secondsLeft < 120 ? "#ef444444" : "#eab30844"}`,
-                }}
-              >
-                ⏱️ {timeFormatted}
-              </div>
-            </div>
-          </div>
-
-          {/* QR Code centralizado */}
-          <div className="py-4 text-center">
-            <div className="inline-block bg-white p-3.5 rounded-2xl shadow-2xl transition transform hover:scale-105" style={{ border: "3px solid #f58200" }}>
-              <QRCodeImage value={currentPixCode} size={190} />
-            </div>
-            <div style={{ color: "#e2e8f0", fontSize: 12, fontWeight: 700, marginTop: 8 }}>
-              Abra o app do seu banco ➔ Pix ➔ Ler QR Code
-            </div>
-            <div style={{ color: "#7a7a7a", fontSize: 11, marginTop: 2 }}>
-              Chave cadastrada: <strong style={{ color: "#c0c0c0" }}>{pixInfo?.pixKey || order.pixKey || store.settings.pixKey || "tonosarro@gmail.com"}</strong>
-            </div>
-          </div>
-
-          {/* Botão Copia e Cola */}
-          <div className="space-y-2">
-            <button
-              onClick={handleCopyPix}
-              className="w-full py-3 px-4 rounded-xl font-black text-sm flex items-center justify-center gap-2 shadow-lg transition active:scale-95"
-              style={{
-                background: copied ? "#22c55e" : `linear-gradient(135deg, ${C.orange}, ${C.yellow})`,
-                color: "#000",
-              }}
-            >
-              <span>{copied ? "✓" : "📋"}</span>
-              <span>{copied ? "CÓDIGO PIX COPIADO! COLE NO SEU BANCO" : "COPIAR CÓDIGO PIX (COPIA E COLA)"}</span>
-            </button>
-
-            {/* Alternar exibição do código bruto */}
-            <div className="text-center pt-1">
-              <button
-                type="button"
-                onClick={() => setShowRaw(!showRaw)}
-                style={{ color: "#8a8a8a", fontSize: 11, textDecoration: "underline" }}
-              >
-                {showRaw ? "Ocultar código em texto" : "Não conseguiu escanear? Ver código em texto"}
-              </button>
-            </div>
-
-            {showRaw && (
-              <div className="p-2.5 rounded-lg text-left" style={{ background: C.black, border: `1px solid ${C.gray800}` }}>
-                <div style={{ color: "#7a7a7a", fontSize: 10, marginBottom: 4 }}>Código Copia e Cola (toque para selecionar):</div>
-                <textarea
-                  readOnly
-                  value={currentPixCode}
-                  onFocus={(e) => e.target.select()}
-                  rows={3}
-                  className="w-full bg-transparent font-mono text-[11px] outline-none resize-none"
-                  style={{ color: "#cbd5e1" }}
-                />
-              </div>
-            )}
-          </div>
-
-          {/* Status em tempo real */}
-          <div
-            className="mt-3.5 p-2.5 rounded-xl flex items-center justify-between text-xs font-semibold"
-            style={{ background: "#00000080", border: `1px solid ${C.gray800}` }}
-          >
-            <div className="flex items-center gap-2">
-              <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse" />
-              <span style={{ color: "#94a3b8" }}>Aguardando confirmação bancária...</span>
-            </div>
-            <span style={{ color: C.yellowLight, fontSize: 11 }}>Atualiza sozinho</span>
-          </div>
-
-          {/* Opções adicionais: Cartão InfinitePay e WhatsApp */}
-          <div className="mt-3 pt-3 flex flex-col sm:flex-row gap-2" style={{ borderTop: `1px solid ${C.gray850}` }}>
-            {order.payUrl && (
-              <button
-                onClick={() => window.open(order.payUrl, "_blank")}
-                className="flex-1 py-2 px-3 rounded-lg text-xs font-bold flex items-center justify-center gap-1.5"
-                style={{ background: C.gray800, color: C.white, border: `1px solid ${C.gray700}` }}
-              >
-                <span>💳</span>
-                <span>Pagar via InfinitePay</span>
-              </button>
-            )}
-            <button
-              onClick={handleSendReceipt}
-              className="flex-1 py-2 px-3 rounded-lg text-xs font-bold flex items-center justify-center gap-1.5"
-              style={{ background: "#25D36622", color: "#25D366", border: "1px solid #25D36655" }}
-            >
-              <WaIcon size={14} color="#25D366" />
-              <span>Enviar comprovante no WhatsApp</span>
-            </button>
-          </div>
-        </Card>
-      )}
-
-      {/* CARD DE CARTÃO ONLINE QUANDO PENDENTE */}
-      {order.paymentStatus === "pendente" && !isPixOrder && (
-        <Card className="p-4 mb-3" style={{ borderColor: `${C.yellow}66`, background: `${C.yellow}12` }}>
-          <div style={{ color: C.yellowLight, fontWeight: 900, fontSize: 14 }}>
-            ⏳ Aguardando confirmação do Cartão Online
-          </div>
-          <div style={{ color: "#c9c9c9", fontSize: 12, marginTop: 4, lineHeight: 1.5 }}>
-            Assim que a administradora confirmar ♾️, seu pedido entra na fila da cozinha automaticamente.
-          </div>
-          {order.payUrl && (
-            <div className="mt-3">
-              <Btn full onClick={() => window.open(order.payUrl, "_blank")}>
-                PAGAR AGORA · CARTÃO ONLINE ♾️
-              </Btn>
-            </div>
-          )}
-        </Card>
-      )}
-
-      {/* CARD DE SUCESSO DO PAGAMENTO */}
-      {(order.paymentStatus === "pago" || justApproved) && (
-        <Card
-          className="p-4 mb-4 transition duration-500"
-          style={{
-            background: "linear-gradient(135deg, rgba(34, 197, 94, 0.16) 0%, rgba(16, 185, 129, 0.08) 100%)",
-            borderColor: "#22c55e",
-          }}
-        >
-          <div className="flex items-center gap-3">
-            <div
-              className="flex items-center justify-center rounded-2xl shrink-0"
-              style={{ width: 44, height: 44, background: "#22c55e", color: "#000", fontSize: 22, fontWeight: 900 }}
-            >
-              ✓
-            </div>
-            <div className="flex-1">
-              <div style={{ color: "#22c55e", fontWeight: 900, fontSize: 15 }}>
-                PAGAMENTO CONFIRMADO!
-              </div>
-              <div style={{ color: "#cbd5e1", fontSize: 12, marginTop: 2 }}>
-                Recebemos {brl(order.total)} via {order.payment || "Pix"}. Seu pedido já está na chapa!
-              </div>
-            </div>
-          </div>
-        </Card>
-      )}
-
-      <Card className="p-5">
-        {TRACK_STEPS.map((s, i) => {
-          const isDone = i <= pos || (s.key === "CONFIRMADO" && order.paymentStatus === "pago");
-          const isNow = i === pos && !done;
-          return (
-            <div key={s.key} className="flex gap-3">
-              <div className="flex flex-col items-center">
-                <div
-                  className="flex items-center justify-center shrink-0"
-                  style={{
-                    width: 30, height: 30, borderRadius: 99, fontSize: 13,
-                    background: isDone ? C.orange : C.gray800,
-                    color: isDone ? C.black : "#6a6a6a",
-                    animation: isNow ? "sarropulse 1.4s ease-in-out infinite" : "none",
-                  }}
-                >
-                  {s.icon}
-                </div>
-                {i < TRACK_STEPS.length - 1 && (
-                  <div style={{ width: 2, flex: 1, minHeight: 26, background: i < pos ? C.orange : C.gray800 }} />
-                )}
-              </div>
-              <div className="pb-4">
-                <div style={{ color: isDone ? C.white : "#6a6a6a", fontWeight: isNow ? 900 : 700, fontSize: 13.5 }}>
-                  {s.label}
-                </div>
-                {isNow && (
-                  <div style={{ color: C.yellowLight, fontSize: 11.5, marginTop: 2 }}>
-                    agora · {elapsed(order.createdAt, now)} desde o pedido
-                  </div>
-                )}
-              </div>
-            </div>
-          );
-        })}
-      </Card>
-
-      {driver && !done && (
-        <Card className="p-4 mt-3 flex items-center gap-3">
-          <div className="flex items-center justify-center rounded-full" style={{ width: 44, height: 44, background: C.gray800, fontSize: 22 }}>🛵</div>
-          <div className="flex-1">
-            <div style={{ color: C.white, fontWeight: 800, fontSize: 13.5 }}>{driver.name}</div>
-            <div style={{ color: "#8a8a8a", fontSize: 11.5 }}>{driver.vehicle} · {driver.phone}</div>
-          </div>
-        </Card>
-      )}
-
-      <Card className="p-4 mt-3">
-        <div style={{ color: C.white, fontWeight: 800, fontSize: 13, marginBottom: 8 }}>Itens</div>
-        {order.items.map((i) => (
-          <div key={i.id} className="flex justify-between" style={{ color: "#a5a5a5", fontSize: 12.5, marginBottom: 3 }}>
-            <span>{i.qty}x {i.name}</span><span>{brl(i.unit * i.qty)}</span>
-          </div>
-        ))}
-        <div className="flex justify-between pt-2 mt-2" style={{ borderTop: `1px solid ${C.gray800}` }}>
-          <span style={{ color: C.white, fontWeight: 900, fontSize: 14 }}>Total</span>
-          <span style={{ color: C.yellowLight, fontWeight: 900, fontSize: 16 }}>{brl(order.total)}</span>
-        </div>
-      </Card>
-
-      <div className="mt-4 flex gap-2">
-        <Btn variant="dark" full onClick={() => store.toast("Abrindo conversa no WhatsApp da loja")}>
-          <span className="inline-flex items-center justify-center gap-1.5">
-            <WaIcon size={14} color="#25D366" /> Falar com a loja
-          </span>
-        </Btn>
-      </div>
-    </div>
+    <React.Suspense fallback={<div style={{ padding: 20, textAlign: 'center', color: '#888' }}>Carregando TrackScreen...</div>}>
+      <TrackScreenModular order={order} store={store} now={now}  />
+    </React.Suspense>
   );
 }
+
 // ============================================================
 // CLIENTE — SHELL (bottom nav, conta, fidelidade)
 // ============================================================
@@ -2060,7 +1434,7 @@ function AccountScreen({ store }) {
   const me = store.customers[0];
   if (!me) {
     return (
-      <div className="px-4 py-16 text-center">
+      <div className="px-4 py-16 text-center max-w-[640px] mx-auto">
         <div style={{ fontSize: 52 }}>😎</div>
         <div style={{ color: C.white, fontWeight: 900, fontSize: 16, marginTop: 10 }}>Sua conta aparece aqui</div>
         <p style={{ color: "#8a8a8a", fontSize: 13, marginTop: 6 }}>Faça seu primeiro pedido para entrar no Clube do Sarro.</p>
@@ -2070,7 +1444,7 @@ function AccountScreen({ store }) {
   const pct = Math.min(100, me.points);
   const mine = store.orders.filter((o) => o.customer.name === me.name);
   return (
-    <div className="px-4 py-5 pb-6">
+    <div className="px-3 sm:px-4 py-5 pb-6 max-w-[720px] mx-auto w-full overflow-x-hidden">
       <div className="flex items-center gap-3 mb-5">
         <div className="flex items-center justify-center rounded-full" style={{ width: 54, height: 54, background: C.gray800, fontSize: 26 }}>😎</div>
         <div>
@@ -2134,143 +1508,39 @@ function BottomNav({ tab, setTab, cartCount }) {
   ];
   return (
     <div
-      className="fixed bottom-0 left-0 right-0 z-30 flex"
-      style={{ background: "rgba(5,5,5,.96)", borderTop: `1px solid ${C.gray800}`, backdropFilter: "blur(10px)" }}
+      className="fixed bottom-0 left-0 right-0 z-30 flex justify-center safe-bottom"
+      style={{ background: "rgba(5,5,5,.96)", borderTop: `1px solid ${C.gray800}`, backdropFilter: "blur(10px)", paddingBottom: "env(safe-area-inset-bottom)" }}
     >
-      {items.map((i) => {
-        const on = tab === i.id;
-        return (
-          <button key={i.id} onClick={() => setTab(i.id)} className="flex-1 flex flex-col items-center gap-0.5 py-2.5 relative">
-            <span style={{ fontSize: 18, filter: on ? "none" : "grayscale(1) opacity(.55)" }}>{i.icon}</span>
-            <span style={{ fontSize: 9.5, fontWeight: 800, color: on ? C.orange : "#6a6a6a" }}>{i.label}</span>
-            {i.id === "carrinho" && cartCount > 0 && (
-              <span
-                className="absolute flex items-center justify-center"
-                style={{ top: 4, right: "50%", marginRight: -22, width: 17, height: 17, borderRadius: 99, background: C.orange, color: C.black, fontSize: 10, fontWeight: 900 }}
-              >
-                {cartCount}
-              </span>
-            )}
-          </button>
-        );
-      })}
+      <div className="flex w-full max-w-[720px]">
+        {items.map((i) => {
+          const on = tab === i.id;
+          return (
+            <button key={i.id} onClick={() => setTab(i.id)} className="flex-1 flex flex-col items-center gap-0.5 py-2.5 relative">
+              <span style={{ fontSize: "clamp(16px, 4.5vw, 18px)", filter: on ? "none" : "grayscale(1) opacity(.55)" }}>{i.icon}</span>
+              <span style={{ fontSize: "clamp(9px, 2.6vw, 9.5px)", fontWeight: 800, color: on ? C.orange : "#6a6a6a" }}>{i.label}</span>
+              {i.id === "carrinho" && cartCount > 0 && (
+                <span
+                  className="absolute flex items-center justify-center"
+                  style={{ top: 4, right: "50%", marginRight: -22, width: 17, height: 17, borderRadius: 99, background: C.orange, color: C.black, fontSize: 10, fontWeight: 900 }}
+                >
+                  {cartCount}
+                </span>
+              )}
+            </button>
+          );
+        })}
+      </div>
     </div>
   );
 }
 
 function ClientApp({ store, now, goRole }) {
-  const [modal, setModal] = useState(null);
-  const [checkout, setCheckout] = useState(null);
-  const cartCount = store.cart.reduce((s, i) => s + i.qty, 0);
-  const active = store.myOrder || (store.myOrderId ? store.orders.find((o) => o.id === store.myOrderId) : null);
-
-  const addToCart = (item) => {
-    store.addItem(item);
-    setModal(null);
-    store.toast(`${item.name} no carrinho`);
-  };
-
   return (
-    <div style={{ background: C.black, minHeight: "100%", paddingBottom: 66 }}>
-      {store.tableParam && (
-        <div
-          className="flex items-center justify-between px-3.5 py-2 mx-3 my-2 rounded-xl shadow-md"
-          style={{ background: `linear-gradient(100deg, ${C.orange}, ${C.yellow})`, color: C.black }}
-        >
-          <div className="flex items-center gap-2">
-            <span className="text-xl">🍽️</span>
-            <div>
-              <div style={{ fontSize: 10, fontWeight: 900, textTransform: "uppercase", letterSpacing: 0.5 }}>
-                Atendimento no Salão
-              </div>
-              <div style={{ fontSize: 13, fontWeight: 900 }}>
-                Você está na {store.tableParam} · Tô no Sarro
-              </div>
-            </div>
-          </div>
-          <button
-            onClick={() => {
-              store.setTableParam(null);
-              const u = new URL(window.location);
-              u.searchParams.delete("mesa");
-              window.history.replaceState({}, "", u.pathname);
-            }}
-            className="text-xs font-black underline bg-black/15 hover:bg-black/25 px-2.5 py-1 rounded-lg"
-          >
-            Sair da mesa
-          </button>
-        </div>
-      )}
-
-      {checkout ? (
-        <Checkout
-          store={store} totals={checkout}
-          onBack={() => setCheckout(null)}
-          onDone={async (payload) => {
-            const ok = await store.placeOrder(payload);
-            if (ok) setCheckout(null);
-          }}
-        />
-      ) : (
-        <>
-          {store.tab === "inicio" && <HomeScreen store={store} onOpen={setModal} goMenu={() => store.setTab("cardapio")} />}
-          {store.tab === "cardapio" && <MenuScreen store={store} onOpen={setModal} />}
-          {store.tab === "carrinho" && <CartScreen store={store} onOpen={setModal} goCheckout={setCheckout} />}
-          {store.tab === "pedidos" && <TrackScreen order={active} store={store} now={now} />}
-          {store.tab === "conta" && <AccountScreen store={store} />}
-        </>
-      )}
-
-      {modal && <ProductModal key={modal.id} p={modal} store={store} onClose={() => setModal(null)} onAdd={addToCart} />}
-
-      {!checkout && store.tab !== "carrinho" && cartCount > 0 && (
-        <button
-          onClick={() => store.setTab("carrinho")}
-          className="fixed z-30 flex items-center gap-3 rounded-2xl px-4 py-3 font-black active:scale-95 transition"
-          style={{
-            left: 16, right: 16, bottom: 78,
-            background: `linear-gradient(100deg, ${C.orange}, ${C.yellow})`, color: C.black,
-            boxShadow: "0 10px 30px rgba(245,130,0,.35)",
-          }}
-        >
-          <span>🛒 {cartCount} {cartCount === 1 ? "item" : "itens"}</span>
-          <span className="flex-1 text-right">{brl(store.cart.reduce((s, i) => s + i.unit * i.qty, 0))} →</span>
-        </button>
-      )}
-
-      {!checkout && (
-        <a
-          onClick={(e) => { e.preventDefault(); store.toast("Abrindo WhatsApp da loja"); }}
-          href="#whatsapp"
-          className="fixed z-30 flex items-center justify-center rounded-full"
-          style={{ right: 16, bottom: cartCount > 0 ? 142 : 78, width: 46, height: 46, background: "linear-gradient(135deg, #25D366, #128C7E)", fontSize: 21, boxShadow: "0 8px 22px rgba(0,0,0,.5)" }}
-        >
-          <WaIcon size={24} color="#fff" />
-        </a>
-      )}
-
-      {!checkout && (
-        <footer className="text-center py-6 pb-24 text-xs" style={{ color: "#555" }}>
-          <div>Tô no Sarro Burgers & Açaí · Smart Food System</div>
-          <div className="mt-1">
-            <a
-              href={rolePath("admin")}
-              onClick={(e) => { e.preventDefault(); goRole?.("admin"); }}
-              style={{ color: "#666", textDecoration: "none", fontSize: 10.5 }}
-            >
-              🔒 Área da equipe
-            </a>
-          </div>
-        </footer>
-      )}
-
-      {!checkout && <BottomNav tab={store.tab} setTab={store.setTab} cartCount={cartCount} />}
-    </div>
+    <React.Suspense fallback={<div style={{ padding: 20, textAlign: 'center', color: '#888' }}>Carregando ClientApp...</div>}>
+      <ClientAppModular store={store} now={now} goRole={goRole}  />
+    </React.Suspense>
   );
 }
-// ============================================================
-// ADMIN
-// ============================================================
 
 function BarChart({ data, xKey, vKey, height = 130 }) {
   const max = Math.max(...data.map((d) => d[vKey]));
@@ -2339,180 +1609,22 @@ function KPI({ icon, label, value, sub, accent }) {
 }
 
 function AdminDashboard({ store, now, setSec }) {
-  const today = store.orders.filter((o) => o.status !== "CANCELADO");
-  const revenue = today.reduce((s, o) => s + o.total, 0);
-  const avg = today.length ? revenue / today.length : 0;
-  const counts = (st) => store.orders.filter((o) => o.status === st).length;
-
-  const byChannel = Object.keys(CHANNELS).map((k) => ({
-    label: CHANNELS[k].label, color: CHANNELS[k].color,
-    v: store.orders.filter((o) => o.channel === k).length || 0.001,
-  }));
-
-  const sold = {};
-  store.orders.forEach((o) => o.items.forEach((i) => { sold[i.name] = (sold[i.name] || 0) + i.qty; }));
-  const top = Object.entries(sold).sort((a, b) => b[1] - a[1]).slice(0, 5);
-
-  const live = [
-    { label: "Aguardando", v: counts("NOVO"), color: C.yellowLight },
-    { label: "Na cozinha", v: counts("CONFIRMADO") + counts("PREPARO"), color: C.orange },
-    { label: "Prontos", v: counts("PRONTO") + counts("EMBALADO"), color: C.green },
-    { label: "Aguardando entregador", v: counts("AGUARDANDO"), color: C.blue },
-    { label: "Em entrega", v: counts("ROTA"), color: "#7C5CFF" },
-  ];
-
   return (
-    <div className="space-y-4">
-      {/* Status da Frente de Caixa */}
-      <div className="flex items-center justify-between p-3.5 rounded-xl text-xs transition" style={{ background: C.gray900, border: `1px solid ${C.gray800}` }}>
-        <div className="flex items-center gap-2.5">
-          <span className="text-xl">{store.cashRegister?.status === "OPEN" ? "💵" : "🔒"}</span>
-          <div>
-            <div className="text-white font-bold">
-              {store.cashRegister?.status === "OPEN" ? "Frente de Caixa: TURNO EM ANDAMENTO" : "Frente de Caixa: FECHADO"}
-            </div>
-            <div className="text-gray-400 text-[11px]">
-              {store.cashRegister?.status === "OPEN"
-                ? `Operador: ${store.cashRegister.openedBy} · Esperado na gaveta: ${brl(store.cashRegister.summary?.expectedCash || 0)}`
-                : "Abra o caixa para iniciar o turno de recebimento no balcão"}
-            </div>
-          </div>
-        </div>
-        {setSec && (
-          <Btn small variant={store.cashRegister?.status === "OPEN" ? "dark" : "primary"} onClick={() => setSec("caixa")}>
-            {store.cashRegister?.status === "OPEN" ? "Ver Caixa ➔" : "Abrir Caixa ➔"}
-          </Btn>
-        )}
-      </div>
-
-      <Card className="p-4" style={{ borderColor: `${C.orange}55`, background: `linear-gradient(120deg, ${C.orange}14, ${C.gray850})` }}>
-        <div className="flex items-center gap-2 mb-3">
-          <span style={{ width: 8, height: 8, borderRadius: 99, background: C.green, display: "inline-block", animation: "sarropulse 1.6s infinite" }} />
-          <span style={{ color: C.white, fontWeight: 900, fontSize: 14 }}>Operação agora</span>
-        </div>
-        <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
-          {live.map((l) => (
-            <div key={l.label} className="rounded-xl p-3" style={{ background: C.black, border: `1px solid ${l.color}33` }}>
-              <div style={{ color: l.color, fontWeight: 900, fontSize: 25 }}>{String(l.v).padStart(2, "0")}</div>
-              <div style={{ color: "#8a8a8a", fontSize: 10.5, marginTop: 2 }}>{l.label}</div>
-            </div>
-          ))}
-        </div>
-      </Card>
-
-      <div className="grid grid-cols-2 lg:grid-cols-3 gap-3">
-        <KPI icon="💰" label="Vendas hoje" value={brl(revenue)} sub="+18%" accent={C.yellowLight} />
-        <KPI icon="🍔" label="Pedidos hoje" value={today.length} sub="+6%" />
-        <KPI icon="📦" label="Ticket médio" value={brl(avg)} />
-        <KPI icon="👥" label="Clientes na base" value={store.customers.length} />
-        <KPI icon="🛵" label="Entregas em rota" value={counts("ROTA")} />
-        <KPI icon="⏱" label="Tempo médio de preparo" value="18 min" />
-      </div>
-
-      <div className="grid lg:grid-cols-2 gap-3">
-        <Card className="p-4">
-          <div style={{ color: C.white, fontWeight: 800, fontSize: 13, marginBottom: 12 }}>Vendas por hora</div>
-          <BarChart data={SALES_BY_HOUR} xKey="h" vKey="v" />
-        </Card>
-        <Card className="p-4">
-          <div style={{ color: C.white, fontWeight: 800, fontSize: 13, marginBottom: 12 }}>Vendas na semana</div>
-          <BarChart data={SALES_BY_DAY} xKey="d" vKey="v" />
-        </Card>
-        <Card className="p-4">
-          <div style={{ color: C.white, fontWeight: 800, fontSize: 13, marginBottom: 12 }}>Pedidos por canal</div>
-          <Donut slices={byChannel} />
-        </Card>
-        <Card className="p-4">
-          <div style={{ color: C.white, fontWeight: 800, fontSize: 13, marginBottom: 12 }}>Produtos mais vendidos</div>
-          <div className="space-y-2.5">
-            {top.map(([name, qty], i) => (
-              <div key={name}>
-                <div className="flex justify-between" style={{ fontSize: 12 }}>
-                  <span style={{ color: "#d0d0d0" }}>{name}</span>
-                  <span style={{ color: C.yellowLight, fontWeight: 800 }}>{qty}</span>
-                </div>
-                <div style={{ height: 6, background: C.gray800, borderRadius: 9, marginTop: 4 }}>
-                  <div style={{ width: `${(qty / top[0][1]) * 100}%`, height: "100%", borderRadius: 9, background: `linear-gradient(90deg, ${C.orange}, ${C.yellow})` }} />
-                </div>
-              </div>
-            ))}
-          </div>
-        </Card>
-      </div>
-    </div>
-  );
-}
-
-function OrderCard({ o, store, now, compact }) {
-  const next = FLOW[FLOW.indexOf(o.status) + 1];
-  return (
-    <Card className="p-3">
-      <div className="flex items-center justify-between mb-2">
-        <div className="flex items-center gap-2">
-          <span style={{ color: C.white, fontWeight: 900, fontSize: 14 }}>#{o.code}</span>
-          <ChannelPill channel={o.channel} />
-          {o.paymentStatus === "pendente" && (
-            <span
-              className="rounded-md px-1.5 py-0.5 font-bold"
-              style={{ background: `${C.yellow}1f`, color: C.yellow, fontSize: 9, border: `1px solid ${C.yellow}44` }}
-            >
-              ⏳ PGTO
-            </span>
-          )}
-        </div>
-        <div className="flex items-center gap-1.5">
-          <span style={{ color: "#7a7a7a", fontSize: 10.5 }}>{elapsed(o.createdAt, now)}</span>
-          <button
-            onClick={() => printReceipt(o, store.settings)}
-            title="Imprimir cupom"
-            className="rounded-md px-1.5 py-0.5"
-            style={{ background: C.gray800, color: "#c9c9c9", fontSize: 11 }}
-          >
-            🖨
-          </button>
-        </div>
-      </div>
-      <div style={{ color: "#c9c9c9", fontSize: 12, fontWeight: 700 }}>{o.customer.name}</div>
-      {!compact && <div style={{ color: "#7a7a7a", fontSize: 11, marginTop: 2 }}>{o.customer.addr}</div>}
-      <div className="mt-2 space-y-0.5">
-        {o.items.map((i) => (
-          <div key={i.id} style={{ color: "#9a9a9a", fontSize: 11.5 }}>
-            {i.qty}x {i.name}{i.note ? ` · ${i.note}` : ""}
-          </div>
-        ))}
-      </div>
-      <div className="flex items-center justify-between mt-2.5">
-        <span style={{ color: C.yellowLight, fontWeight: 900, fontSize: 13.5 }}>{brl(o.total)}</span>
-        <span style={{ color: "#7a7a7a", fontSize: 10.5 }}>
-          {o.payment} · {o.type === "pickup" ? "Retirada" : "Delivery"}
-        </span>
-      </div>
-
-      {o.paymentStatus === "pendente" && (
-        <button
-          onClick={() => store.confirmPaymentManual(o.id)}
-          className="w-full mt-2.5 py-1.5 px-2 rounded-lg font-bold flex items-center justify-center gap-1.5 transition active:scale-95 text-xs"
-          style={{ background: "#22c55e22", color: "#22c55e", border: "1px solid #22c55e55" }}
-        >
-          ✓ Confirmar Pix / Pagamento
-        </button>
-      )}
-
-      {next && o.status !== "ENTREGUE" && (
-        <div className="flex gap-2 mt-3">
-          <Btn small full onClick={() => store.advance(o.id)}>Avançar → {STATUS[next].label}</Btn>
-          <Btn small variant="danger" onClick={() => store.setStatus(o.id, "CANCELADO")}>Cancelar</Btn>
-        </div>
-      )}
-    </Card>
+    <React.Suspense fallback={<div style={{ padding: 20, textAlign: 'center', color: '#888' }}>Carregando AdminDashboard...</div>}>
+      <AdminDashboardModular store={store} now={now} setSec={setSec}  />
+    </React.Suspense>
   );
 }
 
 function AdminOrders({ store, now }) {
   const [view, setView] = useState("kanban");
   const [filter, setFilter] = useState("TODOS");
+  const [page, setPage] = useState(0);
+  const PAGE_SIZE = 30;
 
-  const list = store.orders.filter((o) => filter === "TODOS" || o.channel === filter);
+  const list = useMemo(() => store.orders.filter((o) => filter === "TODOS" || o.channel === filter), [store.orders, filter]);
+  const paginated = useMemo(() => view === "kanban" ? list : list.slice(0, (page+1)*PAGE_SIZE), [list, page, view]);
+  const hasMore = paginated.length < list.length;
 
   return (
     <div>
@@ -2524,7 +1636,7 @@ function AdminOrders({ store, now }) {
         {["TODOS", ...Object.keys(CHANNELS)].map((k) => (
           <button
             key={k}
-            onClick={() => setFilter(k)}
+            onClick={() => { setFilter(k); setPage(0); }}
             className="rounded-lg px-2.5 py-1.5 font-bold"
             style={{
               background: filter === k ? C.gray700 : C.gray850, color: filter === k ? C.white : "#8a8a8a",
@@ -2559,9 +1671,16 @@ function AdminOrders({ store, now }) {
           })}
         </div>
       ) : (
-        <div className="grid md:grid-cols-2 xl:grid-cols-3 gap-3">
-          {list.map((o) => <OrderCard key={o.id} o={o} store={store} now={now} />)}
-        </div>
+        <>
+          <div className="grid md:grid-cols-2 xl:grid-cols-3 gap-3">
+            {paginated.map((o) => <OrderCard key={o.id} o={o} store={store} now={now} />)}
+          </div>
+          {hasMore && (
+            <div className="mt-4 flex justify-center">
+              <Btn small variant="ghost" onClick={() => setPage((p) => p+1)}>Carregar mais ({list.length - paginated.length} restantes)</Btn>
+            </div>
+          )}
+        </>
       )}
     </div>
   );
@@ -2803,88 +1922,10 @@ function ProductForm({ initial, store, onClose }) {
 }
 
 function AdminProducts({ store }) {
-  const [form, setForm] = useState(null); // null | "new" | produto
-  const [confirmDel, setConfirmDel] = useState(null);
-
   return (
-    <div>
-      <div className="flex items-center justify-between mb-4">
-        <div style={{ color: "#8a8a8a", fontSize: 12 }}>{store.products.length} produtos cadastrados</div>
-        <Btn small onClick={() => setForm("new")}>+ Novo produto</Btn>
-      </div>
-
-      {confirmDel && (
-        <Card className="p-4 mb-4" style={{ borderColor: `${C.red}66`, background: `${C.red}12` }}>
-          <div style={{ color: C.white, fontWeight: 800, fontSize: 13 }}>
-            Excluir “{confirmDel.name}”?
-          </div>
-          <div style={{ color: "#9a9a9a", fontSize: 12, marginTop: 2 }}>
-            Se ele já entrou em algum pedido, recomendamos apenas despublicar.
-          </div>
-          <div className="flex gap-2 mt-3">
-            <Btn small variant="danger" onClick={() => { store.deleteProduct(confirmDel.id); setConfirmDel(null); }}>
-              Excluir de vez
-            </Btn>
-            <Btn small variant="dark" onClick={() => setConfirmDel(null)}>Cancelar</Btn>
-          </div>
-        </Card>
-      )}
-
-      <div className="grid md:grid-cols-2 xl:grid-cols-3 gap-3">
-        {store.products.map((p) => (
-          <Card key={p.id} className="p-3" style={{ opacity: p.available ? 1 : 0.55 }}>
-            <div className="flex gap-3">
-              <div className="rounded-xl overflow-hidden shrink-0" style={{ width: 56, height: 56, border: `1px solid ${C.gray800}` }}>
-                <SmartImg id={p.id} emoji={p.emoji} alt={p.name} fs={26} file={p.img} v={p.updatedAt} />
-              </div>
-              <div className="flex-1 min-w-0">
-                <div style={{ color: C.white, fontWeight: 800, fontSize: 13.5 }}>
-                  {p.name} {p.builder && <span style={{ color: C.orange, fontSize: 11 }}>🛠️</span>}
-                </div>
-                <div style={{ color: "#7a7a7a", fontSize: 11 }}>
-                  {store.categories.find((c) => c.id === p.cat)?.label} · {p.time} min · estoque {p.stock}
-                </div>
-                <div className="flex items-center gap-2">
-                  <span style={{ color: C.yellowLight, fontWeight: 900, fontSize: 13.5, marginTop: 2 }}>
-                    {brl(p.promo || p.price)}
-                  </span>
-                  {p.promo && <span style={{ color: "#6e6e6e", fontSize: 10.5, textDecoration: "line-through" }}>{brl(p.price)}</span>}
-                </div>
-              </div>
-            </div>
-            <div className="flex items-center justify-between mt-3 pt-3" style={{ borderTop: `1px solid ${C.gray800}` }}>
-              <div className="flex items-center gap-1.5">
-                <button onClick={() => setForm(p)} className="rounded-lg px-2 py-1 font-bold"
-                  style={{ background: C.gray800, color: C.white, fontSize: 11 }}>✎ Editar</button>
-                <button onClick={() => setConfirmDel(p)} className="rounded-lg px-2 py-1 font-bold"
-                  style={{ background: "transparent", border: `1px solid ${C.red}55`, color: C.red, fontSize: 11 }}>🗑</button>
-              </div>
-              <button
-                onClick={() => store.updateProduct(p.id, { available: !p.available })}
-                className="rounded-full"
-                style={{ width: 42, height: 23, background: p.available ? C.green : C.gray700, position: "relative", transition: "background .2s" }}
-              >
-                <span
-                  style={{
-                    position: "absolute", top: 3, left: p.available ? 22 : 3, width: 17, height: 17,
-                    borderRadius: 99, background: C.white, transition: "left .2s",
-                  }}
-                />
-              </button>
-            </div>
-          </Card>
-        ))}
-      </div>
-
-      {form && (
-        <ProductForm
-          key={form === "new" ? "new" : form.id}
-          initial={form === "new" ? null : form}
-          store={store}
-          onClose={() => setForm(null)}
-        />
-      )}
-    </div>
+    <React.Suspense fallback={<div style={{ padding: 20, textAlign: 'center', color: '#888' }}>Carregando AdminProducts...</div>}>
+      <AdminProductsModular store={store}  />
+    </React.Suspense>
   );
 }
 
@@ -2918,68 +1959,12 @@ function Table({ cols, rows }) {
 }
 
 function AdminCustomers({ store }) {
-  const tierColor = { VIP: C.yellowLight, Recorrente: C.green, Novo: C.blue, Inativo: "#7a7a7a" };
   return (
-    <Card className="p-1">
-      <Table
-        cols={["Cliente", "WhatsApp", "Pedidos", "Gasto", "Ticket médio", "Último", "Classificação"]}
-        rows={store.customers.map((c) => [
-          c.name, c.phone, c.orders, brl(c.spent), brl(c.spent / c.orders), c.last,
-          <span key="t" style={{ color: tierColor[c.tier], fontWeight: 800, fontSize: 11.5 }}>{c.tier.toUpperCase()}</span>,
-        ])}
-      />
-    </Card>
+    <React.Suspense fallback={<div style={{ padding: 20, textAlign: 'center', color: '#888' }}>Carregando AdminCustomers...</div>}>
+      <AdminCustomersModular store={store}  />
+    </React.Suspense>
   );
 }
-
-function AdminInventory({ store }) {
-  const low = store.inventory.filter((i) => i.qty <= i.min);
-  return (
-    <div>
-      {low.length > 0 && (
-        <Card className="p-4 mb-4" style={{ borderColor: `${C.red}66`, background: `${C.red}12` }}>
-          <div style={{ color: C.red, fontWeight: 900, fontSize: 13 }}>⚠️ Estoque baixo em {low.length} itens</div>
-          <div style={{ color: "#c9c9c9", fontSize: 12, marginTop: 4 }}>{low.map((i) => i.name).join(" · ")}</div>
-        </Card>
-      )}
-      <div className="grid md:grid-cols-2 xl:grid-cols-3 gap-3">
-        {store.inventory.map((i) => {
-          const pct = Math.min(100, (i.qty / (i.min * 2.5)) * 100);
-          const bad = i.qty <= i.min;
-          return (
-            <Card key={i.id} className="p-3">
-              <div className="flex justify-between items-baseline">
-                <span style={{ color: C.white, fontWeight: 800, fontSize: 13 }}>{i.name}</span>
-                <span style={{ color: bad ? C.red : C.yellowLight, fontWeight: 900, fontSize: 13 }}>{i.qty} {i.unit}</span>
-              </div>
-              <div style={{ height: 6, background: C.gray800, borderRadius: 9, marginTop: 8 }}>
-                <div style={{ width: `${pct}%`, height: "100%", borderRadius: 9, background: bad ? C.red : C.green }} />
-              </div>
-              <div className="flex items-center justify-between mt-2.5">
-                <span style={{ color: "#7a7a7a", fontSize: 10.5 }}>mínimo {i.min} {i.unit}</span>
-                <div className="flex gap-1.5">
-                  <Btn small variant="dark" onClick={() => store.moveStock(i.id, -1)}>−1</Btn>
-                  <Btn small variant="dark" onClick={() => store.moveStock(i.id, 10)}>+10</Btn>
-                </div>
-              </div>
-            </Card>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
-
-// ============================================================
-// FINANCEIRO — visão de caixa com dados reais dos pedidos
-// ============================================================
-
-const RANGES = [
-  ["hoje", "Hoje"],
-  ["7", "7 dias"],
-  ["30", "30 dias"],
-  ["tudo", "Tudo"],
-];
 
 function rangeStart(range, now) {
   const DAY = 86400000;
@@ -2994,118 +1979,12 @@ function rangeStart(range, now) {
 }
 
 function AdminFinance({ store, now }) {
-  const [range, setRange] = useState("hoje");
-  const from = rangeStart(range, now);
-
-  const valid = store.orders.filter((o) => o.createdAt >= from && o.status !== "CANCELADO");
-  const canceled = store.orders.filter((o) => o.createdAt >= from && o.status === "CANCELADO");
-  const revenue = valid.reduce((s, o) => s + o.total, 0);
-  const discounts = valid.reduce((s, o) => s + o.discount, 0);
-  const fees = valid.reduce((s, o) => s + o.fee, 0);
-  const ticket = valid.length ? revenue / valid.length : 0;
-  const canceledValue = canceled.reduce((s, o) => s + o.total, 0);
-
-  const byDay = {};
-  valid.forEach((o) => {
-    const k = new Date(o.createdAt).toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" });
-    byDay[k] = (byDay[k] || 0) + o.total;
-  });
-  const dayData = Object.entries(byDay)
-    .sort((a, b) => (a[0].split("/").reverse().join("") > b[0].split("/").reverse().join("") ? 1 : -1))
-    .slice(-14)
-    .map(([d, v]) => ({ d, v: Math.round(v) }));
-
-  const groupSum = (keyFn) => {
-    const m = new Map();
-    valid.forEach((o) => {
-      const k = keyFn(o);
-      m.set(k, (m.get(k) || 0) + o.total);
-    });
-    const total = [...m.values()].reduce((s, v) => s + v, 0) || 1;
-    return [...m.entries()].sort((a, b) => b[1] - a[1]).map(([k, v]) => ({ k, v, pct: Math.round((v / total) * 100) }));
-  };
-  const payments = groupSum((o) => o.payment.replace(/\s*\(.*\)/, ""));
-  const channels = groupSum((o) => CHANNELS[o.channel]?.label || o.channel);
-  const types = groupSum((o) => (o.type === "pickup" ? "Retirada" : "Delivery"));
-
-  const exportCSV = () => {
-    downloadCSV(`financeiro-sarro-${range}.csv`, [
-      ["TÔ NO SARRO! — Financeiro"],
-      ["Período", RANGES.find((r) => r[0] === range)?.[1] || range],
-      [],
-      ["Indicador", "Valor"],
-      ["Faturamento", revenue.toFixed(2)],
-      ["Pedidos válidos", valid.length],
-      ["Ticket médio", ticket.toFixed(2)],
-      ["Descontos concedidos", discounts.toFixed(2)],
-      ["Taxas de entrega", fees.toFixed(2)],
-      ["Cancelados", `${canceled.length} (${canceledValue.toFixed(2)})`],
-      [],
-      ["Dia", "Faturamento"],
-      ...dayData.map((d) => [d.d, d.v.toFixed(2)]),
-      [],
-      ["Forma de pagamento", "Total", "%"],
-      ...payments.map((p) => [p.k, p.v.toFixed(2), `${p.pct}%`]),
-      [],
-      ["Canal", "Total", "%"],
-      ...channels.map((p) => [p.k, p.v.toFixed(2), `${p.pct}%`]),
-    ]);
-  };
-
   return (
-    <div className="space-y-4">
-      <div className="flex flex-wrap items-center gap-2">
-        {RANGES.map(([id, lbl]) => (
-          <Btn key={id} small variant={range === id ? "primary" : "dark"} onClick={() => setRange(id)}>{lbl}</Btn>
-        ))}
-        <div className="flex-1" />
-        <Btn small variant="dark" onClick={exportCSV}>⬇ Exportar CSV/Excel</Btn>
-      </div>
-
-      <div className="grid grid-cols-2 lg:grid-cols-3 gap-3">
-        <KPI icon="💰" label={`Faturamento (${RANGES.find((r) => r[0] === range)?.[1]})`} value={brl(revenue)} accent={C.yellowLight} />
-        <KPI icon="🧾" label="Pedidos válidos" value={valid.length} />
-        <KPI icon="📦" label="Ticket médio" value={brl(ticket)} />
-        <KPI icon="🎟" label="Descontos concedidos" value={brl(discounts)} accent={C.orange} />
-        <KPI icon="🛵" label="Taxas de entrega" value={brl(fees)} />
-        <KPI icon="❌" label={`Cancelados · ${brl(canceledValue)}`} value={canceled.length} accent={canceled.length ? C.red : C.white} />
-      </div>
-
-      <div className="grid lg:grid-cols-2 gap-3">
-        <Card className="p-4">
-          <div style={{ color: C.white, fontWeight: 800, fontSize: 13, marginBottom: 12 }}>Faturamento por dia</div>
-          {dayData.length ? <BarChart data={dayData} xKey="d" vKey="v" /> : <div style={{ color: "#6a6a6a", fontSize: 12 }}>Sem vendas no período.</div>}
-        </Card>
-        <Card className="p-4">
-          <div style={{ color: C.white, fontWeight: 800, fontSize: 13, marginBottom: 12 }}>Formas de pagamento</div>
-          {payments.length ? payments.map((p) => (
-            <div key={p.k} className="mb-2.5">
-              <div className="flex justify-between" style={{ fontSize: 12 }}>
-                <span style={{ color: "#d0d0d0" }}>{p.k}</span>
-                <span style={{ color: C.yellowLight, fontWeight: 800 }}>{brl(p.v)} · {p.pct}%</span>
-              </div>
-              <div style={{ height: 6, background: C.gray800, borderRadius: 9, marginTop: 4 }}>
-                <div style={{ width: `${p.pct}%`, height: "100%", borderRadius: 9, background: `linear-gradient(90deg, ${C.orange}, ${C.yellow})` }} />
-              </div>
-            </div>
-          )) : <div style={{ color: "#6a6a6a", fontSize: 12 }}>Sem dados.</div>}
-        </Card>
-        <Card className="p-4">
-          <div style={{ color: C.white, fontWeight: 800, fontSize: 13, marginBottom: 12 }}>Por canal</div>
-          {channels.length ? <Donut slices={channels.map((c, i) => ({ label: c.k, v: c.v, color: [C.orange, C.yellow, "#25D366", C.blue][i % 4] }))} size={130} /> : <div style={{ color: "#6a6a6a", fontSize: 12 }}>Sem dados.</div>}
-        </Card>
-        <Card className="p-4">
-          <div style={{ color: C.white, fontWeight: 800, fontSize: 13, marginBottom: 12 }}>Delivery x Retirada</div>
-          {types.length ? <Donut slices={types.map((t, i) => ({ label: t.k, v: t.v, color: i ? C.blue : C.orange }))} size={130} /> : <div style={{ color: "#6a6a6a", fontSize: 12 }}>Sem dados.</div>}
-        </Card>
-      </div>
-    </div>
+    <React.Suspense fallback={<div style={{ padding: 20, textAlign: 'center', color: '#888' }}>Carregando AdminFinance...</div>}>
+      <AdminFinanceModular store={store} now={now}  />
+    </React.Suspense>
   );
 }
-
-// ============================================================
-// RELATÓRIOS — tabelas com exportação CSV e impressão A4
-// ============================================================
 
 function printReport(title, cols, rows) {
   const thead = cols.map((c) => `<th style="text-align:left;padding:6px 10px;border-bottom:2px solid #000">${c}</th>`).join("");
@@ -3144,79 +2023,13 @@ function ReportCard({ title, cols, rows, csvName }) {
 }
 
 function AdminReports({ store, now }) {
-  const [range, setRange] = useState("7");
-  const from = rangeStart(range, now);
-  const orders = store.orders.filter((o) => o.createdAt >= from);
-
-  const dayMap = new Map();
-  orders.forEach((o) => {
-    const k = new Date(o.createdAt).toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" });
-    const cur = dayMap.get(k) || { n: 0, total: 0 };
-    cur.n += 1;
-    if (o.status !== "CANCELADO") cur.total += o.total;
-    dayMap.set(k, cur);
-  });
-  const salesRows = [...dayMap.entries()]
-    .sort((a, b) => (a[0].split("/").reverse().join("") > b[0].split("/").reverse().join("") ? 1 : -1))
-    .map(([d, v]) => [d, v.n, brl(v.total), brl(v.n ? v.total / v.n : 0)]);
-
-  const prodMap = new Map();
-  orders.filter((o) => o.status !== "CANCELADO").forEach((o) =>
-    o.items.forEach((i) => {
-      const cur = prodMap.get(i.name) || { qty: 0, total: 0 };
-      cur.qty += i.qty;
-      cur.total += i.unit * i.qty;
-      prodMap.set(i.name, cur);
-    })
-  );
-  const productRows = [...prodMap.entries()].sort((a, b) => b[1].qty - a[1].qty)
-    .map(([name, v]) => [name, v.qty, brl(v.total)]);
-
-  const paySet = [...new Set(orders.filter((o) => o.status !== "CANCELADO").map((o) => o.payment))];
-  const payRows = paySet.map((pay) => {
-    const list = orders.filter((o) => o.payment === pay && o.status !== "CANCELADO");
-    return [pay, list.length, brl(list.reduce((s, o) => s + o.total, 0))];
-  });
-  const channelRows = Object.keys(CHANNELS).map((k) => {
-    const list = orders.filter((o) => o.channel === k && o.status !== "CANCELADO");
-    return [CHANNELS[k].label, list.length, brl(list.reduce((s, o) => s + o.total, 0))];
-  });
-
-  const driverRows = store.drivers.map((d) => {
-    const done = orders.filter((o) => o.driverId === d.id && o.status === "ENTREGUE");
-    return [d.name, d.vehicle, done.length, brl(done.reduce((s, o) => s + o.total, 0))];
-  });
-
-  const customerRows = store.customers.slice(0, 10).map((c) => [
-    c.name, c.phone, c.orders, brl(c.spent), c.tier,
-  ]);
-
-  const canceledRows = orders.filter((o) => o.status === "CANCELADO")
-    .map((o) => [`#${o.code}`, o.customer.name, brl(o.total), fmtDT(o.createdAt), CHANNELS[o.channel]?.short || o.channel]);
-
   return (
-    <div className="space-y-4">
-      <div className="flex flex-wrap items-center gap-2">
-        <span style={{ color: "#8a8a8a", fontSize: 12 }}>Período:</span>
-        {RANGES.map(([id, lbl]) => (
-          <Btn key={id} small variant={range === id ? "primary" : "dark"} onClick={() => setRange(id)}>{lbl}</Btn>
-        ))}
-      </div>
-
-      <ReportCard title="Vendas por dia" cols={["Dia", "Pedidos", "Faturamento", "Ticket médio"]} rows={salesRows} csvName="sarro-vendas.csv" />
-      <ReportCard title="Produtos vendidos" cols={["Produto", "Qtd", "Receita"]} rows={productRows} csvName="sarro-produtos.csv" />
-      <div className="grid lg:grid-cols-2 gap-3">
-        <ReportCard title="Formas de pagamento" cols={["Pagamento", "Pedidos", "Total"]} rows={payRows} csvName="sarro-pagamentos.csv" />
-        <ReportCard title="Canais de venda" cols={["Canal", "Pedidos", "Total"]} rows={channelRows} csvName="sarro-canais.csv" />
-        <ReportCard title="Entregadores" cols={["Entregador", "Veículo", "Entregas", "Valor entregue"]} rows={driverRows} csvName="sarro-entregadores.csv" />
-        <ReportCard title="Top clientes" cols={["Cliente", "WhatsApp", "Pedidos", "Gasto", "Classe"]} rows={customerRows} csvName="sarro-clientes.csv" />
-      </div>
-      <ReportCard title="Cancelamentos" cols={["Pedido", "Cliente", "Valor", "Quando", "Canal"]} rows={canceledRows} csvName="sarro-cancelamentos.csv" />
-    </div>
+    <React.Suspense fallback={<div style={{ padding: 20, textAlign: 'center', color: '#888' }}>Carregando AdminReports...</div>}>
+      <AdminReportsModular store={store} now={now}  />
+    </React.Suspense>
   );
 }
 
-// Interruptor pequeno de ativar/pausar (cupons, promos, usuários)
 function MiniToggle({ on, onClick, title }) {
   return (
     <button
@@ -3437,143 +2250,12 @@ function PromoForm({ initial, onClose, onSaved }) {
 }
 
 function AdminPromos({ store, now }) {
-  const [couponForm, setCouponForm] = useState(null); // null | "new" | cupom
-  const [promoForm, setPromoForm] = useState(null); // null | "new" | promo
-  const [confirmDel, setConfirmDel] = useState(null); // { kind: "coupon"|"promo", ref }
-  const say = (m) => store.toast(m);
-
-  const toggleCoupon = (c) =>
-    api(`/api/coupons/${c.code}`, { method: "PATCH", body: { active: !c.active } })
-      .then(() => say(c.active ? `Cupom ${c.code} pausado` : `Cupom ${c.code} ativado ✓`))
-      .catch((e) => say(e.message));
-
-  const togglePromo = (p) =>
-    api(`/api/promos/${p.id}`, { method: "PATCH", body: { active: !p.active } })
-      .then(() => say(p.active ? `“${p.name}” pausada` : `“${p.name}” ativada ✓`))
-      .catch((e) => say(e.message));
-
-  const doDelete = async () => {
-    try {
-      if (confirmDel.kind === "coupon") await api(`/api/coupons/${confirmDel.ref.code}`, { method: "DELETE" });
-      else await api(`/api/promos/${confirmDel.ref.id}`, { method: "DELETE" });
-      say("Excluído");
-    } catch (e) {
-      say(e.message);
-    }
-    setConfirmDel(null);
-  };
-
   return (
-    <div className="space-y-5">
-      {confirmDel && (
-        <Card className="p-4" style={{ borderColor: `${C.red}66`, background: `${C.red}12` }}>
-          <div style={{ color: C.white, fontWeight: 800, fontSize: 13 }}>
-            Excluir {confirmDel.kind === "coupon" ? `o cupom ${confirmDel.ref.code}` : `a promoção “${confirmDel.ref.name}”`}?
-          </div>
-          <div className="flex gap-2 mt-3">
-            <Btn small variant="danger" onClick={doDelete}>Excluir de vez</Btn>
-            <Btn small variant="dark" onClick={() => setConfirmDel(null)}>Cancelar</Btn>
-          </div>
-        </Card>
-      )}
-
-      <div>
-        <div className="flex items-center justify-between mb-2.5">
-          <div style={{ color: C.white, fontWeight: 900, fontSize: 14 }}>Cupons de desconto</div>
-          <Btn small onClick={() => setCouponForm("new")}>+ Novo cupom</Btn>
-        </div>
-        <Card className="p-1">
-          <Table
-            cols={["Cupom", "Desconto", "Mínimo", "Usos", "Status", ""]}
-            rows={store.coupons.map((c) => [
-              <span key="c">
-                <span style={{ fontWeight: 800 }}>{c.code}</span>
-                {c.note && <span className="block" style={{ color: "#7a7a7a", fontSize: 10.5, fontWeight: 400 }}>{c.note}</span>}
-              </span>,
-              couponLabel(c),
-              brl(c.min),
-              `${c.uses}/${c.limit || "∞"}`,
-              <span key="s" className="flex items-center gap-2">
-                <MiniToggle on={c.active} onClick={() => toggleCoupon(c)} />
-                <span style={{ color: c.active ? C.green : "#7a7a7a", fontSize: 10.5, fontWeight: 800 }}>
-                  {c.active ? "ATIVO" : "PAUSADO"}
-                </span>
-              </span>,
-              <span key="a" className="flex items-center gap-1.5">
-                <button onClick={() => setCouponForm(c)} className="rounded-lg px-2 py-1 font-bold"
-                  style={{ background: C.gray800, color: C.white, fontSize: 11 }}>✎</button>
-                <button onClick={() => setConfirmDel({ kind: "coupon", ref: c })} className="rounded-lg px-2 py-1 font-bold"
-                  style={{ background: "transparent", border: `1px solid ${C.red}55`, color: C.red, fontSize: 11 }}>🗑</button>
-              </span>,
-            ])}
-          />
-        </Card>
-      </div>
-
-      <div>
-        <div className="flex items-center justify-between mb-2.5">
-          <div style={{ color: C.white, fontWeight: 900, fontSize: 14 }}>Promoções programadas</div>
-          <Btn small onClick={() => setPromoForm("new")}>+ Nova promoção</Btn>
-        </div>
-        <div className="grid md:grid-cols-3 gap-3">
-          {store.promos.map((p) => { const st = promoStatus(p, now); return (
-            <Card key={p.id} className="p-4" style={{ opacity: p.active ? 1 : 0.6 }}>
-              <div className="flex justify-between items-start gap-2">
-                <span style={{ color: C.white, fontWeight: 800, fontSize: 13.5 }}>{p.name}</span>
-                <MiniToggle on={p.active} onClick={() => togglePromo(p)} />
-              </div>
-              <div style={{ color: "#9a9a9a", fontSize: 12, marginTop: 6, minHeight: 18 }}>{p.rule}</div>
-              <div style={{ color: C.yellowLight, fontSize: 11, marginTop: 8, fontWeight: 700 }}>
-                ⏰ {p.startsAt || p.endsAt
-                  ? `${p.startsAt ? fmtShort(p.startsAt) : "…"} → ${p.endsAt ? fmtShort(p.endsAt) : "…"}`
-                  : (p.window || "sempre")}
-              </div>
-              {p.window && (p.startsAt || p.endsAt) && (
-                <div style={{ color: "#7a7a7a", fontSize: 10.5, marginTop: 2 }}>{p.window}</div>
-              )}
-              <div className="flex items-center justify-between mt-3 pt-3" style={{ borderTop: `1px solid ${C.gray800}` }}>
-                <span className="rounded-md px-2 py-0.5 font-bold" style={{ background: `${st.color}1f`, color: st.color, fontSize: 10.5 }}>
-                  {st.label}
-                </span>
-                <span className="flex items-center gap-1.5">
-                  <button onClick={() => setPromoForm(p)} className="rounded-lg px-2 py-1 font-bold"
-                    style={{ background: C.gray800, color: C.white, fontSize: 11 }}>✎ Editar</button>
-                  <button onClick={() => setConfirmDel({ kind: "promo", ref: p })} className="rounded-lg px-2 py-1 font-bold"
-                    style={{ background: "transparent", border: `1px solid ${C.red}55`, color: C.red, fontSize: 11 }}>🗑</button>
-                </span>
-              </div>
-            </Card>
-          ); })}
-          {store.promos.length === 0 && (
-            <Card className="p-6 text-center"><span style={{ color: "#8a8a8a", fontSize: 13 }}>Nenhuma promoção. Crie a primeira acima ↑</span></Card>
-          )}
-        </div>
-      </div>
-
-      {couponForm && (
-        <CouponForm
-          key={couponForm === "new" ? "new" : couponForm.code}
-          initial={couponForm === "new" ? null : couponForm}
-          onClose={() => setCouponForm(null)}
-          onSaved={(m) => { setCouponForm(null); say(m); }}
-        />
-      )}
-      {promoForm && (
-        <PromoForm
-          key={promoForm === "new" ? "new" : promoForm.id}
-          initial={promoForm === "new" ? null : promoForm}
-          onClose={() => setPromoForm(null)}
-          onSaved={(m) => { setPromoForm(null); say(m); }}
-        />
-      )}
-    </div>
+    <React.Suspense fallback={<div style={{ padding: 20, textAlign: 'center', color: '#888' }}>Carregando AdminPromos...</div>}>
+      <AdminPromosModular store={store} now={now}  />
+    </React.Suspense>
   );
 }
-
-const ROLE_LABELS = {
-  ADMIN: "Administrador", GERENTE: "Gerente", ATENDIMENTO: "Atendimento",
-  COZINHA: "Cozinha", EXPEDICAO: "Expedição", ENTREGADOR: "Entregador",
-};
 
 function UserForm({ initial, roles, drivers, onClose, onSaved }) {
   const [f, setF] = useState({
@@ -3638,600 +2320,10 @@ function UserForm({ initial, roles, drivers, onClose, onSaved }) {
 }
 
 function AdminUsers({ store, now }) {
-  const [users, setUsers] = useState([]);
-  const [roles, setRoles] = useState(Object.keys(ROLE_LABELS));
-  const [loading, setLoading] = useState(true);
-  const [form, setForm] = useState(null); // null | "new" | usuário
-  const [confirmDel, setConfirmDel] = useState(null);
-  const say = (m) => store.toast(m);
-  const isAdmin = store.me?.role === "ADMIN";
-
-  const load = () => {
-    setLoading(true);
-    api("/api/users")
-      .then((d) => { setUsers(d.users); setRoles(d.roles?.length ? d.roles : Object.keys(ROLE_LABELS)); })
-      .catch((e) => say(e.message))
-      .finally(() => setLoading(false));
-  };
-  useEffect(() => { load(); }, []);
-
-  const toggle = (u) =>
-    api(`/api/users/${u.id}`, { method: "PATCH", body: { active: !u.active } })
-      .then(() => { say(u.active ? `“${u.name}” desativado` : `“${u.name}” ativado ✓`); load(); })
-      .catch((e) => say(e.message));
-
-  const doDelete = async () => {
-    try {
-      await api(`/api/users/${confirmDel.id}`, { method: "DELETE" });
-      say(`“${confirmDel.name}” excluído`);
-      load();
-    } catch (e) {
-      say(e.message);
-    }
-    setConfirmDel(null);
-  };
-
-  const driverName = (id) => store.drivers.find((d) => d.id === id)?.name || "—";
-
   return (
-    <div>
-      <div className="flex items-center justify-between mb-4">
-        <div style={{ color: "#8a8a8a", fontSize: 12 }}>
-          {loading ? "Carregando equipe…" : `${users.length} contas · ${users.filter((u) => u.active).length} ativas`}
-        </div>
-        <Btn small onClick={() => setForm("new")}>+ Novo usuário</Btn>
-      </div>
-
-      {confirmDel && (
-        <Card className="p-4 mb-4" style={{ borderColor: `${C.red}66`, background: `${C.red}12` }}>
-          <div style={{ color: C.white, fontWeight: 800, fontSize: 13 }}>Excluir “{confirmDel.name}” ({confirmDel.username})?</div>
-          <div style={{ color: "#9a9a9a", fontSize: 12, marginTop: 2 }}>O login para de funcionar na hora. Prefira desativar.</div>
-          <div className="flex gap-2 mt-3">
-            <Btn small variant="danger" onClick={doDelete}>Excluir de vez</Btn>
-            <Btn small variant="dark" onClick={() => setConfirmDel(null)}>Cancelar</Btn>
-          </div>
-        </Card>
-      )}
-
-      <Card className="p-1">
-        <Table
-          cols={["Nome", "Usuário", "Perfil", "Vínculo", "Último acesso", "Status", ""]}
-          rows={users.map((u) => {
-            const self = u.id === store.me?.id;
-            return [
-              <span key="n" style={{ fontWeight: 700 }}>
-                {u.name} {self && <span style={{ color: C.orange, fontSize: 10, fontWeight: 800 }}> · VOCÊ</span>}
-              </span>,
-              <span key="u" style={{ fontSize: 12 }}>{u.username}</span>,
-              <span key="r" className="rounded-md px-2 py-0.5 font-bold"
-                style={{
-                  background: u.role === "ADMIN" ? `${C.orange}1f` : C.gray800,
-                  color: u.role === "ADMIN" ? C.orange : "#c9c9c9", fontSize: 10.5,
-                }}>
-                {ROLE_LABELS[u.role] || u.role}
-              </span>,
-              <span key="d" style={{ fontSize: 12 }}>{u.role === "ENTREGADOR" ? `🛵 ${driverName(u.driverId)}` : "—"}</span>,
-              <span key="l" style={{ fontSize: 11.5 }}>{lastSeen(u.lastLoginAt, now)}</span>,
-              <span key="s" className="flex items-center gap-2">
-                <span style={{ opacity: self ? 0.35 : 1, display: "inline-flex" }} title={self ? "Você não pode desativar a própria conta" : ""}>
-                  <MiniToggle on={u.active} onClick={() => !self && toggle(u)} />
-                </span>
-                <span style={{ color: u.active ? C.green : "#7a7a7a", fontSize: 10.5, fontWeight: 800 }}>
-                  {u.active ? "ATIVO" : "INATIVO"}
-                </span>
-              </span>,
-              <span key="a" className="flex items-center gap-1.5">
-                <button onClick={() => setForm(u)} className="rounded-lg px-2 py-1 font-bold"
-                  style={{ background: C.gray800, color: C.white, fontSize: 11 }}>✎</button>
-                {isAdmin && !self && (
-                  <button onClick={() => setConfirmDel(u)} className="rounded-lg px-2 py-1 font-bold"
-                    style={{ background: "transparent", border: `1px solid ${C.red}55`, color: C.red, fontSize: 11 }}>🗑</button>
-                )}
-              </span>,
-            ];
-          })}
-        />
-      </Card>
-      <div style={{ color: "#6a6a6a", fontSize: 11, marginTop: 10, lineHeight: 1.5 }}>
-        Desativar derruba o acesso na hora, sem apagar o histórico. Só o administrador exclui contas — e nunca a própria nem a do último administrador.
-      </div>
-
-      {form && (
-        <UserForm
-          key={form === "new" ? "new" : form.id}
-          initial={form === "new" ? null : form}
-          roles={roles}
-          drivers={store.drivers}
-          onClose={() => setForm(null)}
-          onSaved={(m) => { setForm(null); say(m); load(); }}
-        />
-      )}
-    </div>
-  );
-}
-
-function AdminCategories({ store }) {
-  const [cat, setCat] = useState({ label: "", icon: "" });
-  const [grp, setGrp] = useState({ name: "", min: "0", max: "1", required: false });
-  const [opt, setOpt] = useState({}); // { groupId: {name, price} }
-  const [confirm, setConfirm] = useState(null); // {type, id}
-
-  const say = (m) => store.toast(m);
-
-  const addCategory = async () => {
-    try {
-      await api("/api/categories", { method: "POST", body: { label: cat.label, icon: cat.icon || "🍽" } });
-      setCat({ label: "", icon: "" });
-      say("Categoria criada ✓");
-    } catch (e) { say(e.message); }
-  };
-
-  const addGroup = async () => {
-    try {
-      await api("/api/option-groups", { method: "POST", body: { name: grp.name, min: grp.min, max: grp.max, required: grp.required } });
-      setGrp({ name: "", min: "0", max: "1", required: false });
-      say("Grupo criado ✓ — agora adicione os itens");
-    } catch (e) { say(e.message); }
-  };
-
-  const addOption = async (groupId) => {
-    const o = opt[groupId] || {};
-    try {
-      await api(`/api/option-groups/${groupId}/options`, { method: "POST", body: { name: o.name, price: o.price || 0 } });
-      setOpt({ ...opt, [groupId]: { name: "", price: "" } });
-      say("Item adicionado ✓");
-    } catch (e) { say(e.message); }
-  };
-
-  const patchGroup = async (g, patch) => {
-    try { await api(`/api/option-groups/${g.id}`, { method: "PATCH", body: patch }); say("Grupo atualizado ✓"); }
-    catch (e) { say(e.message); }
-  };
-
-  const doDelete = async () => {
-    const c = confirm;
-    setConfirm(null);
-    try {
-      if (c.type === "cat") await api(`/api/categories/${c.id}`, { method: "DELETE" });
-      if (c.type === "grp") await api(`/api/option-groups/${c.id}`, { method: "DELETE" });
-      if (c.type === "opt") await api(`/api/options/${c.id}`, { method: "DELETE" });
-      say("Excluído ✓");
-    } catch (e) { say(e.message); }
-  };
-
-  const inField = { background: C.black, border: `1px solid ${C.gray800}`, color: C.white, fontSize: 12 };
-  const delBtn = (type, id, extra = null) => (
-    confirm?.type === type && confirm?.id === id ? (
-      <button onClick={doDelete} className="rounded-lg px-2 py-1 font-bold shrink-0"
-        style={{ background: C.red, color: C.white, fontSize: 10.5 }}>confirmar?</button>
-    ) : (
-      <button onClick={() => setConfirm({ type, id })} className="rounded-lg px-2 py-1 font-bold shrink-0"
-        style={{ border: `1px solid ${C.red}55`, color: C.red, fontSize: 10.5 }}>
-        {extra || "🗑"}
-      </button>
-    )
-  );
-
-  return (
-    <div className="grid lg:grid-cols-2 gap-3">
-      {/* CATEGORIAS */}
-      <Card className="p-4 self-start">
-        <div style={{ color: C.white, fontWeight: 900, fontSize: 14 }}>🗂 Categorias do cardápio</div>
-        <div style={{ color: "#8a8a8a", fontSize: 11.5, marginTop: 4 }}>
-          A ordem aqui é a ordem do menu do cliente.
-        </div>
-        <div className="mt-3 space-y-1.5">
-          {store.categories.map((c) => (
-            <div key={c.id} className="flex items-center gap-2 rounded-xl px-2.5 py-2" style={{ background: C.black, border: `1px solid ${C.gray800}` }}>
-              <input defaultValue={c.icon} key={c.id + c.icon} style={{ ...inField, width: 44, textAlign: "center" }}
-                className="rounded-lg px-2 py-1.5 outline-none"
-                onBlur={(e) => e.target.value !== c.icon && api(`/api/categories/${c.id}`, { method: "PATCH", body: { icon: e.target.value } }).catch((x) => say(x.message))} />
-              <input defaultValue={c.label} key={c.id + c.label} className="flex-1 rounded-lg px-2 py-1.5 outline-none" style={inField}
-                onBlur={(e) => e.target.value !== c.label && api(`/api/categories/${c.id}`, { method: "PATCH", body: { label: e.target.value } }).catch((x) => say(x.message))} />
-              <span style={{ color: "#5a5a5a", fontSize: 10.5, whiteSpace: "nowrap" }}>
-                {store.products.filter((p) => p.cat === c.id).length} 🍔
-              </span>
-              {delBtn("cat", c.id)}
-            </div>
-          ))}
-        </div>
-        <div className="flex gap-2 mt-3">
-          <input value={cat.icon} onChange={(e) => setCat({ ...cat, icon: e.target.value })} placeholder="🍔"
-            style={{ ...inField, width: 44, textAlign: "center" }} className="rounded-lg px-2 py-1.5 outline-none" />
-          <input value={cat.label} onChange={(e) => setCat({ ...cat, label: e.target.value })} placeholder="Nova categoria (ex.: Hot dogs)"
-            className="flex-1 rounded-lg px-2 py-1.5 outline-none" style={inField}
-            onKeyDown={(e) => e.key === "Enter" && cat.label.trim() && addCategory()} />
-          <Btn small disabled={!cat.label.trim()} onClick={addCategory}>+ Criar</Btn>
-        </div>
-      </Card>
-
-      {/* GRUPOS DE OPCIONAIS */}
-      <Card className="p-4 self-start">
-        <div style={{ color: C.white, fontWeight: 900, fontSize: 14 }}>➕ Grupos de opcionais</div>
-        <div style={{ color: "#8a8a8a", fontSize: 11.5, marginTop: 4 }}>
-          Vincule os grupos aos produtos no cardápio (editar produto → grupos).
-        </div>
-        <div className="mt-3 space-y-3">
-          {store.optionGroups.map((g) => (
-            <div key={g.id} className="rounded-xl p-3" style={{ background: C.black, border: `1px solid ${C.gray800}` }}>
-              <div className="flex items-center gap-2">
-                <span style={{ color: C.white, fontWeight: 800, fontSize: 13, flex: 1 }}>{g.name}</span>
-                {delBtn("grp", g.id)}
-              </div>
-              <div className="flex items-center gap-1.5 mt-2 flex-wrap">
-                <button onClick={() => patchGroup(g, { required: !g.required })} className="rounded-lg px-2 py-1 font-bold"
-                  style={{ background: g.required ? `${C.orange}22` : C.gray850, border: `1px solid ${g.required ? C.orange : C.gray800}`, color: g.required ? C.orange : "#9a9a9a", fontSize: 10.5 }}>
-                  {g.required ? "obrigatório" : "opcional"}
-                </button>
-                {["min", "max"].map((k) => (
-                  <label key={k} className="flex items-center gap-1" style={{ fontSize: 10.5, color: "#8a8a8a" }}>
-                    {k}
-                    <input type="number" defaultValue={g[k]} min={0} max={10}
-                      onBlur={(e) => Number(e.target.value) !== g[k] && patchGroup(g, { [k]: e.target.value })}
-                      className="rounded-lg px-1.5 py-1 outline-none" style={{ ...inField, width: 46 }} />
-                  </label>
-                ))}
-              </div>
-              <div className="mt-2 space-y-1">
-                {g.options.map((o) => (
-                  <div key={o.id} className="flex items-center gap-2">
-                    <input defaultValue={o.name} key={o.id + o.name} className="flex-1 rounded-lg px-2 py-1 outline-none" style={inField}
-                      onBlur={(e) => e.target.value !== o.name && api(`/api/options/${o.id}`, { method: "PATCH", body: { name: e.target.value } }).catch((x) => say(x.message))} />
-                    <input defaultValue={String(o.price).replace(".", ",")} key={o.id + o.price} inputMode="decimal"
-                      className="rounded-lg px-2 py-1 outline-none text-right" style={{ ...inField, width: 78 }}
-                      onBlur={(e) => {
-                        const v = parseFloat(String(e.target.value).replace(",", "."));
-                        if (Number.isFinite(v) && v !== o.price) api(`/api/options/${o.id}`, { method: "PATCH", body: { price: v } }).catch((x) => say(x.message));
-                      }} />
-                    {delBtn("opt", o.id)}
-                  </div>
-                ))}
-                <div className="flex items-center gap-2 pt-1">
-                  <input value={opt[g.id]?.name || ""} onChange={(e) => setOpt({ ...opt, [g.id]: { ...opt[g.id], name: e.target.value } })}
-                    placeholder="Novo item (ex.: Cheddar)" className="flex-1 rounded-lg px-2 py-1 outline-none"
-                    style={{ background: C.gray850, border: `1px solid ${C.gray800}`, color: C.white, fontSize: 12 }}
-                    onKeyDown={(e) => e.key === "Enter" && opt[g.id]?.name?.trim() && addOption(g.id)} />
-                  <input value={opt[g.id]?.price || ""} onChange={(e) => setOpt({ ...opt, [g.id]: { ...opt[g.id], price: e.target.value } })}
-                    placeholder="R$" inputMode="decimal" className="rounded-lg px-2 py-1 outline-none text-right"
-                    style={{ background: C.gray850, border: `1px solid ${C.gray800}`, color: C.white, fontSize: 12, width: 78 }} />
-                  <Btn small variant="dark" disabled={!opt[g.id]?.name?.trim()} onClick={() => addOption(g.id)}>+</Btn>
-                </div>
-              </div>
-            </div>
-          ))}
-        </div>
-        <div className="mt-3 pt-3" style={{ borderTop: `1px solid ${C.gray800}` }}>
-          <div style={{ color: "#9a9a9a", fontSize: 11, fontWeight: 700, marginBottom: 6 }}>Novo grupo</div>
-          <input value={grp.name} onChange={(e) => setGrp({ ...grp, name: e.target.value })} placeholder="Ex.: Escolha o molho"
-            className="w-full rounded-lg px-2 py-1.5 outline-none" style={inField} />
-          <div className="flex items-center gap-2 mt-2 flex-wrap">
-            {["min", "max"].map((k) => (
-              <label key={k} className="flex items-center gap-1" style={{ fontSize: 10.5, color: "#8a8a8a" }}>
-                {k}
-                <input value={grp[k]} onChange={(e) => setGrp({ ...grp, [k]: e.target.value })} inputMode="numeric"
-                  className="rounded-lg px-1.5 py-1 outline-none" style={{ ...inField, width: 46 }} />
-              </label>
-            ))}
-            <button onClick={() => setGrp({ ...grp, required: !grp.required })} className="rounded-lg px-2 py-1 font-bold"
-              style={{ background: grp.required ? `${C.orange}22` : C.gray850, border: `1px solid ${grp.required ? C.orange : C.gray800}`, color: grp.required ? C.orange : "#9a9a9a", fontSize: 10.5 }}>
-              {grp.required ? "obrigatório" : "opcional"}
-            </button>
-            <Btn small disabled={!grp.name.trim()} onClick={addGroup}>+ Criar grupo</Btn>
-          </div>
-        </div>
-      </Card>
-    </div>
-  );
-}
-function AdminIntegrations({ store }) {
-  const [ov, setOv] = useState(null);
-  const [wa, setWa] = useState({ phone_number_id: "", token: "", verify: "", template: "tonosarro_status" });
-  const [iff, setIff] = useState({ client_id: "", secret: "", merchant_id: "" });
-  const [nn, setNn] = useState({ client_id: "", secret: "", store_id: "" });
-  const [testPhone, setTestPhone] = useState("");
-  const [busy, setBusy] = useState("");
-  const [msg, setMsg] = useState("");
-
-  const load = () => api("/api/integrations/overview").then(setOv).catch(() => {});
-  useEffect(() => {
-    load();
-    const t = setInterval(load, 6000);
-    return () => clearInterval(t);
-  }, []);
-
-  const say = (m) => { setMsg(m); setTimeout(() => setMsg(""), 4000); };
-  const inField = { background: C.black, border: `1px solid ${C.gray800}`, color: C.white, fontSize: 12 };
-
-  const saveWa = async (enabledDelta) => {
-    setBusy("wa");
-    try {
-      const body = {
-        wa_phone_number_id: wa.phone_number_id || undefined,
-        wa_verify_token: wa.verify || undefined,
-        wa_template: wa.template || undefined,
-        wa_access_token: wa.token || undefined,
-      };
-      if (typeof enabledDelta === "boolean") body.whatsapp_enabled = enabledDelta;
-      Object.keys(body).forEach((k) => body[k] === undefined && delete body[k]);
-      await api("/api/settings", { method: "PATCH", body });
-      setWa({ phone_number_id: "", token: "", verify: "", template: wa.template });
-      await load();
-      say(enabledDelta === undefined ? "Credenciais do WhatsApp salvas ✓" : enabledDelta ? "WhatsApp ativado ✓" : "WhatsApp pausado");
-    } catch (e) { say(e.message); }
-    setBusy("");
-  };
-
-  const saveIfood = async (enabledDelta) => {
-    setBusy("if");
-    try {
-      const body = {
-        ifood_client_id: iff.client_id || undefined,
-        ifood_merchant_id: iff.merchant_id || undefined,
-        ifood_client_secret: iff.secret || undefined,
-      };
-      if (typeof enabledDelta === "boolean") body.ifood_enabled = enabledDelta;
-      Object.keys(body).forEach((k) => body[k] === undefined && delete body[k]);
-      await api("/api/settings", { method: "PATCH", body });
-      setIff({ client_id: "", secret: "", merchant_id: "" });
-      await load();
-      say(enabledDelta === undefined ? "Credenciais do iFood salvas ✓" : enabledDelta ? "iFood ativado — poller a cada 30s ✓" : "iFood pausado");
-    } catch (e) { say(e.message); }
-    setBusy("");
-  };
-
-  const testWa = async () => {
-    setBusy("twa");
-    try {
-      await api("/api/integrations/whatsapp/test", { method: "POST", body: { phone: testPhone } });
-      say("Mensagem disparada — veja o resultado na fila abaixo");
-      await load();
-    } catch (e) { say(e.message); await load(); }
-    setBusy("");
-  };
-
-  const testIfood = async () => {
-    setBusy("tif");
-    try {
-      await api("/api/integrations/ifood/test", { method: "POST" });
-      say("Conexão com o iFood OK ✓");
-      await load();
-    } catch (e) { say(e.message); await load(); }
-    setBusy("");
-  };
-
-  const saveNn = async (enabledDelta) => {
-    setBusy("nn");
-    try {
-      const body = {
-        nnfood_client_id: nn.client_id || undefined,
-        nnfood_store_id: nn.store_id || undefined,
-        nnfood_client_secret: nn.secret || undefined,
-      };
-      if (typeof enabledDelta === "boolean") body.nnfood_enabled = enabledDelta;
-      Object.keys(body).forEach((k) => body[k] === undefined && delete body[k]);
-      await api("/api/settings", { method: "PATCH", body });
-      setNn({ client_id: "", secret: "", store_id: "" });
-      await load();
-      say(enabledDelta === undefined ? "Credenciais da 99Food salvas ✓" : enabledDelta ? "99Food ativada ✓" : "99Food pausada");
-    } catch (e) { say(e.message); }
-    setBusy("");
-  };
-
-  const testNn = async () => {
-    setBusy("tnn");
-    try {
-      await api("/api/integrations/nnfood/test", { method: "POST" });
-      say("Conexão com a 99Food/99Entregas OK ✓");
-      await load();
-    } catch (e) { say(e.message); await load(); }
-    setBusy("");
-  };
-
-  const w = ov?.whatsapp || {};
-  const f = ov?.ifood || {};
-  const n = ov?.nnfood || {};
-
-  return (
-    <div className="space-y-4">
-      {msg && (
-        <div className="rounded-xl px-3 py-2.5" style={{ background: `${C.orange}18`, color: C.orange, fontSize: 12.5, fontWeight: 700 }}>
-          {msg}
-        </div>
-      )}
-
-      <div className="grid lg:grid-cols-2 gap-3">
-        {/* WHATSAPP */}
-        <Card className="p-4">
-          <div className="flex items-center justify-between">
-            <span className="inline-flex items-center gap-2" style={{ color: C.white, fontWeight: 900, fontSize: 15 }}>
-              <WaIcon size={16} color="#25D366" /> WhatsApp Cloud API
-            </span>
-            <span
-              className="rounded-full px-2.5 py-1 font-bold"
-              style={{
-                fontSize: 10,
-                background: w.configured ? `${C.green}1f` : `${C.yellow}1f`,
-                color: w.configured ? C.green : C.yellow,
-                border: `1px solid ${w.configured ? C.green : C.yellow}44`,
-              }}
-            >
-              {w.configured ? (w.enabled ? "ATIVO" : "CONFIGURADO · PAUSADO") : "FALTA CREDENCIAL"}
-            </span>
-          </div>
-          <p style={{ color: "#8a8a8a", fontSize: 11.5, marginTop: 6, lineHeight: 1.5 }}>
-            Mensagens automáticas a cada status do pedido (recebido, pagamento, chapa, pronto, saiu, entregue).
-            Requer um app no <span style={{ color: "#c0c0c0" }}>developers.facebook.com</span> com template aprovado
-            ({w.template || "tonosarro_status"}, 1 parâmetro de corpo).
-          </p>
-          <div className="mt-3 space-y-2">
-            <input value={wa.phone_number_id} onChange={(e) => setWa({ ...wa, phone_number_id: e.target.value })}
-              placeholder={w.phoneId ? `Phone Number ID: ${w.phoneId}` : "Phone Number ID (ex.: 1234567890)"} className="w-full rounded-lg px-2.5 py-2 outline-none" style={inField} />
-            <input value={wa.token} onChange={(e) => setWa({ ...wa, token: e.target.value })} type="password"
-              placeholder={w.hasToken ? "Access Token •••• salvo (deixe vazio p/ manter)" : "Access Token permanente"} className="w-full rounded-lg px-2.5 py-2 outline-none" style={inField} />
-            <input value={wa.verify} onChange={(e) => setWa({ ...wa, verify: e.target.value })} type="password"
-              placeholder={w.hasVerify ? "Verify Token •••• salvo (deixe vazio p/ manter)" : "Verify Token (o que você cadastrar na Meta)"} className="w-full rounded-lg px-2.5 py-2 outline-none" style={inField} />
-            <input value={wa.template} onChange={(e) => setWa({ ...wa, template: e.target.value })}
-              placeholder="Nome do template" className="w-full rounded-lg px-2.5 py-2 outline-none" style={inField} />
-          </div>
-          <div className="flex flex-wrap gap-2 mt-3">
-            <Btn small disabled={busy === "wa"} onClick={() => saveWa(undefined)}>Salvar credenciais</Btn>
-            <Btn small variant={w.enabled ? "dark" : "green"} disabled={busy === "wa"} onClick={() => saveWa(!w.enabled)}>
-              {w.enabled ? "⏸ Pausar" : "▶ Ativar"}
-            </Btn>
-          </div>
-          {w.enabled && (
-            <div className="mt-3 pt-3" style={{ borderTop: `1px solid ${C.gray800}` }}>
-              <div style={{ color: "#8a8a8a", fontSize: 11, marginBottom: 6 }}>Testar envio real:</div>
-              <div className="flex gap-2">
-                <input value={testPhone} onChange={(e) => setTestPhone(e.target.value)} placeholder="(81) 99999-0000"
-                  className="flex-1 rounded-lg px-2.5 py-2 outline-none" style={inField} />
-                <Btn small disabled={busy === "twa" || !testPhone} onClick={testWa}>{busy === "twa" ? "…" : "Enviar teste"}</Btn>
-              </div>
-            </div>
-          )}
-        </Card>
-
-        {/* IFOOD */}
-        <Card className="p-4">
-          <div className="flex items-center justify-between">
-            <span style={{ color: C.white, fontWeight: 900, fontSize: 15 }}>🔴 iFood — API oficial</span>
-            <span
-              className="rounded-full px-2.5 py-1 font-bold"
-              style={{
-                fontSize: 10,
-                background: f.configured ? `${C.green}1f` : `${C.yellow}1f`,
-                color: f.configured ? C.green : C.yellow,
-                border: `1px solid ${f.configured ? C.green : C.yellow}44`,
-              }}
-            >
-              {f.configured ? (f.enabled ? "ATIVO · POLLING 30s" : "CONFIGURADO · PAUSADO") : "FALTA CREDENCIAL"}
-            </span>
-          </div>
-          <p style={{ color: "#8a8a8a", fontSize: 11.5, marginTop: 6, lineHeight: 1.5 }}>
-            Pedidos do iFood entram sozinhos na fila (evento PLC) e aparecem no Kanban, KDS e expedição.
-            Confirmação/pronto/despacho aqui dentro são espelhados de volta no iFood.
-            Credenciais do portal <span style={{ color: "#c0c0c0" }}>novopedido.ifood.com.br</span> (Integrações → API).
-          </p>
-          <div className="mt-3 space-y-2">
-            <input value={iff.client_id} onChange={(e) => setIff({ ...iff, client_id: e.target.value })}
-              placeholder={f.clientId ? `Client ID: ${f.clientId}` : "Client ID"} className="w-full rounded-lg px-2.5 py-2 outline-none" style={inField} />
-            <input value={iff.secret} onChange={(e) => setIff({ ...iff, secret: e.target.value })} type="password"
-              placeholder={f.configured ? "Client Secret •••• salvo (deixe vazio p/ manter)" : "Client Secret"} className="w-full rounded-lg px-2.5 py-2 outline-none" style={inField} />
-            <input value={iff.merchant_id} onChange={(e) => setIff({ ...iff, merchant_id: e.target.value })}
-              placeholder={f.merchantId ? `Merchant ID: ${f.merchantId}` : "Merchant ID (opcional)"} className="w-full rounded-lg px-2.5 py-2 outline-none" style={inField} />
-          </div>
-          <div className="flex flex-wrap gap-2 mt-3">
-            <Btn small disabled={busy === "if"} onClick={() => saveIfood(undefined)}>Salvar credenciais</Btn>
-            <Btn small variant={f.enabled ? "dark" : "green"} disabled={busy === "if"} onClick={() => saveIfood(!f.enabled)}>
-              {f.enabled ? "⏸ Pausar" : "▶ Ativar polling"}
-            </Btn>
-            <Btn small variant="dark" disabled={busy === "tif"} onClick={testIfood}>{busy === "tif" ? "…" : "Testar conexão"}</Btn>
-          </div>
-        </Card>
-
-        {/* 99FOOD & 99ENTREGAS */}
-        <Card className="p-4 lg:col-span-2">
-          <div className="flex items-center justify-between">
-            <span style={{ color: C.white, fontWeight: 900, fontSize: 15 }}>🟡 99Food & 99Entregas — API oficial</span>
-            <span
-              className="rounded-full px-2.5 py-1 font-bold"
-              style={{
-                fontSize: 10,
-                background: n.configured ? `${C.green}1f` : `${C.yellow}1f`,
-                color: n.configured ? C.green : C.yellow,
-                border: `1px solid ${n.configured ? C.green : C.yellow}44`,
-              }}
-            >
-              {n.configured ? (n.enabled ? "ATIVO" : "CONFIGURADO · PAUSADO") : "FALTA CREDENCIAL"}
-            </span>
-          </div>
-          <p style={{ color: "#8a8a8a", fontSize: 11.5, marginTop: 6, lineHeight: 1.5 }}>
-            Recebimento de pedidos da <strong style={{ color: "#FFD400" }}>99Food</strong> direto na cozinha e despacho integrado via <strong style={{ color: "#FFD400" }}>99Entregas</strong>.
-            Insira suas credenciais de parceiro da plataforma 99 para habilitar a sincronização.
-          </p>
-          <div className="grid md:grid-cols-3 gap-2 mt-3">
-            <input value={nn.client_id} onChange={(e) => setNn({ ...nn, client_id: e.target.value })}
-              placeholder={n.clientId ? `Client ID: ${n.clientId}` : "Client ID / App Key"} className="rounded-lg px-2.5 py-2 outline-none" style={inField} />
-            <input value={nn.secret} onChange={(e) => setNn({ ...nn, secret: e.target.value })} type="password"
-              placeholder={n.configured ? "Secret •••• salvo (deixe vazio p/ manter)" : "Client Secret / App Secret"} className="rounded-lg px-2.5 py-2 outline-none" style={inField} />
-            <input value={nn.store_id} onChange={(e) => setNn({ ...nn, store_id: e.target.value })}
-              placeholder={n.storeId ? `Store ID: ${n.storeId}` : "Store ID da loja na 99"} className="rounded-lg px-2.5 py-2 outline-none" style={inField} />
-          </div>
-          <div className="flex flex-wrap gap-2 mt-3">
-            <Btn small disabled={busy === "nn"} onClick={() => saveNn(undefined)}>Salvar credenciais</Btn>
-            <Btn small variant={n.enabled ? "dark" : "green"} disabled={busy === "nn"} onClick={() => saveNn(!n.enabled)}>
-              {n.enabled ? "⏸ Pausar" : "▶ Ativar 99Food"}
-            </Btn>
-            <Btn small variant="dark" disabled={busy === "tnn" || !n.configured} onClick={testNn}>
-              {busy === "tnn" ? "…" : "Testar conexão"}
-            </Btn>
-            <Btn small variant="dark" onClick={() => store.injectExternal("NNFOOD")}>
-              + Simular pedido 99Food
-            </Btn>
-          </div>
-        </Card>
-      </div>
-
-      {/* FILA DE MENSAGENS */}
-      <Card className="p-4">
-        <div style={{ color: C.white, fontWeight: 900, fontSize: 14, marginBottom: 4 }}>
-          📤 Fila de mensagens — o que o cliente recebe
-        </div>
-        <div style={{ color: "#7a7a7a", fontSize: 11.5, marginBottom: 10 }}>
-          Sem credenciais (ou sem internet) as mensagens ficam na fila; com a integração ativa, saem de verdade.
-        </div>
-        <div className="space-y-2">
-          {(ov?.outbox || []).length === 0 && (
-            <div style={{ color: "#6a6a6a", fontSize: 12 }}>Nenhuma mensagem ainda — mova um pedido pelo fluxo para ver.</div>
-          )}
-          {(ov?.outbox || []).map((m) => (
-            <div key={m.id} className="rounded-xl p-3" style={{ background: C.black, border: `1px solid ${C.gray800}` }}>
-              <div className="flex items-center justify-between gap-2 mb-1.5">
-                <span style={{ color: "#9a9a9a", fontSize: 10.5 }}>
-                  {m.to} {m.code ? `· pedido #${m.code}` : ""} · {new Date(m.at).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}
-                </span>
-                <span
-                  className="rounded-md px-1.5 py-0.5 font-bold"
-                  style={{
-                    fontSize: 9.5,
-                    background: m.status === "enviada" ? `${C.green}1f` : m.status === "erro" ? `${C.red}1f` : `${C.yellow}1f`,
-                    color: m.status === "enviada" ? C.green : m.status === "erro" ? C.red : C.yellow,
-                  }}
-                >
-                  {m.status === "enviada" ? "✓ ENVIADA" : m.status === "erro" ? "ERRO" : "NA FILA"}
-                </span>
-              </div>
-              <div style={{ color: "#d0d0d0", fontSize: 12, whiteSpace: "pre-wrap", lineHeight: 1.5 }}>{m.body}</div>
-              {m.error && <div style={{ color: C.red, fontSize: 10.5, marginTop: 4 }}>⚠ {m.error}</div>}
-            </div>
-          ))}
-        </div>
-      </Card>
-
-      {/* DIÁRIO */}
-      <Card className="p-4">
-        <div style={{ color: C.white, fontWeight: 900, fontSize: 14, marginBottom: 8 }}>📜 Diário de integrações</div>
-        {(ov?.logs || []).length === 0 && <div style={{ color: "#6a6a6a", fontSize: 12 }}>Sem eventos ainda.</div>}
-        <div className="space-y-1">
-          {(ov?.logs || []).map((l) => (
-            <div key={l.id} className="flex items-start gap-2" style={{ fontSize: 11.5 }}>
-              <span style={{ color: "#5a5a5a", whiteSpace: "nowrap" }}>{new Date(l.at).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit", second: "2-digit" })}</span>
-              <span
-                className="rounded px-1 font-bold"
-                style={{
-                  background: l.level === "ok" ? `${C.green}1a` : l.level === "erro" ? `${C.red}1a` : C.gray800,
-                  color: l.level === "ok" ? C.green : l.level === "erro" ? C.red : "#9a9a9a",
-                  fontSize: 9.5, whiteSpace: "nowrap",
-                }}
-              >
-                {l.channel}
-              </span>
-              <span style={{ color: l.level === "erro" ? C.red : "#c0c0c0" }}>{l.msg}</span>
-            </div>
-          ))}
-        </div>
-      </Card>
-    </div>
+    <React.Suspense fallback={<div style={{ padding: 20, textAlign: 'center', color: '#888' }}>Carregando AdminUsers...</div>}>
+      <AdminUsersModular store={store} now={now}  />
+    </React.Suspense>
   );
 }
 
@@ -4252,455 +2344,10 @@ function Input({ v, w = 220 }) {
 }
 
 function AdminPaymentsCard({ store }) {
-  const [handle, setHandle] = useState(store.settings.payHandle || "");
-  const [base, setBase] = useState(store.settings.appBaseUrl || "");
-  const [pixKey, setPixKey] = useState(store.settings.pixKey || "");
-  const [info, setInfo] = useState(null);
-  const [busy, setBusy] = useState(false);
-
-  useEffect(() => {
-    api("/api/settings/payments").then((data) => {
-      setInfo(data);
-      if (data?.pixKey && !pixKey) setPixKey(data.pixKey);
-    }).catch(() => {});
-  }, []);
-
-  const save = async () => {
-    setBusy(true);
-    try {
-      await api("/api/settings", {
-        method: "PATCH",
-        body: { pay_handle: handle, app_base_url: base, pix_key: pixKey },
-      });
-      await store.refreshSettings();
-      setInfo(await api("/api/settings/payments"));
-      store.toast("Configurações de pagamento salvas ✓");
-    } catch (e) {
-      store.toast(e.message);
-    }
-    setBusy(false);
-  };
-
-  const copy = (t) => {
-    navigator.clipboard?.writeText(t).then(
-      () => store.toast("URL copiada ✓"),
-      () => store.toast("Copie manualmente")
-    );
-  };
-
-  const inField = { background: C.black, border: `1px solid ${C.gray800}`, color: C.white, fontSize: 12.5 };
-
   return (
-    <Card className="p-4" style={{ borderColor: `${C.orange}44` }}>
-      <div className="flex items-center justify-between">
-        <div style={{ color: C.white, fontWeight: 900, fontSize: 14 }}>💠 Pix Dinâmico & InfinitePay</div>
-        <span
-          className="rounded-full px-2.5 py-1 font-bold"
-          style={{
-            fontSize: 10,
-            background: (store.settings.pixKey || store.settings.payHandle) ? `${C.green}1f` : `${C.yellow}1f`,
-            color: (store.settings.pixKey || store.settings.payHandle) ? C.green : C.yellow,
-            border: `1px solid ${(store.settings.pixKey || store.settings.payHandle) ? C.green : C.yellow}44`,
-          }}
-        >
-          {(store.settings.pixKey || store.settings.payHandle) ? "ATIVO" : "CONFIGURAR"}
-        </span>
-      </div>
-      <div style={{ color: "#8a8a8a", fontSize: 11.5, marginTop: 6, lineHeight: 1.5 }}>
-        Gere QR Code Pix com padrão oficial BACEN (Copia e Cola com valor exato) e checkout InfinitePay (Pix e cartão até 12x).
-      </div>
-
-      <div className="mt-3 space-y-2.5">
-        <label className="block">
-          <div className="flex items-center justify-between">
-            <span style={{ color: "#9a9a9a", fontSize: 11, fontWeight: 700 }}>Chave Pix Direta da Hamburgueria</span>
-            <span style={{ color: C.yellowLight, fontSize: 10 }}>Padrão Banco Central</span>
-          </div>
-          <input
-            value={pixKey}
-            onChange={(e) => setPixKey(e.target.value)}
-            placeholder="ex.: 81999990000 ou tonosarro@gmail.com ou CNPJ"
-            className="w-full rounded-lg px-2.5 py-2 mt-1 outline-none font-mono"
-            style={inField}
-          />
-          <span style={{ color: "#6a6a6a", fontSize: 10 }}>
-            Usada para gerar o QR Code dinâmico e o código Copia e Cola com o valor exato de cada pedido.
-          </span>
-        </label>
-
-        <label className="block pt-1" style={{ borderTop: `1px solid ${C.gray850}` }}>
-          <span style={{ color: "#9a9a9a", fontSize: 11, fontWeight: 700 }}>InfiniteTag (opcional, sem o $)</span>
-          <input
-            value={handle}
-            onChange={(e) => setHandle(e.target.value)}
-            placeholder="ex.: tonosarro"
-            className="w-full rounded-lg px-2.5 py-2 mt-1 outline-none"
-            style={inField}
-          />
-        </label>
-        <label className="block">
-          <span style={{ color: "#9a9a9a", fontSize: 11, fontWeight: 700 }}>URL pública do sistema (opcional)</span>
-          <input
-            value={base}
-            onChange={(e) => setBase(e.target.value)}
-            placeholder="ex.: https://pedidos.tonosarro.com.br"
-            className="w-full rounded-lg px-2.5 py-2 mt-1 outline-none"
-            style={inField}
-          />
-          <span style={{ color: "#6a6a6a", fontSize: 10 }}>
-            Usada no webhook e no retorno do pagamento. Vazio = usa o endereço atual.
-          </span>
-        </label>
-
-        {info?.webhookUrl && (
-          <div>
-            <span style={{ color: "#9a9a9a", fontSize: 11, fontWeight: 700 }}>Webhook de confirmação</span>
-            <div className="flex gap-2 mt-1">
-              <code
-                className="flex-1 rounded-lg px-2 py-2 truncate"
-                style={{ background: C.black, border: `1px solid ${C.gray800}`, color: "#c0c0c0", fontSize: 10.5 }}
-              >
-                {info.webhookUrl}
-              </code>
-              <Btn small variant="dark" onClick={() => copy(info.webhookUrl)}>Copiar</Btn>
-            </div>
-            <span style={{ color: "#6a6a6a", fontSize: 10 }}>
-              Já é enviado automaticamente a cada cobrança — guarde esta URL caso precise configurar algo manualmente.
-            </span>
-          </div>
-        )}
-      </div>
-
-      <div className="flex gap-2 mt-3">
-        <Btn small disabled={busy} onClick={save}>{busy ? "SALVANDO…" : "Salvar"}</Btn>
-        <Btn small variant="dark" onClick={() => store.toast("Teste: faça um pedido com Pix e aprove no app InfinitePay")}>
-          Como testar?
-        </Btn>
-      </div>
-    </Card>
-  );
-}
-
-function AdminPrinterCard({ store }) {
-  const [host, setHost] = useState("");
-  const [port, setPort] = useState("9100");
-  const [info, setInfo] = useState(null);
-  const [busy, setBusy] = useState(false);
-
-  const load = () => api("/api/settings/printer").then((d) => { setInfo(d); setHost(d.host || ""); setPort(d.port || "9100"); }).catch(() => {});
-  useEffect(() => { load(); }, []);
-
-  const save = async (extra = {}) => {
-    setBusy(true);
-    try {
-      await api("/api/settings", { method: "PATCH", body: { printer_host: host, printer_port: port, ...extra } });
-      await load();
-      store.toast("Impressora salva ✓");
-    } catch (e) { store.toast(e.message); }
-    setBusy(false);
-  };
-
-  const test = async () => {
-    setBusy(true);
-    try {
-      await api("/api/print/test", { method: "POST" });
-      store.toast("Página de teste enviada ✓");
-    } catch (e) { store.toast(e.message); }
-    setBusy(false);
-  };
-
-  const enabled = info?.enabled;
-  return (
-    <Card className="p-4" style={{ borderColor: `${C.orange}44` }}>
-      <div className="flex items-center justify-between">
-        <div style={{ color: C.white, fontWeight: 900, fontSize: 14 }}>🖨 Impressora térmica</div>
-        <span
-          className="rounded-full px-2.5 py-1 font-bold"
-          style={{
-            fontSize: 10,
-            background: info?.configured ? `${C.green}1f` : `${C.yellow}1f`,
-            color: info?.configured ? C.green : C.yellow,
-            border: `1px solid ${info?.configured ? C.green : C.yellow}44`,
-          }}
-        >
-          {info?.configured ? "CONECTADA" : "NÃO CONFIGURADA"}
-        </span>
-      </div>
-      <div style={{ color: "#8a8a8a", fontSize: 11.5, marginTop: 6, lineHeight: 1.5 }}>
-        Imprime comandas direto na térmica ESC/POS de rede (80mm, porta 9100) —
-        sem diálogo do navegador. Sem impressora, os botões usam a impressão do navegador.
-      </div>
-      <div className="mt-3 space-y-2">
-        <div className="grid grid-cols-3 gap-2">
-          <label className="col-span-2 block">
-            <span style={{ color: "#9a9a9a", fontSize: 11, fontWeight: 700 }}>IP da impressora</span>
-            <input value={host} onChange={(e) => setHost(e.target.value)} placeholder="ex.: 192.168.0.110"
-              className="w-full rounded-lg px-2.5 py-2 mt-1 outline-none"
-              style={{ background: C.black, border: `1px solid ${C.gray800}`, color: C.white, fontSize: 12.5 }} />
-          </label>
-          <label className="block">
-            <span style={{ color: "#9a9a9a", fontSize: 11, fontWeight: 700 }}>Porta</span>
-            <input value={port} onChange={(e) => setPort(e.target.value)}
-              className="w-full rounded-lg px-2.5 py-2 mt-1 outline-none"
-              style={{ background: C.black, border: `1px solid ${C.gray800}`, color: C.white, fontSize: 12.5 }} />
-          </label>
-        </div>
-        {host.trim() && (
-          <div className="flex gap-2 flex-wrap">
-            <Btn small variant={enabled ? "dark" : "green"} disabled={busy} onClick={() => save({ printer_enabled: !enabled })}>
-              {enabled ? "⏸ Desativar" : "▶ Ativar"}
-            </Btn>
-            <Btn small variant={info?.auto ? "dark" : "primary"} disabled={busy} onClick={() => save({ printer_auto: !info?.auto })}>
-              {info?.auto ? "Auto-print ON (clique p/ desligar)" : "Auto-print OFF (clique p/ ligar)"}
-            </Btn>
-          </div>
-        )}
-        <div className="flex gap-2">
-          <Btn small disabled={busy} onClick={() => save()}>Salvar</Btn>
-          <Btn small variant="dark" disabled={busy || !host.trim()} onClick={test}>Testar impressão</Btn>
-        </div>
-      </div>
-    </Card>
-  );
-}
-function AdminStoreCard({ store }) {
-  const st = store.settings || {};
-  const [name, setName] = useState(st.storeName || "TÔ NO SARRO! Burgers & Açaí");
-  const [wa, setWa] = useState(st.whatsapp || "(81) 99999-0000");
-  const [addr, setAddr] = useState(st.address || "Av. Cláudio José Gueiros Leite, 3200 — Janga, Paulista/PE");
-  const [hours, setHours] = useState(st.hours || "Ter a Dom · 18:00 – 23:30");
-  const [fee, setFee] = useState(String(st.fee ?? 7.9).replace(".", ","));
-  const [minOrder, setMinOrder] = useState(String(st.minOrder ?? 25).replace(".", ","));
-  const [eta, setEta] = useState(st.eta || "35–45 min");
-  const [busy, setBusy] = useState(false);
-
-  useEffect(() => {
-    if (store.settings) {
-      if (store.settings.storeName) setName(store.settings.storeName);
-      if (store.settings.whatsapp) setWa(store.settings.whatsapp);
-      if (store.settings.address) setAddr(store.settings.address);
-      if (store.settings.hours) setHours(store.settings.hours);
-      if (store.settings.fee !== undefined) setFee(String(store.settings.fee).replace(".", ","));
-      if (store.settings.minOrder !== undefined) setMinOrder(String(store.settings.minOrder).replace(".", ","));
-      if (store.settings.eta) setEta(store.settings.eta);
-    }
-  }, [store.settings]);
-
-  const save = async () => {
-    setBusy(true);
-    try {
-      const numFee = parseFloat(String(fee).replace(",", ".")) || 0;
-      const numMin = parseFloat(String(minOrder).replace(",", ".")) || 0;
-      await api("/api/settings", {
-        method: "PATCH",
-        body: {
-          store_name: name.trim(),
-          whatsapp: wa.trim(),
-          address: addr.trim(),
-          hours: hours.trim(),
-          fee: numFee,
-          min_order: numMin,
-          eta: eta.trim(),
-        },
-      });
-      store.toast("Informações da loja salvas com sucesso! ✓");
-    } catch (e) {
-      store.toast(e.message);
-    }
-    setBusy(false);
-  };
-
-  const fieldStyle = {
-    background: C.black,
-    border: `1px solid ${C.gray800}`,
-    color: C.white,
-    fontSize: 12.5,
-  };
-
-  return (
-    <Card className="p-4 space-y-2">
-      <div className="flex items-center justify-between mb-2">
-        <div style={{ color: C.white, fontWeight: 900, fontSize: 15 }}>🏪 Loja & Operação</div>
-        <Btn small disabled={busy} onClick={save}>
-          {busy ? "Salvando…" : "💾 Salvar loja"}
-        </Btn>
-      </div>
-
-      <Row label="Nome da Loja">
-        <input value={name} onChange={(e) => setName(e.target.value)}
-          className="rounded-lg px-2.5 py-1.5 outline-none text-right" style={{ ...fieldStyle, width: 230 }} />
-      </Row>
-
-      <Row label="WhatsApp da Loja">
-        <input value={wa} onChange={(e) => setWa(e.target.value)}
-          className="rounded-lg px-2.5 py-1.5 outline-none text-right" style={{ ...fieldStyle, width: 150 }} />
-      </Row>
-
-      <Row label="Endereço">
-        <input value={addr} onChange={(e) => setAddr(e.target.value)}
-          className="rounded-lg px-2.5 py-1.5 outline-none text-right" style={{ ...fieldStyle, width: 260 }} />
-      </Row>
-
-      <Row label="Horário de Funcionamento">
-        <input value={hours} onChange={(e) => setHours(e.target.value)}
-          className="rounded-lg px-2.5 py-1.5 outline-none text-right" style={{ ...fieldStyle, width: 200 }} />
-      </Row>
-
-      <Row label="Taxa de entrega padrão">
-        <div className="flex items-center gap-1.5">
-          <span style={{ color: "#777", fontSize: 12 }}>R$</span>
-          <input value={fee} onChange={(e) => setFee(e.target.value)}
-            className="rounded-lg px-2.5 py-1.5 outline-none text-right" style={{ ...fieldStyle, width: 75 }} />
-        </div>
-      </Row>
-
-      <Row label="Pedido mínimo para entrega">
-        <div className="flex items-center gap-1.5">
-          <span style={{ color: "#777", fontSize: 12 }}>R$</span>
-          <input value={minOrder} onChange={(e) => setMinOrder(e.target.value)}
-            className="rounded-lg px-2.5 py-1.5 outline-none text-right" style={{ ...fieldStyle, width: 75 }} />
-        </div>
-      </Row>
-
-      <Row label="Tempo médio estimado">
-        <input value={eta} onChange={(e) => setEta(e.target.value)}
-          className="rounded-lg px-2.5 py-1.5 outline-none text-right" style={{ ...fieldStyle, width: 120 }} />
-      </Row>
-
-      <Row label="Status da loja (Aberto / Fechado)">
-        <button
-          onClick={() => store.setOpen(!store.open)}
-          className="rounded-full transition"
-          style={{ width: 44, height: 24, background: store.open ? C.green : C.gray700, position: "relative" }}
-        >
-          <span style={{ position: "absolute", top: 3, left: store.open ? 23 : 3, width: 18, height: 18, borderRadius: 99, background: C.white, transition: "left .2s" }} />
-        </button>
-      </Row>
-
-      <div className="pt-2">
-        <Btn full disabled={busy} onClick={save}>
-          {busy ? "Salvando…" : "💾 Salvar informações da loja"}
-        </Btn>
-      </div>
-    </Card>
-  );
-}
-
-function AdminModalitiesCard({ store }) {
-  const [busy, setBusy] = useState(false);
-  const tablesOn = !!store.settings?.tablesEnabled;
-  const count = store.settings?.tablesCount || 10;
-  const [tablesCount, setTablesCount] = useState(count);
-
-  useEffect(() => {
-    if (store.settings?.tablesCount) setTablesCount(store.settings.tablesCount);
-  }, [store.settings?.tablesCount]);
-
-  const toggle = async () => {
-    setBusy(true);
-    try {
-      const next = !tablesOn;
-      await api("/api/settings", { method: "PATCH", body: { tables_enabled: next } });
-      store.toast(next ? "🍽️ Módulo de Mesas ATIVADO! Visível no menu lateral." : "Módulo de Mesas desativado.");
-    } catch (e) {
-      store.toast(e.message);
-    }
-    setBusy(false);
-  };
-
-  const saveCount = async () => {
-    setBusy(true);
-    try {
-      const val = parseInt(tablesCount, 10) || 10;
-      await api("/api/settings", { method: "PATCH", body: { tables_count: val } });
-      store.toast(`Capacidade atualizada: ${val} mesas no salão.`);
-    } catch (e) {
-      store.toast(e.message);
-    }
-    setBusy(false);
-  };
-
-  return (
-    <Card className="p-4 space-y-3">
-      <div className="flex items-center justify-between">
-        <div style={{ color: C.white, fontWeight: 900, fontSize: 15 }}>
-          🍽️ Modalidades de Atendimento
-        </div>
-        <span
-          className="rounded-full px-2.5 py-1 font-bold text-xs"
-          style={{
-            background: tablesOn ? "#16653433" : C.gray800,
-            color: tablesOn ? C.green : "#888",
-            border: `1px solid ${tablesOn ? C.green : C.gray700}`,
-          }}
-        >
-          {tablesOn ? "MESAS ATIVAS" : "MESAS DESATIVADAS"}
-        </span>
-      </div>
-
-      <p style={{ color: "#8a8a8a", fontSize: 11.5, lineHeight: 1.5 }}>
-        Controle se o seu estabelecimento atende mesas / salão presencial.
-        Quando ativado, a opção <strong>🍽️ Mesas / Salão</strong> fica visível no menu lateral do Admin.
-      </p>
-
-      <div className="p-3.5 rounded-xl flex items-center justify-between" style={{ background: C.gray850, border: `1px solid ${C.gray800}` }}>
-        <div>
-          <div style={{ color: C.white, fontWeight: 800, fontSize: 13 }}>
-            Atendimento em Mesas / Salão
-          </div>
-          <div style={{ color: "#7a7a7a", fontSize: 11, marginTop: 2 }}>
-            {tablesOn ? "Habilitado — exibindo no menu lateral com comandas e KDS" : "Desabilitado — oculto no menu lateral"}
-          </div>
-        </div>
-
-        <button
-          onClick={toggle}
-          disabled={busy}
-          className="rounded-full transition active:scale-95 shrink-0 ml-3"
-          style={{
-            width: 48,
-            height: 26,
-            background: tablesOn ? C.green : C.gray700,
-            position: "relative",
-          }}
-          title={tablesOn ? "Clique para desativar modalidade de mesas" : "Clique para ativar modalidade de mesas"}
-        >
-          <span
-            style={{
-              position: "absolute",
-              top: 3,
-              left: tablesOn ? 25 : 3,
-              width: 20,
-              height: 20,
-              borderRadius: 99,
-              background: C.white,
-              transition: "left .2s",
-            }}
-          />
-        </button>
-      </div>
-
-      {tablesOn && (
-        <div className="p-3.5 rounded-xl flex items-center justify-between gap-3" style={{ background: C.gray850, border: `1px solid ${C.gray800}` }}>
-          <div>
-            <div style={{ color: C.white, fontWeight: 700, fontSize: 12.5 }}>Número total de mesas</div>
-            <div style={{ color: "#7a7a7a", fontSize: 11 }}>Capacidade do salão (1 a 50 mesas)</div>
-          </div>
-          <div className="flex items-center gap-2">
-            <input
-              type="number"
-              min="1"
-              max="50"
-              value={tablesCount}
-              onChange={(e) => setTablesCount(e.target.value)}
-              className="rounded-lg px-2 py-1 text-center outline-none font-bold text-white text-xs"
-              style={{ width: 55, background: C.black, border: `1px solid ${C.gray700}` }}
-            />
-            <Btn small variant="dark" disabled={busy} onClick={saveCount}>Salvar</Btn>
-          </div>
-        </div>
-      )}
-    </Card>
+    <React.Suspense fallback={<div style={{ padding: 20, textAlign: 'center', color: '#888' }}>Carregando AdminPaymentsCard...</div>}>
+      <AdminPaymentsCardModular store={store}  />
+    </React.Suspense>
   );
 }
 
@@ -4711,6 +2358,7 @@ function AdminSettings({ store, now }) {
       <AdminPrinterCard store={store} />
       <AdminStoreCard store={store} />
       <AdminModalitiesCard store={store} />
+      <ServiceChargeCard store={store} />
 
       <Card className="p-4 lg:col-span-2">
         <div style={{ color: C.white, fontWeight: 900, fontSize: 14, marginBottom: 10 }}>Usuários e permissões</div>
@@ -4781,2000 +2429,28 @@ function AdminSettings({ store, now }) {
 // ============================================================
 
 function AdminTables({ store, now }) {
-  const [filter, setFilter] = useState("TODAS"); // TODAS | LIVRES | OCUPADAS
-  const [openModal, setOpenModal] = useState(null); // { tableNum, tableName }
-  const [closeModal, setCloseModal] = useState(null); // table object to close
-  const [addItemModal, setAddItemModal] = useState(null); // table object to append items
-  const [transferModal, setTransferModal] = useState(null); // table object to transfer
-  const [targetTable, setTargetTable] = useState("");
-  const [qrSingle, setQrSingle] = useState(null); // table object for QR preview
-  const [qrAllModal, setQrAllModal] = useState(false); // all QR codes modal
-  const [custName, setCustName] = useState("");
-  const [cartItems, setCartItems] = useState({});
-  const [obs, setObs] = useState("");
-  const [serviceCharge, setServiceCharge] = useState(true);
-  const [payMethod, setPayMethod] = useState("Cartão");
-  const [busy, setBusy] = useState(false);
-
-  const tablesCount = store.settings?.tablesCount || 10;
-  const tables = Array.from({ length: tablesCount }, (_, i) => {
-    const num = String(i + 1).padStart(2, "0");
-    const name = `Mesa ${num}`;
-    const activeOrders = store.orders.filter(
-      (o) =>
-        (o.type === "dine_in" || o.type === "mesa" || (o.customer?.addr && o.customer.addr.includes(name))) &&
-        !["ENTREGUE", "CANCELADO"].includes(o.status)
-    );
-    const primaryOrder = activeOrders[0] || null;
-    const allItems = activeOrders.flatMap((o) => o.items || []);
-    const tableTotal = activeOrders.reduce((acc, o) => acc + (o.total || 0), 0);
-
-    return {
-      num,
-      name,
-      orders: activeOrders,
-      order: primaryOrder,
-      items: allItems,
-      total: tableTotal,
-      occupied: activeOrders.length > 0,
-    };
-  });
-
-  const occupiedCount = tables.filter((t) => t.occupied).length;
-  const freeCount = tablesCount - occupiedCount;
-  const totalConsumption = tables.reduce((acc, t) => acc + t.total, 0);
-
-  const filteredTables = tables.filter((t) => {
-    if (filter === "OCUPADAS") return t.occupied;
-    if (filter === "LIVRES") return !t.occupied;
-    return true;
-  });
-
-  const handleStartOrder = async () => {
-    const items = Object.entries(cartItems)
-      .filter(([_, qty]) => qty > 0)
-      .map(([pid, qty]) => ({ productId: pid, qty, optionIds: [], note: "" }));
-
-    if (items.length === 0) {
-      store.toast("Selecione pelo menos 1 produto para abrir a comanda.");
-      return;
-    }
-
-    setBusy(true);
-    try {
-      const body = {
-        customer: {
-          name: custName.trim() ? `${openModal.tableName} · ${custName.trim()}` : openModal.tableName,
-          phone: "(81) 90000-0000",
-          addr: openModal.tableName,
-        },
-        items,
-        type: "dine_in",
-        payment: "No fechamento da mesa",
-        note: obs.trim(),
-      };
-      await api("/api/orders", { method: "POST", body });
-      store.toast(`🎉 ${openModal.tableName} aberta! Comanda enviada para a cozinha.`);
-      setOpenModal(null);
-      setCartItems({});
-      setCustName("");
-      setObs("");
-    } catch (e) {
-      store.toast(e.message);
-    }
-    setBusy(false);
-  };
-
-  const handleAppendItems = async () => {
-    if (!addItemModal?.order) return;
-    const items = Object.entries(cartItems)
-      .filter(([_, qty]) => qty > 0)
-      .map(([pid, qty]) => ({ productId: pid, qty, optionIds: [], note: obs.trim() }));
-
-    if (items.length === 0) {
-      store.toast("Selecione pelo menos 1 produto para a nova rodada.");
-      return;
-    }
-
-    setBusy(true);
-    try {
-      await api(`/api/orders/${addItemModal.order.id}/items`, {
-        method: "POST",
-        body: { items },
-      });
-      store.toast(`🔥 Nova rodada enviada para a cozinha na ${addItemModal.name}!`);
-      setAddItemModal(null);
-      setCartItems({});
-      setObs("");
-    } catch (e) {
-      store.toast(e.message);
-    }
-    setBusy(false);
-  };
-
-  const handleTransferTable = async () => {
-    if (!transferModal?.order || !targetTable) return;
-    setBusy(true);
-    try {
-      for (const ord of transferModal.orders) {
-        await api(`/api/orders/${ord.id}/table`, {
-          method: "PATCH",
-          body: { table: targetTable },
-        });
-      }
-      store.toast(`🔄 Comanda transferida para a ${targetTable}!`);
-      setTransferModal(null);
-      setTargetTable("");
-    } catch (e) {
-      store.toast(e.message);
-    }
-    setBusy(false);
-  };
-
-  const handleCloseTable = async () => {
-    if (!closeModal?.orders?.length) return;
-    setBusy(true);
-    try {
-      for (const ord of closeModal.orders) {
-        await api(`/api/orders/${ord.id}/status`, {
-          method: "PATCH",
-          body: { status: "ENTREGUE", payment: payMethod },
-        });
-      }
-      store.toast(`✅ ${closeModal.name} fechada e liberada com sucesso! (${payMethod})`);
-      setCloseModal(null);
-    } catch (e) {
-      store.toast(e.message);
-    }
-    setBusy(false);
-  };
-
-  const printTableBill = (t) => {
-    if (!t.occupied) return;
-    const items = t.items;
-    const subtotal = t.total;
-    const serv = serviceCharge ? subtotal * 0.1 : 0;
-    const totalFinal = subtotal + serv;
-    const codes = t.orders.map((o) => `#${o.code}`).join(", ");
-    const oldest = t.orders.reduce((min, o) => Math.min(min, o.createdAt), Date.now());
-
-    const itemsHtml = items.map((i) => `
-      <div style="display:flex; justify-content:space-between; margin-bottom:4px;">
-        <span>${i.qty}x ${i.name}</span>
-        <span>${brl(i.unit * i.qty)}</span>
-      </div>
-    `).join("");
-
-    printHTML(`
-      <div style="font-family:sans-serif; padding:12px; max-width:280px; margin:0 auto; font-size:12px;">
-        <h2 style="text-align:center; margin:0 0 4px;">TÔ NO SARRO!</h2>
-        <div style="text-align:center; font-size:10px; color:#666; margin-bottom:8px;">PRÉ-CONTA · CONFERÊNCIA DE MESA</div>
-        <div style="border-top:1px dashed #ccc; border-bottom:1px dashed #ccc; padding:6px 0; margin-bottom:8px;">
-          <strong>${t.name}</strong> · Comanda ${codes}<br/>
-          <span style="font-size:10px; color:#555;">Permanência: ${elapsed(oldest, now)}</span>
-        </div>
-        <div style="margin-bottom:8px;">
-          ${itemsHtml}
-        </div>
-        <div style="border-top:1px dashed #ccc; padding-top:6px;">
-          <div style="display:flex; justify-content:space-between;"><span>Subtotal:</span><span>${brl(subtotal)}</span></div>
-          ${serviceCharge ? `<div style="display:flex; justify-content:space-between; color:#555;"><span>Serviço (10%):</span><span>${brl(serv)}</span></div>` : ""}
-          <div style="display:flex; justify-content:space-between; font-weight:bold; font-size:14px; margin-top:4px;">
-            <span>TOTAL:</span><span>${brl(totalFinal)}</span>
-          </div>
-        </div>
-        <div style="text-align:center; font-size:9px; color:#888; margin-top:12px;">Não é documento fiscal · Agradecemos a preferência!</div>
-      </div>
-    `);
-  };
-
-  const printTableQRCodes = async () => {
-    setBusy(true);
-    try {
-      const baseUrl = window.location.origin;
-      const cards = await Promise.all(
-        tables.map(async (t) => {
-          const url = `${baseUrl}/?mesa=${t.num}`;
-          const qr = await QRCode.toDataURL(url, { width: 320, margin: 1 });
-          return `
-            <div style="border: 2px dashed #000; border-radius: 14px; padding: 18px 14px; text-align: center; background: #fff; width: 44%; margin: 2% 2%; box-sizing: border-box; page-break-inside: avoid; display: inline-block; vertical-align: top;">
-              <div style="font-size: 16px; font-weight: 900; color: #f58200; margin-bottom: 2px;">🍔 TÔ NO SARRO!</div>
-              <div style="font-size: 10px; font-weight: 700; text-transform: uppercase; color: #666; margin-bottom: 8px;">Burgers Artesanais</div>
-              <div style="background: #000; color: #fff; font-size: 22px; font-weight: 900; padding: 4px 16px; border-radius: 8px; margin-bottom: 10px; display: inline-block;">
-                ${t.name}
-              </div>
-              <div style="margin: 0 auto 10px;">
-                <img src="${qr}" width="150" height="150" style="display: block; margin: 0 auto;" />
-              </div>
-              <div style="font-size: 12.5px; font-weight: 900; color: #000; margin-bottom: 3px;">CARDÁPIO DIGITAL</div>
-              <div style="font-size: 10px; color: #555; line-height: 1.3;">
-                Aponte a câmera do celular para ver o cardápio e pedir direto na mesa!
-              </div>
-            </div>
-          `;
-        })
-      );
-
-      printHTML(`
-        <div style="font-family: sans-serif; padding: 10px; text-align: center;">
-          <div style="margin-bottom: 14px; font-size: 12px; color: #555;">
-            <strong>Plaquinhas de Mesa Tô no Sarro!</strong> — Imprima em folha A4, recorte nas linhas pontilhadas e coloque nos displays acrílicos.
-          </div>
-          ${cards.join("")}
-        </div>
-      `);
-    } catch (e) {
-      store.toast("Erro ao gerar plaquinhas: " + e.message);
-    }
-    setBusy(false);
-  };
-
   return (
-    <div className="space-y-4">
-      {/* KPI CARDS */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        <KPI icon="🍽️" label="Total de Mesas" value={tablesCount} />
-        <KPI icon="🟢" label="Mesas Livres" value={freeCount} accent={C.green} />
-        <KPI icon="🟡" label="Mesas Ocupadas" value={occupiedCount} accent={C.yellowLight} />
-        <KPI icon="💰" label="Consumo no Salão" value={brl(totalConsumption)} accent={C.orange} />
-      </div>
-
-      {/* BARRA DE FILTROS E AÇÕES */}
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <div className="flex gap-2">
-          {["TODAS", "LIVRES", "OCUPADAS"].map((k) => (
-            <button
-              key={k}
-              onClick={() => setFilter(k)}
-              className="rounded-lg px-3 py-1.5 font-bold text-xs transition"
-              style={{
-                background: filter === k ? C.orange : C.gray850,
-                color: filter === k ? C.black : "#8a8a8a",
-                border: `1px solid ${filter === k ? C.orange : C.gray800}`,
-              }}
-            >
-              {k === "TODAS" ? `Todas (${tablesCount})` : k === "LIVRES" ? `Livres (${freeCount})` : `Ocupadas (${occupiedCount})`}
-            </button>
-          ))}
-        </div>
-
-        <div className="flex items-center gap-2">
-          <button
-            onClick={() => setQrAllModal(true)}
-            className="rounded-lg px-3 py-1.5 font-bold text-xs transition flex items-center gap-1.5 text-white active:scale-95"
-            style={{ background: C.gray800, border: `1px solid ${C.gray700}` }}
-          >
-            <span>📲</span>
-            <span>Plaquinhas QR Code</span>
-          </button>
-        </div>
-      </div>
-
-      {/* GRADE DE MESAS */}
-      <div className="grid sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
-        {filteredTables.map((t) => (
-          <Card
-            key={t.num}
-            className="p-4 flex flex-col justify-between transition"
-            style={{
-              borderColor: t.occupied ? `${C.orange}66` : C.gray800,
-              background: t.occupied ? `linear-gradient(135deg, ${C.gray900}, ${C.black})` : C.gray900,
-            }}
-          >
-            <div>
-              <div className="flex items-center justify-between mb-2">
-                <span style={{ color: C.white, fontFamily: font.display, fontStyle: "italic", fontSize: 20 }}>
-                  {t.name}
-                </span>
-                <span
-                  className="rounded-full px-2 py-0.5 font-bold text-xs"
-                  style={{
-                    background: t.occupied ? "#854d0e33" : "#16653433",
-                    color: t.occupied ? C.yellowLight : C.green,
-                    border: `1px solid ${t.occupied ? C.yellow : C.green}44`,
-                  }}
-                >
-                  {t.occupied ? `Ocupada (${t.orders.length} ${t.orders.length > 1 ? "pedidos" : "pedido"})` : "Livre"}
-                </span>
-              </div>
-
-              {t.occupied ? (
-                <div className="space-y-2 mt-3 text-xs">
-                  <div className="flex justify-between" style={{ color: "#8a8a8a" }}>
-                    <span>Permanência:</span>
-                    <span style={{ color: C.white, fontWeight: 700 }}>⏱ {elapsed(t.order?.createdAt, now)}</span>
-                  </div>
-                  <div className="flex justify-between" style={{ color: "#8a8a8a" }}>
-                    <span>Cozinha (KDS):</span>
-                    <span style={{ color: C.orange, fontWeight: 800 }}>{t.order?.status}</span>
-                  </div>
-
-                  <div className="p-2 rounded-lg space-y-1 mt-2" style={{ background: C.black, border: `1px solid ${C.gray800}` }}>
-                    <div style={{ color: "#7a7a7a", fontSize: 10, fontWeight: 700 }}>ITENS CONSUMIDOS:</div>
-                    {t.items.slice(0, 4).map((it, idx) => (
-                      <div key={idx} className="flex justify-between text-white" style={{ fontSize: 11.5 }}>
-                        <span className="truncate max-w-[70%]">{it.qty}x {it.name}</span>
-                        <span style={{ color: C.yellowLight }}>{brl(it.unit * it.qty)}</span>
-                      </div>
-                    ))}
-                    {t.items.length > 4 && (
-                      <div style={{ color: "#7a7a7a", fontSize: 10 }}>+ {t.items.length - 4} outros itens...</div>
-                    )}
-                  </div>
-
-                  <div className="flex justify-between items-center pt-2 font-black text-sm" style={{ borderTop: `1px solid ${C.gray800}` }}>
-                    <span style={{ color: "#8a8a8a" }}>TOTAL:</span>
-                    <span style={{ color: C.yellowLight, fontSize: 16 }}>{brl(t.total)}</span>
-                  </div>
-                </div>
-              ) : (
-                <div className="py-5 text-center">
-                  <div style={{ fontSize: 32, opacity: 0.35 }}>🍽️</div>
-                  <div style={{ color: "#777", fontSize: 11, marginTop: 4 }}>Mesa livre para atendimento</div>
-                </div>
-              )}
-            </div>
-
-            <div className="mt-4 pt-2">
-              {t.occupied ? (
-                <div className="space-y-1.5">
-                  <div className="grid grid-cols-2 gap-1.5">
-                    <button
-                      onClick={() => { setAddItemModal(t); setCartItems({}); setObs(""); }}
-                      className="rounded-lg py-1.5 font-bold text-xs transition active:scale-95"
-                      style={{ background: `${C.orange}22`, color: C.orange, border: `1px solid ${C.orange}66` }}
-                    >
-                      ➕ Nova Rodada
-                    </button>
-                    <button
-                      onClick={() => { setTransferModal(t); setTargetTable(""); }}
-                      className="rounded-lg py-1.5 font-bold text-xs transition active:scale-95"
-                      style={{ background: C.gray850, color: "#ccc", border: `1px solid ${C.gray700}` }}
-                    >
-                      ↔️ Trocar Mesa
-                    </button>
-                  </div>
-                  <div className="grid grid-cols-2 gap-1.5">
-                    <button
-                      onClick={() => printTableBill(t)}
-                      className="rounded-lg py-1.5 font-bold text-xs transition active:scale-95"
-                      style={{ background: C.gray800, color: C.white, border: `1px solid ${C.gray700}` }}
-                    >
-                      🖨️ Pré-Conta
-                    </button>
-                    <button
-                      onClick={() => setCloseModal(t)}
-                      className="rounded-lg py-1.5 font-bold text-xs transition active:scale-95 text-black"
-                      style={{ background: C.green }}
-                    >
-                      💵 Fechar Mesa
-                    </button>
-                  </div>
-                </div>
-              ) : (
-                <div className="grid grid-cols-3 gap-1.5">
-                  <button
-                    onClick={() => { setOpenModal({ tableNum: t.num, tableName: t.name }); setCartItems({}); setCustName(""); setObs(""); }}
-                    className="col-span-2 rounded-lg py-2.5 font-bold text-xs transition active:scale-95 text-black"
-                    style={{ background: `linear-gradient(100deg, ${C.orange}, ${C.yellow})` }}
-                  >
-                    + Abrir Mesa
-                  </button>
-                  <button
-                    onClick={() => setQrSingle(t)}
-                    className="rounded-lg py-2.5 font-bold text-xs transition active:scale-95 text-white"
-                    style={{ background: C.gray800, border: `1px solid ${C.gray700}` }}
-                    title="Ver QR Code desta mesa"
-                  >
-                    📲 QR
-                  </button>
-                </div>
-              )}
-            </div>
-          </Card>
-        ))}
-      </div>
-
-      {/* MODAL 1: ABRIR MESA (PRIMEIRA COMANDA) */}
-      {openModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: "rgba(0,0,0,.82)" }}>
-          <Card className="w-full max-w-lg p-5 space-y-3.5 max-h-[92vh] overflow-y-auto" style={{ border: `1px solid ${C.orange}`, background: C.gray900 }}>
-            <div className="flex items-center justify-between">
-              <div style={{ color: C.white, fontFamily: font.display, fontStyle: "italic", fontSize: 22 }}>
-                🍽️ ABRIR COMANDA — {openModal.tableName}
-              </div>
-              <button onClick={() => setOpenModal(null)} className="text-gray-400 hover:text-white text-xl">✕</button>
-            </div>
-
-            <div className="grid grid-cols-2 gap-2 text-xs">
-              <div>
-                <label style={{ color: "#8a8a8a" }}>Identificação do Cliente (opcional)</label>
-                <input
-                  value={custName}
-                  onChange={(e) => setCustName(e.target.value)}
-                  placeholder="ex.: João e amigos"
-                  className="w-full rounded-lg px-2.5 py-1.5 mt-1 outline-none text-white"
-                  style={{ background: C.black, border: `1px solid ${C.gray800}` }}
-                />
-              </div>
-              <div>
-                <label style={{ color: "#8a8a8a" }}>Observação para Cozinha</label>
-                <input
-                  value={obs}
-                  onChange={(e) => setObs(e.target.value)}
-                  placeholder="ex.: Sem cebola, gelo à parte"
-                  className="w-full rounded-lg px-2.5 py-1.5 mt-1 outline-none text-white"
-                  style={{ background: C.black, border: `1px solid ${C.gray800}` }}
-                />
-              </div>
-            </div>
-
-            {/* SELEÇÃO DE PRODUTOS */}
-            <div>
-              <div style={{ color: C.white, fontWeight: 800, fontSize: 13, marginBottom: 6 }}>
-                Selecione os itens do primeiro pedido:
-              </div>
-              <div className="space-y-1.5 max-h-56 overflow-y-auto pr-1">
-                {store.products.map((p) => {
-                  const qty = cartItems[p.id] || 0;
-                  return (
-                    <div
-                      key={p.id}
-                      className="flex items-center justify-between p-2 rounded-lg text-xs"
-                      style={{ background: C.black, border: `1px solid ${qty > 0 ? C.orange : C.gray850}` }}
-                    >
-                      <div className="flex items-center gap-2 truncate max-w-[65%]">
-                        <span style={{ fontSize: 16 }}>{p.emoji || "🍔"}</span>
-                        <div>
-                          <div className="text-white font-bold truncate">{p.name}</div>
-                          <div style={{ color: C.yellowLight }}>{brl(p.price)}</div>
-                        </div>
-                      </div>
-
-                      <div className="flex items-center gap-2">
-                        {qty > 0 && (
-                          <button
-                            onClick={() => setCartItems((prev) => ({ ...prev, [p.id]: Math.max(0, qty - 1) }))}
-                            className="w-6 h-6 rounded flex items-center justify-center font-bold"
-                            style={{ background: C.gray800, color: C.white }}
-                          >
-                            −
-                          </button>
-                        )}
-                        {qty > 0 && <span className="font-bold text-white px-1">{qty}</span>}
-                        <button
-                          onClick={() => setCartItems((prev) => ({ ...prev, [p.id]: qty + 1 }))}
-                          className="w-6 h-6 rounded flex items-center justify-center font-bold text-black"
-                          style={{ background: C.orange }}
-                        >
-                          +
-                        </button>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-
-            {/* TOTAL DO PEDIDO */}
-            <div className="p-3 rounded-xl flex items-center justify-between" style={{ background: C.gray850 }}>
-              <span style={{ color: "#8a8a8a", fontSize: 12 }}>Total da comanda inicial:</span>
-              <span style={{ color: C.yellowLight, fontWeight: 900, fontSize: 16 }}>
-                {brl(
-                  Object.entries(cartItems).reduce((sum, [pid, qty]) => {
-                    const pr = store.products.find((p) => p.id === pid);
-                    return sum + (pr ? pr.price * qty : 0);
-                  }, 0)
-                )}
-              </span>
-            </div>
-
-            <div className="flex gap-2 pt-2">
-              <Btn full variant="dark" onClick={() => setOpenModal(null)}>Cancelar</Btn>
-              <Btn full disabled={busy} onClick={handleStartOrder}>
-                {busy ? "Abrindo…" : "🔥 Abrir Mesa & Enviar à Cozinha"}
-              </Btn>
-            </div>
-          </Card>
-        </div>
-      )}
-
-      {/* MODAL 2: NOVA RODADA (+ ADICIONAR ITENS À COMANDA EXISTENTE) */}
-      {addItemModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: "rgba(0,0,0,.82)" }}>
-          <Card className="w-full max-w-lg p-5 space-y-3.5 max-h-[92vh] overflow-y-auto" style={{ border: `1px solid ${C.orange}`, background: C.gray900 }}>
-            <div className="flex items-center justify-between">
-              <div>
-                <div style={{ color: C.white, fontFamily: font.display, fontStyle: "italic", fontSize: 22 }}>
-                  ➕ NOVA RODADA — {addItemModal.name}
-                </div>
-                <div style={{ color: "#8a8a8a", fontSize: 11 }}>
-                  Os itens serão somados à comanda atual e enviados direto para a cozinha/KDS.
-                </div>
-              </div>
-              <button onClick={() => setAddItemModal(null)} className="text-gray-400 hover:text-white text-xl">✕</button>
-            </div>
-
-            <div>
-              <label style={{ color: "#8a8a8a", fontSize: 11.5 }}>Observação da nova rodada (opcional)</label>
-              <input
-                value={obs}
-                onChange={(e) => setObs(e.target.value)}
-                placeholder="ex.: Bebida com gelo e limão, porção com molho à parte"
-                className="w-full rounded-lg px-2.5 py-1.5 mt-1 outline-none text-white text-xs"
-                style={{ background: C.black, border: `1px solid ${C.gray800}` }}
-              />
-            </div>
-
-            <div>
-              <div style={{ color: C.white, fontWeight: 800, fontSize: 13, marginBottom: 6 }}>
-                Escolha os produtos para a nova rodada:
-              </div>
-              <div className="space-y-1.5 max-h-56 overflow-y-auto pr-1">
-                {store.products.map((p) => {
-                  const qty = cartItems[p.id] || 0;
-                  return (
-                    <div
-                      key={p.id}
-                      className="flex items-center justify-between p-2 rounded-lg text-xs"
-                      style={{ background: C.black, border: `1px solid ${qty > 0 ? C.orange : C.gray850}` }}
-                    >
-                      <div className="flex items-center gap-2 truncate max-w-[65%]">
-                        <span style={{ fontSize: 16 }}>{p.emoji || "🍔"}</span>
-                        <div>
-                          <div className="text-white font-bold truncate">{p.name}</div>
-                          <div style={{ color: C.yellowLight }}>{brl(p.price)}</div>
-                        </div>
-                      </div>
-
-                      <div className="flex items-center gap-2">
-                        {qty > 0 && (
-                          <button
-                            onClick={() => setCartItems((prev) => ({ ...prev, [p.id]: Math.max(0, qty - 1) }))}
-                            className="w-6 h-6 rounded flex items-center justify-center font-bold"
-                            style={{ background: C.gray800, color: C.white }}
-                          >
-                            −
-                          </button>
-                        )}
-                        {qty > 0 && <span className="font-bold text-white px-1">{qty}</span>}
-                        <button
-                          onClick={() => setCartItems((prev) => ({ ...prev, [p.id]: qty + 1 }))}
-                          className="w-6 h-6 rounded flex items-center justify-center font-bold text-black"
-                          style={{ background: C.orange }}
-                        >
-                          +
-                        </button>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-
-            <div className="p-3 rounded-xl flex items-center justify-between" style={{ background: C.gray850 }}>
-              <span style={{ color: "#8a8a8a", fontSize: 12 }}>Valor desta nova rodada:</span>
-              <span style={{ color: C.yellowLight, fontWeight: 900, fontSize: 16 }}>
-                {brl(
-                  Object.entries(cartItems).reduce((sum, [pid, qty]) => {
-                    const pr = store.products.find((p) => p.id === pid);
-                    return sum + (pr ? pr.price * qty : 0);
-                  }, 0)
-                )}
-              </span>
-            </div>
-
-            <div className="flex gap-2 pt-2">
-              <Btn full variant="dark" onClick={() => setAddItemModal(null)}>Cancelar</Btn>
-              <Btn full disabled={busy} onClick={handleAppendItems}>
-                {busy ? "Enviando…" : "🔥 Confirmar & Enviar à Cozinha"}
-              </Btn>
-            </div>
-          </Card>
-        </div>
-      )}
-
-      {/* MODAL 3: TROCAR / TRANSFERIR MESA */}
-      {transferModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: "rgba(0,0,0,.82)" }}>
-          <Card className="w-full max-w-md p-5 space-y-4" style={{ border: `1px solid ${C.orange}`, background: C.gray900 }}>
-            <div className="flex items-center justify-between">
-              <div style={{ color: C.white, fontFamily: font.display, fontStyle: "italic", fontSize: 20 }}>
-                ↔️ TRANSFERIR — {transferModal.name}
-              </div>
-              <button onClick={() => setTransferModal(null)} className="text-gray-400 hover:text-white text-xl">✕</button>
-            </div>
-
-            <p style={{ color: "#8a8a8a", fontSize: 12.5 }}>
-              Transfira a comanda e o consumo atual da <strong>{transferModal.name}</strong> para outra mesa livre do salão.
-            </p>
-
-            <div>
-              <label style={{ color: C.white, fontWeight: 700, fontSize: 12 }}>Selecione a mesa de destino:</label>
-              <div className="grid grid-cols-3 gap-2 mt-2">
-                {tables
-                  .filter((t) => !t.occupied && t.name !== transferModal.name)
-                  .map((t) => (
-                    <button
-                      key={t.name}
-                      onClick={() => setTargetTable(t.name)}
-                      className="rounded-lg p-2.5 text-center font-bold text-xs transition"
-                      style={{
-                        background: targetTable === t.name ? C.orange : C.gray850,
-                        color: targetTable === t.name ? C.black : C.white,
-                        border: `1px solid ${targetTable === t.name ? C.orange : C.gray700}`,
-                      }}
-                    >
-                      {t.name}
-                    </button>
-                  ))}
-              </div>
-              {tables.filter((t) => !t.occupied && t.name !== transferModal.name).length === 0 && (
-                <div style={{ color: "#8a8a8a", fontSize: 12, marginTop: 8 }}>
-                  Todas as outras mesas estão ocupadas no momento.
-                </div>
-              )}
-            </div>
-
-            <div className="flex gap-2 pt-2">
-              <Btn full variant="dark" onClick={() => setTransferModal(null)}>Cancelar</Btn>
-              <Btn full disabled={busy || !targetTable} onClick={handleTransferTable}>
-                {busy ? "Transferindo…" : `Transferir para ${targetTable || "..."}`}
-              </Btn>
-            </div>
-          </Card>
-        </div>
-      )}
-
-      {/* MODAL 4: QR CODE INDIVIDUAL DE UMA MESA */}
-      {qrSingle && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: "rgba(0,0,0,.82)" }}>
-          <Card className="w-full max-w-sm p-5 space-y-4 text-center" style={{ border: `1px solid ${C.orange}`, background: C.gray900 }}>
-            <div className="flex items-center justify-between">
-              <div style={{ color: C.white, fontFamily: font.display, fontStyle: "italic", fontSize: 22 }}>
-                📲 QR CODE — {qrSingle.name}
-              </div>
-              <button onClick={() => setQrSingle(null)} className="text-gray-400 hover:text-white text-xl">✕</button>
-            </div>
-
-            <div className="p-4 bg-white rounded-xl inline-block mx-auto shadow-lg">
-              <QRCodeImage value={`${window.location.origin}/?mesa=${qrSingle.num}`} size={180} />
-            </div>
-
-            <div style={{ color: "#8a8a8a", fontSize: 12 }}>
-              Link de acesso direto da mesa:<br />
-              <span style={{ color: C.yellowLight, fontWeight: 700 }}>
-                {window.location.origin}/?mesa={qrSingle.num}
-              </span>
-            </div>
-
-            <div className="flex gap-2">
-              <Btn
-                full
-                variant="dark"
-                onClick={() => {
-                  navigator.clipboard.writeText(`${window.location.origin}/?mesa=${qrSingle.num}`);
-                  store.toast("📋 Link da mesa copiado!");
-                }}
-              >
-                📋 Copiar Link
-              </Btn>
-              <Btn
-                full
-                onClick={() => {
-                  window.open(`/?mesa=${qrSingle.num}`, "_blank");
-                }}
-              >
-                👀 Testar Mesa
-              </Btn>
-            </div>
-          </Card>
-        </div>
-      )}
-
-      {/* MODAL 5: TODAS AS PLAQUINHAS QR CODE */}
-      {qrAllModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: "rgba(0,0,0,.85)" }}>
-          <Card className="w-full max-w-2xl p-5 space-y-4 max-h-[90vh] overflow-y-auto" style={{ border: `1px solid ${C.orange}`, background: C.gray900 }}>
-            <div className="flex items-center justify-between">
-              <div>
-                <div style={{ color: C.white, fontFamily: font.display, fontStyle: "italic", fontSize: 22 }}>
-                  📲 PLAQUINHAS QR CODE DO SALÃO
-                </div>
-                <div style={{ color: "#8a8a8a", fontSize: 11.5 }}>
-                  Imprima as plaquinhas para colocar nas mesas dos clientes.
-                </div>
-              </div>
-              <button onClick={() => setQrAllModal(false)} className="text-gray-400 hover:text-white text-xl">✕</button>
-            </div>
-
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 max-h-96 overflow-y-auto pr-1">
-              {tables.map((t) => (
-                <div key={t.num} className="p-3 rounded-xl bg-black border border-gray-800 text-center space-y-2">
-                  <div className="font-extrabold text-white text-sm">{t.name}</div>
-                  <div className="bg-white p-2 rounded-lg inline-block">
-                    <QRCodeImage value={`${window.location.origin}/?mesa=${t.num}`} size={110} />
-                  </div>
-                  <div style={{ color: "#777", fontSize: 9.5 }}>/?mesa={t.num}</div>
-                </div>
-              ))}
-            </div>
-
-            <div className="pt-2 flex gap-2">
-              <Btn full variant="dark" onClick={() => setQrAllModal(false)}>Fechar</Btn>
-              <Btn full disabled={busy} onClick={printTableQRCodes}>
-                {busy ? "Gerando…" : "🖨️ Imprimir Todas as Plaquinhas (A4)"}
-              </Btn>
-            </div>
-          </Card>
-        </div>
-      )}
-
-      {/* MODAL 6: FECHAR MESA & PAGAMENTO */}
-      {closeModal && closeModal.occupied && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: "rgba(0,0,0,.82)" }}>
-          <Card className="w-full max-w-md p-5 space-y-4" style={{ border: `2px solid ${C.green}`, background: C.gray900 }}>
-            <div className="flex items-center justify-between">
-              <div style={{ color: C.white, fontFamily: font.display, fontStyle: "italic", fontSize: 22 }}>
-                💵 FECHAR CONTA — {closeModal.name}
-              </div>
-              <button onClick={() => setCloseModal(null)} className="text-gray-400 hover:text-white text-xl">✕</button>
-            </div>
-
-            <div className="p-3.5 rounded-xl space-y-2 text-xs" style={{ background: C.gray850 }}>
-              <div className="flex justify-between" style={{ color: "#8a8a8a" }}>
-                <span>Comanda:</span>
-                <span style={{ color: C.white, fontWeight: 700 }}>
-                  {closeModal.orders.map((o) => `#${o.code}`).join(", ")}
-                </span>
-              </div>
-              <div className="flex justify-between" style={{ color: "#8a8a8a" }}>
-                <span>Tempo no salão:</span>
-                <span style={{ color: C.white }}>⏱ {elapsed(closeModal.order?.createdAt, now)}</span>
-              </div>
-
-              <div className="pt-2 pb-1 border-t border-gray-800 space-y-1">
-                {closeModal.items.map((it, idx) => (
-                  <div key={idx} className="flex justify-between text-white">
-                    <span>{it.qty}x {it.name}</span>
-                    <span style={{ color: C.yellowLight }}>{brl(it.unit * it.qty)}</span>
-                  </div>
-                ))}
-              </div>
-
-              <div className="pt-2 border-t border-gray-800 flex justify-between">
-                <span style={{ color: "#8a8a8a" }}>Subtotal:</span>
-                <span style={{ color: C.white, fontWeight: 700 }}>{brl(closeModal.total)}</span>
-              </div>
-
-              <div className="flex items-center justify-between py-1">
-                <label className="flex items-center gap-1.5 cursor-pointer" style={{ color: "#aaa" }}>
-                  <input
-                    type="checkbox"
-                    checked={serviceCharge}
-                    onChange={(e) => setServiceCharge(e.target.checked)}
-                    className="accent-orange-500"
-                  />
-                  <span>Taxa de serviço 10% (opcional)</span>
-                </label>
-                <span style={{ color: serviceCharge ? C.green : "#555" }}>
-                  {brl(serviceCharge ? closeModal.total * 0.1 : 0)}
-                </span>
-              </div>
-
-              <div className="flex justify-between items-center pt-2 border-t border-gray-800 font-black text-sm">
-                <span style={{ color: C.white }}>TOTAL A COBRAR:</span>
-                <span style={{ color: C.yellowLight, fontSize: 18 }}>
-                  {brl(closeModal.total + (serviceCharge ? closeModal.total * 0.1 : 0))}
-                </span>
-              </div>
-            </div>
-
-            {/* SELEÇÃO DE PAGAMENTO */}
-            <div>
-              <div style={{ color: "#8a8a8a", fontSize: 11, marginBottom: 6 }}>Forma de pagamento utilizada:</div>
-              <div className="grid grid-cols-3 gap-1.5">
-                {["PIX", "Cartão", "Dinheiro"].map((m) => (
-                  <button
-                    key={m}
-                    onClick={() => setPayMethod(m)}
-                    className="rounded-lg py-2 font-bold text-xs transition"
-                    style={{
-                      background: payMethod === m ? `${C.orange}22` : C.gray850,
-                      border: `1px solid ${payMethod === m ? C.orange : C.gray800}`,
-                      color: payMethod === m ? C.orange : "#8a8a8a",
-                    }}
-                  >
-                    {m === "PIX" ? "⚡ Pix" : m === "Cartão" ? "💳 Cartão" : "💵 Dinheiro"}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            <div className="space-y-2 pt-2">
-              <button
-                onClick={handleCloseTable}
-                disabled={busy}
-                className="w-full rounded-xl py-3.5 font-black text-black transition active:scale-95"
-                style={{ background: C.green, fontSize: 14 }}
-              >
-                {busy ? "Finalizando…" : "✅ Confirmar Pagamento & Liberar Mesa"}
-              </button>
-
-              <button
-                onClick={() => printTableBill(closeModal)}
-                className="w-full rounded-xl py-2 font-bold text-xs"
-                style={{ background: C.gray800, color: C.white, border: `1px solid ${C.gray700}` }}
-              >
-                🖨️ Imprimir Pré-Conta
-              </button>
-            </div>
-          </Card>
-        </div>
-      )}
-    </div>
+    <React.Suspense fallback={<div style={{ padding: 20, textAlign: 'center', color: '#888' }}>Carregando AdminTables...</div>}>
+      <AdminTablesModular store={store} now={now}  />
+    </React.Suspense>
   );
 }
-
-// ============================================================
-// FRENTE DE CAIXA / PDV — Turnos, Suprimentos, Sangrias e Fechamento
-// ============================================================
 
 function AdminCashRegister({ store, now }) {
-  const reg = store.cashRegister;
-  const isOpen = reg && reg.status === "OPEN";
-
-  const [showOpenModal, setShowOpenModal] = useState(false);
-  const [showTxModal, setShowTxModal] = useState(null); // 'SUPRIMENTO' | 'SANGRIA'
-  const [showCloseModal, setShowCloseModal] = useState(false);
-  const [showHistory, setShowHistory] = useState(false);
-  const [historyList, setHistoryList] = useState([]);
-  const [loadingHistory, setLoadingHistory] = useState(false);
-
-  // Inputs Abertura
-  const [initialCashInput, setInitialCashInput] = useState("150");
-  const [openNotesInput, setOpenNotesInput] = useState("");
-
-  // Inputs Movimentação (Suprimento / Sangria)
-  const [txAmount, setTxAmount] = useState("");
-  const [txReason, setTxReason] = useState("");
-
-  // Inputs Fechamento
-  const [closeCashInput, setCloseCashInput] = useState("");
-  const [closePixInput, setClosePixInput] = useState("");
-  const [closeCardInput, setCloseCardInput] = useState("");
-  const [closeNotesInput, setCloseNotesInput] = useState("");
-
-  const [busy, setBusy] = useState(false);
-
-  // Carrega histórico quando abre a aba de histórico
-  const loadHistory = async () => {
-    setLoadingHistory(true);
-    try {
-      const d = await api("/api/cash/history");
-      setHistoryList(d.history || []);
-    } catch (e) {
-      store.toast("Falha ao carregar histórico: " + e.message);
-    }
-    setLoadingHistory(false);
-  };
-
-  const handleOpenRegister = async () => {
-    const val = parseFloat(String(initialCashInput).replace(/\./g, "").replace(",", ".")) || 0;
-    setBusy(true);
-    try {
-      await store.openCashRegister({ initialCash: val, notes: openNotesInput });
-      setShowOpenModal(false);
-      setOpenNotesInput("");
-    } catch (e) {
-      store.toast(e.message);
-    }
-    setBusy(false);
-  };
-
-  const handleAddTx = async () => {
-    const val = parseFloat(String(txAmount).replace(/\./g, "").replace(",", ".")) || 0;
-    if (val <= 0) {
-      store.toast("Informe um valor válido maior que zero.");
-      return;
-    }
-    if (!txReason.trim()) {
-      store.toast("Informe o motivo da movimentação.");
-      return;
-    }
-    setBusy(true);
-    try {
-      await store.addCashTransaction({
-        type: showTxModal,
-        amount: val,
-        reason: txReason.trim(),
-        method: "DINHEIRO",
-      });
-      setShowTxModal(null);
-      setTxAmount("");
-      setTxReason("");
-    } catch (e) {
-      store.toast(e.message);
-    }
-    setBusy(false);
-  };
-
-  const handleCloseRegister = async () => {
-    const cCash = parseFloat(String(closeCashInput).replace(/\./g, "").replace(",", ".")) || 0;
-    const cPix = closePixInput ? parseFloat(String(closePixInput).replace(/\./g, "").replace(",", ".")) : null;
-    const cCard = closeCardInput ? parseFloat(String(closeCardInput).replace(/\./g, "").replace(",", ".")) : null;
-
-    setBusy(true);
-    try {
-      const closed = await store.closeCashRegister({
-        closedCash: cCash,
-        declaredPix: cPix,
-        declaredCard: cCard,
-        notes: closeNotesInput,
-      });
-      setShowCloseModal(false);
-      setCloseCashInput("");
-      setClosePixInput("");
-      setCloseCardInput("");
-      setCloseNotesInput("");
-      // Oferece impressão
-      printCashSummaryReceipt(closed, store.settings);
-    } catch (e) {
-      store.toast(e.message);
-    }
-    setBusy(false);
-  };
-
-  const handlePrint = (targetReg) => {
-    const r = targetReg || reg;
-    if (!r) return;
-    api("/api/cash/print-summary", { method: "POST", body: { registerId: r.id } })
-      .then((res) => {
-        if (res.printed) {
-          store.toast("Resumo enviado à impressora térmica de rede ✓");
-        } else {
-          printCashSummaryReceipt(r, store.settings);
-        }
-      })
-      .catch(() => {
-        printCashSummaryReceipt(r, store.settings);
-      });
-  };
-
-  // Cálculo da quebra de caixa em tempo real no modal de fechamento
-  const parsedCloseCash = parseFloat(String(closeCashInput).replace(/\./g, "").replace(",", ".")) || 0;
-  const expectedGaveta = reg?.summary?.expectedCash || 0;
-  const cashDiff = parsedCloseCash - expectedGaveta;
-
   return (
-    <div className="space-y-4">
-      {/* CABEÇALHO DO CAIXA */}
-      <div className="flex flex-wrap items-center justify-between gap-3 p-4 rounded-2xl" style={{ background: C.gray900, border: `1px solid ${C.gray800}` }}>
-        <div className="flex items-center gap-3">
-          <div
-            className="flex items-center justify-center rounded-xl"
-            style={{ width: 44, height: 44, background: isOpen ? `${C.green}22` : `${C.red}22`, fontSize: 22 }}
-          >
-            {isOpen ? "💵" : "🔒"}
-          </div>
-          <div>
-            <div className="flex items-center gap-2">
-              <span style={{ color: C.white, fontWeight: 900, fontSize: 16 }}>
-                FRENTE DE CAIXA / PDV
-              </span>
-              <span
-                className="rounded-full px-2.5 py-0.5 font-black text-[11px]"
-                style={{
-                  background: isOpen ? "#22c55e22" : "#ef444422",
-                  color: isOpen ? "#22c55e" : "#ef4444",
-                  border: `1px solid ${isOpen ? "#22c55e55" : "#ef444455"}`,
-                }}
-              >
-                {isOpen ? "● TURNO ABERTO" : "○ CAIXA FECHADO"}
-              </span>
-            </div>
-            <div style={{ color: "#8a8a8a", fontSize: 12, marginTop: 2 }}>
-              {isOpen
-                ? `Aberto por ${reg.openedBy} às ${fmtDT(reg.openedAt)} · Turno #${reg.id.slice(0, 8)}`
-                : "Nenhum turno de caixa em andamento. Abra o caixa para iniciar o dia de vendas."}
-            </div>
-          </div>
-        </div>
-
-        <div className="flex items-center gap-2">
-          {isOpen && (
-            <button
-              onClick={() => handlePrint(reg)}
-              className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold transition active:scale-95"
-              style={{ background: C.gray800, color: C.white, border: `1px solid ${C.gray700}` }}
-            >
-              <span>🖨️</span>
-              <span>Imprimir Resumo</span>
-            </button>
-          )}
-
-          <button
-            onClick={() => {
-              if (!showHistory) loadHistory();
-              setShowHistory(!showHistory);
-            }}
-            className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold transition active:scale-95"
-            style={{
-              background: showHistory ? C.orange : C.gray800,
-              color: showHistory ? C.black : C.white,
-              border: `1px solid ${showHistory ? C.orange : C.gray700}`,
-            }}
-          >
-            <span>📜</span>
-            <span>{showHistory ? "Voltar ao Caixa" : "Histórico de Turnos"}</span>
-          </button>
-        </div>
-      </div>
-
-      {/* SE VISUALIZANDO HISTÓRICO DE TURNOS */}
-      {showHistory ? (
-        <Card className="p-4 space-y-3">
-          <div className="flex items-center justify-between pb-2" style={{ borderBottom: `1px solid ${C.gray800}` }}>
-            <div style={{ color: C.white, fontWeight: 900, fontSize: 14 }}>Turnos de Caixa Anteriores</div>
-            <Btn small variant="dark" onClick={loadHistory} disabled={loadingHistory}>
-              {loadingHistory ? "Carregando…" : "Atualizar"}
-            </Btn>
-          </div>
-
-          {historyList.length === 0 ? (
-            <div className="py-10 text-center" style={{ color: "#666", fontSize: 13 }}>
-              Nenhum turno de caixa fechado registrado no histórico.
-            </div>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-xs">
-                <thead>
-                  <tr style={{ color: "#8a8a8a", borderBottom: `1px solid ${C.gray800}` }}>
-                    <th className="py-2.5 px-2">Turno</th>
-                    <th className="py-2.5 px-2">Abertura</th>
-                    <th className="py-2.5 px-2">Fechamento</th>
-                    <th className="py-2.5 px-2">Operador</th>
-                    <th className="py-2.5 px-2">Total Vendas</th>
-                    <th className="py-2.5 px-2">Esperado Gaveta</th>
-                    <th className="py-2.5 px-2">Contado Gaveta</th>
-                    <th className="py-2.5 px-2">Diferença</th>
-                    <th className="py-2.5 px-2 text-right">Ação</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-800">
-                  {historyList.map((h) => {
-                    const s = h.summary;
-                    const diff = s.diffCash;
-                    return (
-                      <tr key={h.id} className="hover:bg-gray-850 transition">
-                        <td className="py-2.5 px-2 font-mono font-bold text-white">#{h.id.slice(0, 8)}</td>
-                        <td className="py-2.5 px-2 text-gray-300">{fmtDT(h.openedAt)}</td>
-                        <td className="py-2.5 px-2 text-gray-300">{fmtDT(h.closedAt)}</td>
-                        <td className="py-2.5 px-2 text-gray-300">{h.closedBy || h.openedBy}</td>
-                        <td className="py-2.5 px-2 font-bold" style={{ color: C.yellowLight }}>{brl(s.totalSales)}</td>
-                        <td className="py-2.5 px-2 text-gray-300">{brl(s.expectedCash)}</td>
-                        <td className="py-2.5 px-2 text-white font-bold">{s.closedCash !== null ? brl(s.closedCash) : "—"}</td>
-                        <td className="py-2.5 px-2 font-bold">
-                          {diff === null ? (
-                            "—"
-                          ) : diff === 0 ? (
-                            <span className="text-green-400">R$ 0,00</span>
-                          ) : diff > 0 ? (
-                            <span className="text-emerald-400">+{brl(diff)}</span>
-                          ) : (
-                            <span className="text-red-400">-{brl(Math.abs(diff))}</span>
-                          )}
-                        </td>
-                        <td className="py-2.5 px-2 text-right">
-                          <button
-                            onClick={() => handlePrint(h)}
-                            className="px-2 py-1 rounded font-bold text-[11px] hover:bg-gray-700 transition"
-                            style={{ background: C.gray800, color: C.white, border: `1px solid ${C.gray700}` }}
-                          >
-                            🖨️ Cupom
-                          </button>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </Card>
-      ) : !isOpen ? (
-        /* SE O CAIXA ESTÁ FECHADO */
-        <Card className="p-8 text-center max-w-lg mx-auto my-6 space-y-4">
-          <div className="text-5xl">🔒</div>
-          <div>
-            <div style={{ color: C.white, fontFamily: font.display, fontStyle: "italic", fontSize: 24 }}>
-              CAIXA FECHADO
-            </div>
-            <p style={{ color: "#8a8a8a", fontSize: 13, marginTop: 6, lineHeight: 1.5 }}>
-              Abra um novo turno de caixa informando o valor do fundo de troco inicial da gaveta para liberar operações e conferências no balcão.
-            </p>
-          </div>
-
-          <div className="pt-2">
-            <button
-              onClick={() => {
-                setInitialCashInput("150");
-                setShowOpenModal(true);
-              }}
-              className="w-full py-3.5 px-6 rounded-xl font-black text-black transition active:scale-95 shadow-lg text-sm"
-              style={{ background: `linear-gradient(135deg, ${C.orange}, ${C.yellow})` }}
-            >
-              💵 ABRIR NOVO TURNO DE CAIXA
-            </button>
-          </div>
-        </Card>
-      ) : (
-        /* SE O CAIXA ESTÁ ABERTO */
-        <div className="space-y-4">
-          {/* 4 CARDS DE INDICADORES / KPI */}
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-            <Card className="p-3.5">
-              <div className="flex items-center justify-between text-xs" style={{ color: "#8a8a8a" }}>
-                <span>Fundo de Troco</span>
-                <span>🪙</span>
-              </div>
-              <div style={{ color: C.white, fontWeight: 900, fontSize: 20, marginTop: 4 }}>
-                {brl(reg.summary.initialCash)}
-              </div>
-              <div style={{ color: "#6a6a6a", fontSize: 10.5, marginTop: 2 }}>Fundo de abertura</div>
-            </Card>
-
-            <Card className="p-3.5">
-              <div className="flex items-center justify-between text-xs" style={{ color: "#8a8a8a" }}>
-                <span>Vendas no Turno</span>
-                <span>🧾</span>
-              </div>
-              <div style={{ color: C.yellowLight, fontWeight: 900, fontSize: 20, marginTop: 4 }}>
-                {brl(reg.summary.totalSales)}
-              </div>
-              <div style={{ color: "#6a6a6a", fontSize: 10.5, marginTop: 2 }}>
-                {reg.summary.orderCount} pedido{reg.summary.orderCount === 1 ? "" : "s"} concluídos
-              </div>
-            </Card>
-
-            <Card className="p-3.5">
-              <div className="flex items-center justify-between text-xs" style={{ color: "#8a8a8a" }}>
-                <span>Movimentações</span>
-                <span>↕️</span>
-              </div>
-              <div className="flex items-baseline gap-1.5 mt-1">
-                <span className="text-green-400 font-bold text-sm">+{brl(reg.summary.suprimentos)}</span>
-                <span className="text-gray-500">/</span>
-                <span className="text-red-400 font-bold text-sm">-{brl(reg.summary.sangrias)}</span>
-              </div>
-              <div style={{ color: "#6a6a6a", fontSize: 10.5, marginTop: 2 }}>Suprimentos e sangrias</div>
-            </Card>
-
-            <Card className="p-3.5" style={{ border: `2px solid ${C.yellow}77`, background: `${C.yellow}0d` }}>
-              <div className="flex items-center justify-between text-xs" style={{ color: C.yellowLight, fontWeight: 800 }}>
-                <span>ESPERADO NA GAVETA</span>
-                <span>💵</span>
-              </div>
-              <div style={{ color: C.yellowLight, fontWeight: 900, fontSize: 22, marginTop: 4 }}>
-                {brl(reg.summary.expectedCash)}
-              </div>
-              <div style={{ color: "#c9c9c9", fontSize: 10.5, marginTop: 2 }}>
-                Fundo + Dinheiro + Supr. − Sangr.
-              </div>
-            </Card>
-          </div>
-
-          {/* BARRA DE AÇÕES DO CAIXA */}
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
-            <button
-              onClick={() => {
-                setTxAmount("");
-                setTxReason("");
-                setShowTxModal("SUPRIMENTO");
-              }}
-              className="py-3 px-4 rounded-xl font-bold flex items-center justify-center gap-2 transition active:scale-95 text-xs text-white"
-              style={{ background: "#166534", border: "1px solid #22c55e55" }}
-            >
-              <span className="text-base">➕</span>
-              <span>SUPRIMENTO (REFORÇO)</span>
-            </button>
-
-            <button
-              onClick={() => {
-                setTxAmount("");
-                setTxReason("");
-                setShowTxModal("SANGRIA");
-              }}
-              className="py-3 px-4 rounded-xl font-bold flex items-center justify-center gap-2 transition active:scale-95 text-xs text-white"
-              style={{ background: "#991b1b", border: "1px solid #ef444455" }}
-            >
-              <span className="text-base">➖</span>
-              <span>SANGRIA (RETIRADA)</span>
-            </button>
-
-            <button
-              onClick={() => {
-                setCloseCashInput(String(reg.summary.expectedCash || ""));
-                setClosePixInput(String(reg.summary.pixSales || ""));
-                setCloseCardInput(String(reg.summary.cardSales || ""));
-                setCloseNotesInput("");
-                setShowCloseModal(true);
-              }}
-              className="py-3 px-4 rounded-xl font-black flex items-center justify-center gap-2 transition active:scale-95 text-xs text-black"
-              style={{ background: `linear-gradient(135deg, ${C.orange}, ${C.yellow})` }}
-            >
-              <span className="text-base">🔒</span>
-              <span>FECHAR CAIXA & CONFERÊNCIA</span>
-            </button>
-          </div>
-
-          {/* SEÇÕES EM DUAS COLUNAS: VENDAS POR MÉTODO & EXTRATO */}
-          <div className="grid lg:grid-cols-5 gap-4">
-            {/* Coluna 1: Vendas por Método de Pagamento (2 colunas) */}
-            <Card className="lg:col-span-2 p-4 space-y-3">
-              <div className="flex items-center justify-between pb-2" style={{ borderBottom: `1px solid ${C.gray800}` }}>
-                <span style={{ color: C.white, fontWeight: 900, fontSize: 13.5 }}>
-                  Vendas por Forma de Pagamento
-                </span>
-                <span style={{ color: C.yellowLight, fontWeight: 900, fontSize: 13.5 }}>
-                  {brl(reg.summary.totalSales)}
-                </span>
-              </div>
-
-              <div className="space-y-2.5">
-                {[
-                  { label: "Dinheiro (Gaveta)", icon: "💵", val: reg.summary.cashSales, color: "#22c55e" },
-                  { label: "Pix Instantâneo", icon: "💠", val: reg.summary.pixSales, color: "#38bdf8" },
-                  { label: "Cartão Crédito / Débito", icon: "💳", val: reg.summary.cardSales, color: "#f59e0b" },
-                  { label: "Outros / Faturado", icon: "📑", val: reg.summary.otherSales, color: "#a855f7" },
-                ].map((item) => {
-                  const pct = reg.summary.totalSales > 0 ? (item.val / reg.summary.totalSales) * 100 : 0;
-                  return (
-                    <div key={item.label} className="p-2.5 rounded-xl" style={{ background: C.black, border: `1px solid ${C.gray855 || C.gray850}` }}>
-                      <div className="flex items-center justify-between text-xs">
-                        <div className="flex items-center gap-1.5 font-bold" style={{ color: C.white }}>
-                          <span>{item.icon}</span>
-                          <span>{item.label}</span>
-                        </div>
-                        <span className="font-bold text-white">{brl(item.val)}</span>
-                      </div>
-                      <div className="flex items-center justify-between text-[10px] text-gray-500 mt-1">
-                        <span>Participação</span>
-                        <span>{pct.toFixed(1)}%</span>
-                      </div>
-                      <div className="w-full h-1.5 bg-gray-800 rounded-full overflow-hidden mt-1">
-                        <div className="h-full rounded-full transition-all duration-500" style={{ width: `${pct}%`, background: item.color }} />
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-
-              <div className="p-3 rounded-xl text-xs space-y-1" style={{ background: C.gray850 }}>
-                <div className="flex justify-between text-gray-400">
-                  <span>Fundo Inicial:</span>
-                  <span>+{brl(reg.summary.initialCash)}</span>
-                </div>
-                <div className="flex justify-between text-gray-400">
-                  <span>Vendas em Dinheiro:</span>
-                  <span>+{brl(reg.summary.cashSales)}</span>
-                </div>
-                <div className="flex justify-between text-green-400">
-                  <span>Suprimentos:</span>
-                  <span>+{brl(reg.summary.suprimentos)}</span>
-                </div>
-                <div className="flex justify-between text-red-400">
-                  <span>Sangrias:</span>
-                  <span>-{brl(reg.summary.sangrias)}</span>
-                </div>
-                <div className="flex justify-between pt-1.5 font-bold text-white text-sm" style={{ borderTop: `1px solid ${C.gray700}` }}>
-                  <span>Esperado em Dinheiro:</span>
-                  <span style={{ color: C.yellowLight }}>{brl(reg.summary.expectedCash)}</span>
-                </div>
-              </div>
-            </Card>
-
-            {/* Coluna 2: Extrato Detalhado de Movimentações (3 colunas) */}
-            <Card className="lg:col-span-3 p-4 space-y-3">
-              <div className="flex items-center justify-between pb-2" style={{ borderBottom: `1px solid ${C.gray800}` }}>
-                <div className="flex items-center gap-2">
-                  <span style={{ color: C.white, fontWeight: 900, fontSize: 13.5 }}>
-                    Extrato de Movimentações do Caixa
-                  </span>
-                  <span className="text-xs px-2 py-0.5 rounded-full bg-gray-800 text-gray-300 font-bold">
-                    {reg.transactions.length}
-                  </span>
-                </div>
-                <span style={{ color: "#7a7a7a", fontSize: 11 }}>Mais recentes primeiro</span>
-              </div>
-
-              {reg.transactions.length === 0 ? (
-                <div className="py-12 text-center" style={{ color: "#666", fontSize: 12 }}>
-                  Nenhuma movimentação avulsa registrada neste turno.
-                </div>
-              ) : (
-                <div className="space-y-2 max-h-[380px] overflow-y-auto pr-1">
-                  {reg.transactions.map((tx) => {
-                    const isSangria = tx.type === "SANGRIA";
-                    const isSuprimento = tx.type === "SUPRIMENTO";
-                    const badgeColor = isSangria ? "#ef4444" : isSuprimento ? "#22c55e" : "#38bdf8";
-
-                    return (
-                      <div
-                        key={tx.id}
-                        className="p-2.5 rounded-xl flex items-center justify-between transition"
-                        style={{ background: C.black, border: `1px solid ${C.gray850}` }}
-                      >
-                        <div className="flex items-center gap-2.5 min-w-0">
-                          <span
-                            className="px-2 py-0.5 rounded text-[10px] font-black shrink-0"
-                            style={{
-                              background: `${badgeColor}22`,
-                              color: badgeColor,
-                              border: `1px solid ${badgeColor}55`,
-                            }}
-                          >
-                            {isSangria ? "SANGRIA" : isSuprimento ? "SUPRIMENTO" : tx.type}
-                          </span>
-                          <div className="truncate">
-                            <div className="text-white font-bold text-xs truncate">{tx.reason}</div>
-                            <div className="text-[10.5px] text-gray-500">
-                              {fmtDT(tx.createdAt)} · por {tx.createdBy}
-                            </div>
-                          </div>
-                        </div>
-
-                        <div className="text-right shrink-0 pl-2">
-                          <span
-                            className="font-black text-sm"
-                            style={{ color: isSangria ? "#ef4444" : isSuprimento ? "#22c55e" : C.white }}
-                          >
-                            {isSangria ? "-" : "+"}{brl(tx.amount)}
-                          </span>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </Card>
-          </div>
-        </div>
-      )}
-
-      {/* MODAL 1: ABERTURA DE CAIXA */}
-      {showOpenModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: "rgba(0,0,0,.85)" }}>
-          <Card className="w-full max-w-md p-5 space-y-4" style={{ border: `2px solid ${C.orange}`, background: C.gray900 }}>
-            <div className="flex items-center justify-between">
-              <div style={{ color: C.white, fontFamily: font.display, fontStyle: "italic", fontSize: 20 }}>
-                💵 ABRIR TURNO DE CAIXA
-              </div>
-              <button onClick={() => setShowOpenModal(false)} className="text-gray-400 hover:text-white text-xl">✕</button>
-            </div>
-
-            <div style={{ color: "#a0a0a0", fontSize: 12 }}>
-              Informe o valor do fundo de troco em moedas e notas colocado na gaveta do caixa.
-            </div>
-
-            <div>
-              <label style={{ color: C.white, fontSize: 12, fontWeight: 700 }}>Fundo de Troco Inicial (R$)</label>
-              <input
-                type="number"
-                step="0.01"
-                value={initialCashInput}
-                onChange={(e) => setInitialCashInput(e.target.value)}
-                placeholder="150.00"
-                className="w-full rounded-xl px-3 py-2.5 mt-1 outline-none text-white font-bold text-lg"
-                style={{ background: C.black, border: `1px solid ${C.gray700}` }}
-              />
-              {/* Presets rápidos */}
-              <div className="flex gap-2 mt-2">
-                {["50", "100", "150", "200", "300"].map((p) => (
-                  <button
-                    key={p}
-                    type="button"
-                    onClick={() => setInitialCashInput(p)}
-                    className="flex-1 py-1 rounded-lg text-xs font-bold transition"
-                    style={{
-                      background: initialCashInput === p ? C.orange : C.gray800,
-                      color: initialCashInput === p ? C.black : C.white,
-                      border: `1px solid ${initialCashInput === p ? C.orange : C.gray700}`,
-                    }}
-                  >
-                    R$ {p}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            <div>
-              <label style={{ color: C.white, fontSize: 12, fontWeight: 700 }}>Observações da Abertura (opcional)</label>
-              <input
-                type="text"
-                value={openNotesInput}
-                onChange={(e) => setOpenNotesInput(e.target.value)}
-                placeholder="ex.: Turno Noite - Caixa 01"
-                className="w-full rounded-xl px-3 py-2 mt-1 outline-none text-white text-xs"
-                style={{ background: C.black, border: `1px solid ${C.gray800}` }}
-              />
-            </div>
-
-            <div className="pt-2 space-y-2">
-              <button
-                onClick={handleOpenRegister}
-                disabled={busy}
-                className="w-full py-3.5 rounded-xl font-black text-black transition active:scale-95"
-                style={{ background: `linear-gradient(135deg, ${C.orange}, ${C.yellow})` }}
-              >
-                {busy ? "Abrindo…" : "CONFIRMAR ABERTURA DE CAIXA"}
-              </button>
-              <Btn full variant="dark" onClick={() => setShowOpenModal(false)}>Cancelar</Btn>
-            </div>
-          </Card>
-        </div>
-      )}
-
-      {/* MODAL 2: SUPRIMENTO / SANGRIA */}
-      {showTxModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: "rgba(0,0,0,.85)" }}>
-          <Card
-            className="w-full max-w-md p-5 space-y-4"
-            style={{
-              border: `2px solid ${showTxModal === "SUPRIMENTO" ? "#22c55e" : "#ef4444"}`,
-              background: C.gray900,
-            }}
-          >
-            <div className="flex items-center justify-between">
-              <div style={{ color: showTxModal === "SUPRIMENTO" ? "#22c55e" : "#ef4444", fontFamily: font.display, fontStyle: "italic", fontSize: 20 }}>
-                {showTxModal === "SUPRIMENTO" ? "➕ NOVO SUPRIMENTO (REFORÇO)" : "➖ NOVA SANGRIA (RETIRADA)"}
-              </div>
-              <button onClick={() => setShowTxModal(null)} className="text-gray-400 hover:text-white text-xl">✕</button>
-            </div>
-
-            <div style={{ color: "#a0a0a0", fontSize: 12 }}>
-              {showTxModal === "SUPRIMENTO"
-                ? "Adicione dinheiro à gaveta do caixa para reforço de troco ou moedas."
-                : "Retire dinheiro da gaveta para cofre, pagamento de motoboy ou despesa de insumos."}
-            </div>
-
-            <div>
-              <label style={{ color: C.white, fontSize: 12, fontWeight: 700 }}>Valor (R$)</label>
-              <input
-                type="number"
-                step="0.01"
-                value={txAmount}
-                onChange={(e) => setTxAmount(e.target.value)}
-                placeholder="50.00"
-                className="w-full rounded-xl px-3 py-2.5 mt-1 outline-none text-white font-bold text-lg"
-                style={{ background: C.black, border: `1px solid ${C.gray700}` }}
-              />
-            </div>
-
-            <div>
-              <label style={{ color: C.white, fontSize: 12, fontWeight: 700 }}>Motivo / Justificativa</label>
-              <input
-                type="text"
-                value={txReason}
-                onChange={(e) => setTxReason(e.target.value)}
-                placeholder={showTxModal === "SUPRIMENTO" ? "ex.: Troco de moedas de 1 real" : "ex.: Retirada para o cofre / Compra de pão"}
-                className="w-full rounded-xl px-3 py-2 mt-1 outline-none text-white text-xs"
-                style={{ background: C.black, border: `1px solid ${C.gray800}` }}
-              />
-            </div>
-
-            <div className="pt-2 space-y-2">
-              <button
-                onClick={handleAddTx}
-                disabled={busy}
-                className="w-full py-3.5 rounded-xl font-black text-white transition active:scale-95"
-                style={{ background: showTxModal === "SUPRIMENTO" ? "#166534" : "#991b1b" }}
-              >
-                {busy ? "Registrando…" : `CONFIRMAR ${showTxModal}`}
-              </button>
-              <Btn full variant="dark" onClick={() => setShowTxModal(null)}>Cancelar</Btn>
-            </div>
-          </Card>
-        </div>
-      )}
-
-      {/* MODAL 3: FECHAMENTO DE CAIXA COM CONFERÊNCIA */}
-      {showCloseModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: "rgba(0,0,0,.85)" }}>
-          <Card className="w-full max-w-lg p-5 space-y-4 max-h-[90vh] overflow-y-auto" style={{ border: `2px solid ${C.yellow}`, background: C.gray900 }}>
-            <div className="flex items-center justify-between">
-              <div style={{ color: C.yellowLight, fontFamily: font.display, fontStyle: "italic", fontSize: 20 }}>
-                🔒 FECHAMENTO & CONFERÊNCIA DE CAIXA
-              </div>
-              <button onClick={() => setShowCloseModal(false)} className="text-gray-400 hover:text-white text-xl">✕</button>
-            </div>
-
-            <div style={{ color: "#a0a0a0", fontSize: 12 }}>
-              Conte o dinheiro físico na gaveta e confira os totais das maquininhas de cartão e Pix para apurar a quebra de caixa.
-            </div>
-
-            {/* Painel do Dinheiro */}
-            <div className="p-3.5 rounded-xl space-y-2.5" style={{ background: C.black, border: `1px solid ${C.gray800}` }}>
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-bold text-gray-300">💵 Dinheiro Esperado na Gaveta:</span>
-                <span className="font-bold text-white text-sm">{brl(expectedGaveta)}</span>
-              </div>
-
-              <div>
-                <label className="text-xs font-bold text-white">Dinheiro Físico Contado na Gaveta (R$)</label>
-                <input
-                  type="number"
-                  step="0.01"
-                  value={closeCashInput}
-                  onChange={(e) => setCloseCashInput(e.target.value)}
-                  placeholder="0.00"
-                  className="w-full rounded-xl px-3 py-2.5 mt-1 outline-none text-white font-bold text-lg"
-                  style={{ background: C.gray900, border: `1px solid ${C.gray700}` }}
-                />
-              </div>
-
-              {/* Diferença em tempo real */}
-              <div
-                className="p-2.5 rounded-lg flex items-center justify-between font-bold text-xs"
-                style={{
-                  background: cashDiff === 0 ? "#22c55e18" : cashDiff > 0 ? "#10b98118" : "#ef444418",
-                  border: `1px solid ${cashDiff === 0 ? "#22c55e55" : cashDiff > 0 ? "#10b98155" : "#ef444455"}`,
-                  color: cashDiff === 0 ? "#22c55e" : cashDiff > 0 ? "#10b981" : "#ef4444",
-                }}
-              >
-                <span>Diferença apurada:</span>
-                <span>
-                  {cashDiff === 0
-                    ? "✓ Caixa Bateu Exato (R$ 0,00)"
-                    : cashDiff > 0
-                    ? `Sobra de Caixa: +${brl(cashDiff)}`
-                    : `Falta de Caixa: -${brl(Math.abs(cashDiff))}`}
-                </span>
-              </div>
-            </div>
-
-            {/* Conferência Pix & Cartão */}
-            <div className="grid grid-cols-2 gap-2.5">
-              <div className="p-3 rounded-xl space-y-1" style={{ background: C.black, border: `1px solid ${C.gray800}` }}>
-                <div className="text-[11px] text-gray-400">Pix Esperado: {brl(reg.summary.pixSales)}</div>
-                <label className="text-xs font-bold text-white block">Pix Conferido (R$)</label>
-                <input
-                  type="number"
-                  step="0.01"
-                  value={closePixInput}
-                  onChange={(e) => setClosePixInput(e.target.value)}
-                  placeholder={String(reg.summary.pixSales)}
-                  className="w-full rounded-lg px-2.5 py-1.5 outline-none text-white font-bold text-xs"
-                  style={{ background: C.gray900, border: `1px solid ${C.gray700}` }}
-                />
-              </div>
-
-              <div className="p-3 rounded-xl space-y-1" style={{ background: C.black, border: `1px solid ${C.gray800}` }}>
-                <div className="text-[11px] text-gray-400">Cartão Esperado: {brl(reg.summary.cardSales)}</div>
-                <label className="text-xs font-bold text-white block">Cartão Conferido (R$)</label>
-                <input
-                  type="number"
-                  step="0.01"
-                  value={closeCardInput}
-                  onChange={(e) => setCloseCardInput(e.target.value)}
-                  placeholder={String(reg.summary.cardSales)}
-                  className="w-full rounded-lg px-2.5 py-1.5 outline-none text-white font-bold text-xs"
-                  style={{ background: C.gray900, border: `1px solid ${C.gray700}` }}
-                />
-              </div>
-            </div>
-
-            <div>
-              <label style={{ color: C.white, fontSize: 12, fontWeight: 700 }}>Observações do Fechamento (opcional)</label>
-              <input
-                type="text"
-                value={closeNotesInput}
-                onChange={(e) => setCloseNotesInput(e.target.value)}
-                placeholder="ex.: Tudo conferido e depositado no cofre"
-                className="w-full rounded-xl px-3 py-2 mt-1 outline-none text-white text-xs"
-                style={{ background: C.black, border: `1px solid ${C.gray800}` }}
-              />
-            </div>
-
-            <div className="pt-2 space-y-2">
-              <button
-                onClick={handleCloseRegister}
-                disabled={busy}
-                className="w-full py-3.5 rounded-xl font-black text-black transition active:scale-95 text-sm"
-                style={{ background: C.green }}
-              >
-                {busy ? "Fechando…" : "✅ CONFIRMAR FECHAMENTO DE CAIXA"}
-              </button>
-              <Btn full variant="dark" onClick={() => setShowCloseModal(false)}>Cancelar</Btn>
-            </div>
-          </Card>
-        </div>
-      )}
-    </div>
+    <React.Suspense fallback={<div style={{ padding: 20, textAlign: 'center', color: '#888' }}>Carregando AdminCashRegister...</div>}>
+      <AdminCashRegisterModular store={store} now={now}  />
+    </React.Suspense>
   );
 }
-
-const ADMIN_NAV = [
-  { id: "dashboard", icon: "📊", label: "Dashboard" },
-  { id: "pedidos", icon: "🧾", label: "Pedidos" },
-  { id: "caixa", icon: "💵", label: "Frente de Caixa" },
-  { id: "mesas", icon: "🍽️", label: "Mesas / Salão" },
-  { id: "produtos", icon: "🍔", label: "Cardápio" },
-  { id: "categorias", icon: "🗂", label: "Categorias" },
-  { id: "clientes", icon: "👥", label: "Clientes" },
-  { id: "promos", icon: "🎟", label: "Promoções" },
-  { id: "estoque", icon: "📦", label: "Estoque" },
-  { id: "financeiro", icon: "💰", label: "Financeiro" },
-  { id: "relatorios", icon: "📈", label: "Relatórios" },
-  { id: "integracoes", icon: "🔌", label: "Integrações" },
-  { id: "config", icon: "⚙️", label: "Configurações" },
-];
-
-function AdminApp({ store, now }) {
-  const [sec, setSec] = useState("dashboard");
-  const [menu, setMenu] = useState(false);
-  const navItems = ADMIN_NAV.filter((n) => n.id !== "mesas" || store.settings?.tablesEnabled);
-  const title = navItems.find((n) => n.id === sec)?.label || ADMIN_NAV.find((n) => n.id === sec)?.label;
-
-  return (
-    <div className="flex" style={{ background: C.black, minHeight: "100%" }}>
-      <aside
-        className="hidden md:flex flex-col shrink-0 p-4"
-        style={{ width: 216, background: C.gray900, borderRight: `1px solid ${C.gray800}`, minHeight: "100%" }}
-      >
-        <Logo size={38} />
-        <div style={{ color: "#5a5a5a", fontSize: 9.5, marginTop: 10, marginBottom: 18, letterSpacing: "0.04em" }}>
-          SMART FOOD SYSTEM
-        </div>
-        <nav className="space-y-1 flex-1">
-          {navItems.map((n) => (
-            <button
-              key={n.id}
-              onClick={() => setSec(n.id)}
-              className="w-full flex items-center gap-2.5 rounded-lg px-3 py-2.5 text-left"
-              style={{
-                background: sec === n.id ? `${C.orange}1c` : "transparent",
-                color: sec === n.id ? C.orange : "#9a9a9a",
-                fontWeight: sec === n.id ? 800 : 600, fontSize: 13,
-                borderLeft: `2px solid ${sec === n.id ? C.orange : "transparent"}`,
-              }}
-            >
-              <span>{n.icon}</span> {n.label}
-            </button>
-          ))}
-        </nav>
-        <div className="rounded-xl p-3 flex items-center justify-between" style={{ background: C.gray850 }}>
-          <div>
-            <div style={{ color: "#8a8a8a", fontSize: 10.5 }}>Conectado como</div>
-            <div style={{ color: C.white, fontWeight: 800, fontSize: 12.5 }}>{store.me?.name?.split(" ")[0] || "Administrador"}</div>
-          </div>
-          {store.me && (
-            <button
-              onClick={store.logout}
-              className="rounded-lg px-2 py-1 font-bold text-xs"
-              style={{ border: `1px solid ${C.gray800}`, color: "#9a9a9a" }}
-            >
-              Sair
-            </button>
-          )}
-        </div>
-      </aside>
-
-      <main className="flex-1 min-w-0 p-4 md:p-6">
-        <div className="flex items-center justify-between mb-5">
-          <div className="flex items-center gap-3">
-            <button className="md:hidden" onClick={() => setMenu(!menu)} style={{ color: C.white, fontSize: 20 }}>☰</button>
-            <h2 style={{ fontFamily: font.display, fontStyle: "italic", fontSize: 24, color: C.white, letterSpacing: "-0.02em" }}>
-              {title.toUpperCase()}
-            </h2>
-          </div>
-          <div className="flex items-center gap-2">
-            <Btn small variant="dark" onClick={() => store.injectExternal("IFOOD")}>+ Pedido iFood</Btn>
-            <div className="relative">
-              <span style={{ fontSize: 19 }}>🔔</span>
-              {store.notifications.length > 0 && (
-                <span
-                  className="absolute flex items-center justify-center"
-                  style={{ top: -4, right: -6, width: 16, height: 16, borderRadius: 99, background: C.orange, color: C.black, fontSize: 9.5, fontWeight: 900 }}
-                >
-                  {store.notifications.length}
-                </span>
-              )}
-            </div>
-          </div>
-        </div>
-
-        {menu && (
-          <div className="md:hidden grid grid-cols-2 gap-2 mb-5">
-            {navItems.map((n) => (
-              <button
-                key={n.id}
-                onClick={() => { setSec(n.id); setMenu(false); }}
-                className="rounded-xl px-3 py-2.5 text-left"
-                style={{ background: sec === n.id ? `${C.orange}1c` : C.gray850, color: sec === n.id ? C.orange : "#c0c0c0", fontSize: 12.5, fontWeight: 700 }}
-              >
-                {n.icon} {n.label}
-              </button>
-            ))}
-          </div>
-        )}
-
-        {sec === "dashboard" && <AdminDashboard store={store} now={now} setSec={setSec} />}
-        {sec === "pedidos" && <AdminOrders store={store} now={now} />}
-        {sec === "caixa" && <AdminCashRegister store={store} now={now} />}
-        {sec === "mesas" && (
-          store.settings?.tablesEnabled ? (
-            <AdminTables store={store} now={now} />
-          ) : (
-            <Card className="p-8 text-center max-w-md mx-auto my-12">
-              <div className="text-4xl mb-3">🍽️</div>
-              <div style={{ color: C.white, fontWeight: 900, fontSize: 16, marginBottom: 8 }}>Módulo de Mesas Desativado</div>
-              <p style={{ color: "#8a8a8a", fontSize: 13, marginBottom: 16 }}>
-                O atendimento em mesas e salão está desativado nas configurações do sistema.
-              </p>
-              <Btn variant="primary" onClick={() => setSec("config")}>Ir para Configurações</Btn>
-            </Card>
-          )
-        )}
-        {sec === "produtos" && <AdminProducts store={store} />}
-        {sec === "categorias" && <AdminCategories store={store} />}
-        {sec === "clientes" && <AdminCustomers store={store} />}
-        {sec === "promos" && <AdminPromos store={store} now={now} />}
-        {sec === "estoque" && <AdminInventory store={store} />}
-        {sec === "financeiro" && <AdminFinance store={store} now={now} />}
-        {sec === "relatorios" && <AdminReports store={store} now={now} />}
-        {sec === "integracoes" && <AdminIntegrations store={store} />}
-        {sec === "config" && <AdminSettings store={store} now={now} />}
-      </main>
-    </div>
-  );
-}
-// ============================================================
-// COZINHA — KDS
-// ============================================================
 
 function KitchenApp({ store, now }) {
-  const [filterMod, setFilterMod] = useState("TODOS"); // TODOS | delivery | mesa | pickup
-  const [soundOn, setSoundOn] = useState(() => localStorage.getItem("sarro_sound_kitchen") !== "0");
-  const [autoPrint, setAutoPrint] = useState(() => localStorage.getItem("sarro_autoprint") === "1");
-  const lastQueueSig = useRef("");
-
-  const toggleAutoPrint = () => {
-    const v = autoPrint ? "0" : "1";
-    localStorage.setItem("sarro_autoprint", v);
-    setAutoPrint(!autoPrint);
-    store.toast(v === "1" ? "Impressão automática ligada 🖨" : "Impressão automática desligada");
-  };
-
-  const queue = store.orders
-    .filter((o) => ["NOVO", "CONFIRMADO", "PREPARO"].includes(o.status))
-    .sort((a, b) => a.createdAt - b.createdAt);
-
-  // Alerta sonoro automático de novo pedido ou nova rodada de itens
-  useEffect(() => {
-    const sig = queue.map((o) => `${o.id}:${o.status}:${o.items.length}`).join("|");
-    if (lastQueueSig.current && lastQueueSig.current !== sig) {
-      if (soundOn && sig.length > lastQueueSig.current.length) {
-        playKitchenChime();
-      }
-    }
-    lastQueueSig.current = sig;
-  }, [queue, soundOn]);
-
-  const filteredQueue = queue.filter((o) => {
-    if (filterMod === "TODOS") return true;
-    return getOrderModality(o).id === filterMod;
-  });
-
-  const mins = (o) => (now - o.createdAt) / 60000;
-
   return (
-    <div style={{ background: C.black, minHeight: "100%" }} className="p-4 md:p-6">
-      <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
-        <div className="flex items-center gap-3">
-          <Logo size={40} withText={false} />
-          <div>
-            <h2 style={{ fontFamily: font.display, fontStyle: "italic", fontSize: 24, color: C.white, letterSpacing: "-0.02em" }}>
-              COZINHA
-            </h2>
-            <div style={{ color: "#7a7a7a", fontSize: 11.5 }}>{queue.length} pedidos na fila</div>
-          </div>
-        </div>
-        <div className="flex items-center gap-2">
-          {/* Botão de som */}
-          <button
-            onClick={() => {
-              const next = !soundOn;
-              setSoundOn(next);
-              localStorage.setItem("sarro_sound_kitchen", next ? "1" : "0");
-              if (next) playKitchenChime();
-              store.toast(next ? "🔔 Som da cozinha ATIVADO!" : "🔕 Som da cozinha MUTADO");
-            }}
-            className="rounded-lg px-2.5 py-1.5 font-bold transition active:scale-95 flex items-center gap-1.5"
-            style={{
-              background: soundOn ? "#16653433" : C.gray850,
-              border: `1px solid ${soundOn ? C.green : C.gray800}`,
-              color: soundOn ? C.green : "#8a8a8a",
-              fontSize: 11,
-              whiteSpace: "nowrap",
-            }}
-          >
-            <span>{soundOn ? "🔔" : "🔕"}</span>
-            <span>Som {soundOn ? "ON" : "OFF"}</span>
-          </button>
-          <button
-            onClick={() => { playKitchenChime(); store.toast("🔊 Bip de teste emitido!"); }}
-            className="rounded-lg px-2 py-1.5 font-bold text-xs text-gray-400 hover:text-white transition"
-            style={{ background: C.gray850, border: `1px solid ${C.gray800}` }}
-            title="Testar volume do bip"
-          >
-            Bip
-          </button>
-
-          <button
-            onClick={toggleAutoPrint}
-            className="rounded-lg px-2.5 py-1.5 font-bold"
-            style={{
-              background: autoPrint ? `${C.orange}22` : C.gray850,
-              border: `1px solid ${autoPrint ? C.orange : C.gray800}`,
-              color: autoPrint ? C.orange : "#8a8a8a", fontSize: 11, whiteSpace: "nowrap",
-            }}
-          >
-            🖨 Auto-print {autoPrint ? "ON" : "OFF"}
-          </button>
-          <SyncBadge store={store} now={now} />
-          <span style={{ color: "#7a7a7a", fontSize: 11.5 }}>Prontos</span>
-          <span style={{ color: C.green, fontWeight: 900, fontSize: 20 }}>
-            {store.orders.filter((o) => ["PRONTO", "EMBALADO", "AGUARDANDO", "ROTA", "ENTREGUE"].includes(o.status)).length}
-          </span>
-          {store.me && (
-            <button
-              onClick={store.logout}
-              className="rounded-lg px-2.5 py-1.5 font-bold"
-              style={{ border: `1px solid ${C.gray800}`, color: "#8a8a8a", fontSize: 11 }}
-            >
-              Sair
-            </button>
-          )}
-        </div>
-      </div>
-
-      {/* FILTROS POR MODALIDADE */}
-      <div className="flex flex-wrap gap-2 mb-4">
-        {[
-          { id: "TODOS", label: `Todos (${queue.length})` },
-          { id: "delivery", label: `🛵 Delivery (${queue.filter((o) => getOrderModality(o).id === "delivery").length})` },
-          { id: "mesa", label: `🍽️ Salão (${queue.filter((o) => getOrderModality(o).id === "mesa").length})` },
-          { id: "pickup", label: `🏪 Balcão (${queue.filter((o) => getOrderModality(o).id === "pickup").length})` },
-        ].map((tab) => (
-          <button
-            key={tab.id}
-            onClick={() => setFilterMod(tab.id)}
-            className="rounded-lg px-3 py-1.5 font-bold text-xs transition"
-            style={{
-              background: filterMod === tab.id ? C.orange : C.gray850,
-              color: filterMod === tab.id ? C.black : "#8a8a8a",
-              border: `1px solid ${filterMod === tab.id ? C.orange : C.gray800}`,
-            }}
-          >
-            {tab.label}
-          </button>
-        ))}
-      </div>
-
-      {filteredQueue.length === 0 && (
-        <Card className="p-10 text-center">
-          <div style={{ fontSize: 44 }}>🔥</div>
-          <div style={{ color: C.white, fontWeight: 900, fontSize: 18, marginTop: 10 }}>Chapa livre</div>
-          <div style={{ color: "#8a8a8a", fontSize: 13, marginTop: 4 }}>
-            {filterMod === "TODOS" ? "Nenhum pedido esperando na cozinha." : `Nenhum pedido nesta modalidade (${filterMod}).`}
-          </div>
-        </Card>
-      )}
-
-      <div className="grid sm:grid-cols-2 xl:grid-cols-3 gap-4">
-        {filteredQueue.map((o) => {
-          const mod = getOrderModality(o);
-          const late = mins(o) > 20;
-          const warn = mins(o) > 12;
-          const border = late ? C.red : warn ? C.yellow : mod.color;
-          return (
-            <div
-              key={o.id}
-              className="rounded-2xl overflow-hidden flex flex-col justify-between"
-              style={{
-                background: C.gray850,
-                border: `2px solid ${border}`,
-                boxShadow: `0 4px 20px ${mod.color}15`,
-                animation: o.status === "NOVO" ? "sarropulse 1.8s ease-in-out infinite" : "none",
-              }}
-            >
-              <div>
-                {/* HEADER DE MODALIDADE COM ALTA VISIBILIDADE */}
-                <div
-                  className="px-3.5 py-2 flex items-center justify-between font-black text-xs"
-                  style={{ background: mod.bg, borderBottom: `2px solid ${mod.border}66` }}
-                >
-                  <div className="flex items-center gap-1.5" style={{ color: mod.color }}>
-                    <span className="text-base">{mod.icon}</span>
-                    <span style={{ fontSize: 13, letterSpacing: 0.5 }}>{mod.label}</span>
-                  </div>
-                  <span
-                    className="rounded-md px-2 py-0.5 text-[10px] font-black uppercase tracking-wider"
-                    style={{ background: `${mod.border}33`, color: mod.color, border: `1px solid ${mod.border}66` }}
-                  >
-                    {mod.instruction}
-                  </span>
-                </div>
-
-                <div className="flex items-center justify-between px-4 py-3" style={{ background: late ? `${C.red}1f` : C.gray800 }}>
-                  <div className="flex items-center gap-2">
-                    <span style={{ color: C.white, fontFamily: font.display, fontStyle: "italic", fontSize: 22 }}>#{o.code}</span>
-                    <ChannelPill channel={o.channel} />
-                    {o.paymentStatus === "pendente" && (
-                      <span
-                        className="rounded-md px-1.5 py-0.5 font-bold"
-                        style={{ background: `${C.yellow}1f`, color: C.yellow, fontSize: 9.5, border: `1px solid ${C.yellow}44` }}
-                      >
-                        ⏳ PGTO PENDENTE
-                      </span>
-                    )}
-                    {late && <Badge color={C.red} text={C.white}>ATRASADO</Badge>}
-                  </div>
-                  <span style={{ color: late ? C.red : C.yellowLight, fontWeight: 900, fontSize: 20, fontVariantNumeric: "tabular-nums" }}>
-                    {elapsed(o.createdAt, now)}
-                  </span>
-                </div>
-
-                <div className="p-4">
-                  {o.items.map((i) => (
-                    <div key={i.id} className="mb-3">
-                      <div style={{ color: C.white, fontWeight: 900, fontSize: 18 }}>
-                        {i.qty}x {i.name}
-                      </div>
-                      {i.opts.map((op) => (
-                        <div key={op.id + op.name} style={{ color: C.yellowLight, fontSize: 13, marginLeft: 4 }}>+ {op.name}</div>
-                      ))}
-                      {i.note && (
-                        <div className="rounded-lg px-2.5 py-1.5 mt-1.5" style={{ background: `${C.yellow}1c`, color: C.yellow, fontSize: 13, fontWeight: 700 }}>
-                          📝 {i.note}
-                        </div>
-                      )}
-                    </div>
-                  ))}
-
-                  <div style={{ color: "#aaa", fontSize: 12, marginTop: 10, fontWeight: 700 }}>
-                    {o.customer.name} · {mod.isMesa ? `🍽️ ${mod.badge}` : mod.isPickup ? "🏪 Retirada no balcão" : `🛵 ${o.customer.addr}`}
-                  </div>
-                </div>
-              </div>
-
-              <div className="p-4 pt-0 space-y-2">
-                <Btn small full variant="dark" onClick={async () => {
-                  try {
-                    await api(`/api/print/kitchen/${o.id}`, { method: "POST" });
-                    store.toast("Comanda enviada à impressora ✓");
-                  } catch {
-                    printKitchen(o);
-                  }
-                }}>🖨 IMPRIMIR COMANDA</Btn>
-                {o.status !== "PREPARO" ? (
-                  <Btn full onClick={() => store.setStatus(o.id, "PREPARO")}>INICIAR PREPARO</Btn>
-                ) : (
-                  <Btn full variant="green" onClick={() => store.setStatus(o.id, "PRONTO")}>PEDIDO PRONTO</Btn>
-                )}
-              </div>
-            </div>
-          );
-        })}
-      </div>
-    </div>
+    <React.Suspense fallback={<div style={{ padding: 20, textAlign: 'center', color: '#888' }}>Carregando KitchenApp...</div>}>
+      <KitchenAppModular store={store} now={now}  />
+    </React.Suspense>
   );
 }
-
-// ============================================================
-// MODAL DE ACERTO / FECHAMENTO DE ENTREGADOR
-// ============================================================
 
 function DriverSettlementModal({ driver, store, onClose, readOnly = false }) {
   const [loading, setLoading] = useState(true);
@@ -7178,1155 +2854,13 @@ function SettlementsHistoryModal({ store, onClose }) {
 // ============================================================
 
 function ExpeditionApp({ store, now }) {
-  const [filterMod, setFilterMod] = useState("TODOS");
-  const [soundOn, setSoundOn] = useState(() => localStorage.getItem("sarro_sound_expedition") !== "0");
-  const [selectedOrderIds, setSelectedOrderIds] = useState([]);
-  const [batchDriverId, setBatchDriverId] = useState("");
-  const [dispatchingRoute, setDispatchingRoute] = useState(false);
-  const [settlementDriver, setSettlementDriver] = useState(null);
-  const [showHistoryModal, setShowHistoryModal] = useState(false);
-  const lastReadyCount = useRef(0);
-
-  const ready = store.orders.filter((o) => ["PRONTO", "EMBALADO", "AGUARDANDO"].includes(o.status));
-  const rota = store.orders.filter((o) => o.status === "ROTA");
-
-  // Alerta sonoro quando um pedido sai pronto da cozinha para a expedição
-  useEffect(() => {
-    if (lastReadyCount.current > 0 && ready.length > lastReadyCount.current) {
-      if (soundOn) playReadyChime();
-    }
-    lastReadyCount.current = ready.length;
-  }, [ready.length, soundOn]);
-
-  const filteredReady = ready.filter((o) => {
-    if (filterMod === "TODOS") return true;
-    return getOrderModality(o).id === filterMod;
-  });
-
-  const toggleOrderSelection = (id) => {
-    setSelectedOrderIds((prev) =>
-      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
-    );
-  };
-
-  const handleBatchDispatch = async () => {
-    if (selectedOrderIds.length === 0) return;
-    if (!batchDriverId) {
-      store.toast("Selecione um entregador para a rota!");
-      return;
-    }
-    try {
-      setDispatchingRoute(true);
-      await store.dispatchRoute({ driverId: batchDriverId, orderIds: selectedOrderIds });
-      store.toast(`🚀 Rota com ${selectedOrderIds.length} paradas despachada com sucesso!`);
-      setSelectedOrderIds([]);
-      setBatchDriverId("");
-    } catch (err) {
-      store.toast(err.message || "Erro ao despachar rota multi-paradas");
-    } finally {
-      setDispatchingRoute(false);
-    }
-  };
-
   return (
-    <div style={{ background: C.black, minHeight: "100%" }} className="p-4 md:p-6 pb-24">
-      <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
-        <div className="flex items-center gap-3">
-          <Logo size={40} withText={false} />
-          <div>
-            <h2 style={{ fontFamily: font.display, fontStyle: "italic", fontSize: 24, color: C.white, letterSpacing: "-0.02em" }}>
-              EXPEDIÇÃO
-            </h2>
-            <div style={{ color: "#7a7a7a", fontSize: 11.5 }}>{ready.length} aguardando saída · {rota.length} em rota</div>
-          </div>
-        </div>
-        <div className="flex items-center gap-2">
-          {/* Som da expedição */}
-          <button
-            onClick={() => {
-              const next = !soundOn;
-              setSoundOn(next);
-              localStorage.setItem("sarro_sound_expedition", next ? "1" : "0");
-              if (next) playReadyChime();
-              store.toast(next ? "🔔 Alerta sonoro da expedição ATIVADO!" : "🔕 Som da expedição MUTADO");
-            }}
-            className="rounded-lg px-2.5 py-1.5 font-bold transition active:scale-95 flex items-center gap-1.5"
-            style={{
-              background: soundOn ? "#16653433" : C.gray850,
-              border: `1px solid ${soundOn ? C.green : C.gray800}`,
-              color: soundOn ? C.green : "#8a8a8a",
-              fontSize: 11,
-              whiteSpace: "nowrap",
-            }}
-          >
-            <span>{soundOn ? "🔔" : "🔕"}</span>
-            <span>Som {soundOn ? "ON" : "OFF"}</span>
-          </button>
-
-          {/* Botão para abrir Histórico de Acertos */}
-          <button
-            onClick={() => setShowHistoryModal(true)}
-            className="rounded-lg px-2.5 py-1.5 font-bold text-xs flex items-center gap-1.5 text-white active:scale-95"
-            style={{ background: C.gray800, border: `1px solid ${C.gray700}` }}
-          >
-            <span>🤝</span>
-            <span>Histórico de Acertos</span>
-          </button>
-
-          {/* Botão para abrir Painel TV */}
-          <button
-            onClick={() => window.open("/paineltv", "_blank")}
-            className="rounded-lg px-2.5 py-1.5 font-bold text-xs flex items-center gap-1.5 text-white active:scale-95"
-            style={{ background: C.gray800, border: `1px solid ${C.gray700}` }}
-          >
-            <span>📺</span>
-            <span>Abrir Painel TV</span>
-          </button>
-
-          <SyncBadge store={store} now={now} />
-          {store.me && (
-            <button
-              onClick={store.logout}
-              className="rounded-lg px-2.5 py-1.5 font-bold"
-              style={{ border: `1px solid ${C.gray800}`, color: "#8a8a8a", fontSize: 11 }}
-            >
-              Sair
-            </button>
-          )}
-        </div>
-      </div>
-
-      {/* FILTROS POR MODALIDADE */}
-      <div className="flex flex-wrap gap-2 mb-4">
-        {[
-          { id: "TODOS", label: `Todos (${ready.length})` },
-          { id: "delivery", label: `🛵 Delivery (${ready.filter((o) => getOrderModality(o).id === "delivery").length})` },
-          { id: "mesa", label: `🍽️ Salão (${ready.filter((o) => getOrderModality(o).id === "mesa").length})` },
-          { id: "pickup", label: `🏪 Balcão (${ready.filter((o) => getOrderModality(o).id === "pickup").length})` },
-        ].map((tab) => (
-          <button
-            key={tab.id}
-            onClick={() => setFilterMod(tab.id)}
-            className="rounded-lg px-3 py-1.5 font-bold text-xs transition"
-            style={{
-              background: filterMod === tab.id ? C.orange : C.gray850,
-              color: filterMod === tab.id ? C.black : "#8a8a8a",
-              border: `1px solid ${filterMod === tab.id ? C.orange : C.gray800}`,
-            }}
-          >
-            {tab.label}
-          </button>
-        ))}
-      </div>
-
-      <div className="grid lg:grid-cols-3 gap-4">
-        <div className="lg:col-span-2 space-y-3">
-          <div style={{ color: C.white, fontWeight: 900, fontSize: 14 }}>Pedidos prontos ({filteredReady.length})</div>
-          {filteredReady.length === 0 && (
-            <Card className="p-6 text-center">
-              <span style={{ color: "#8a8a8a", fontSize: 13 }}>
-                {filterMod === "TODOS" ? "Nada pronto no balcão agora." : `Nenhum pedido pronto em ${filterMod}.`}
-              </span>
-            </Card>
-          )}
-          {filteredReady.map((o) => {
-            const mod = getOrderModality(o);
-            const isDelivery = !mod.isMesa && !mod.isPickup;
-            const isSelected = selectedOrderIds.includes(o.id);
-            const selectedSeq = isSelected ? selectedOrderIds.indexOf(o.id) + 1 : 0;
-
-            return (
-              <Card key={o.id} className="p-0 overflow-hidden" style={{ border: `2px solid ${isSelected ? C.orange : mod.border + "66"}` }}>
-                {/* Banner de Modalidade */}
-                <div
-                  className="px-3.5 py-1.5 flex items-center justify-between font-black text-xs"
-                  style={{ background: mod.bg, borderBottom: `1px solid ${mod.border}44` }}
-                >
-                  <div className="flex items-center gap-1.5" style={{ color: mod.color }}>
-                    <span>{mod.icon}</span>
-                    <span>{mod.label}</span>
-                  </div>
-                  <span className="text-[10px] font-extrabold uppercase" style={{ color: mod.color }}>
-                    {mod.instruction}
-                  </span>
-                </div>
-
-                <div className="p-4">
-                  {/* Seletor de Rota Composta (apenas entregas) */}
-                  {isDelivery && (
-                    <div
-                      className="mb-2 flex items-center justify-between p-2 rounded-lg cursor-pointer transition"
-                      style={{
-                        background: isSelected ? `${C.orange}22` : C.gray850,
-                        border: `1px solid ${isSelected ? C.orange : C.gray800}`,
-                      }}
-                      onClick={() => toggleOrderSelection(o.id)}
-                    >
-                      <label className="flex items-center gap-2 cursor-pointer text-xs font-bold" style={{ color: isSelected ? C.orange : C.white }}>
-                        <input
-                          type="checkbox"
-                          checked={isSelected}
-                          onChange={() => {}}
-                          className="w-4 h-4 rounded text-orange-500 cursor-pointer pointer-events-none"
-                        />
-                        <span>Agrupar nesta Rota Composta</span>
-                      </label>
-                      {isSelected ? (
-                        <span className="px-2 py-0.5 rounded-full font-black text-[10px]" style={{ background: C.orange, color: C.black }}>
-                          PARADA #{selectedSeq}
-                        </span>
-                      ) : (
-                        <span style={{ color: "#7a7a7a", fontSize: 10 }}>Clique para incluir na rota</span>
-                      )}
-                    </div>
-                  )}
-
-                  <div className="flex items-center justify-between mb-2">
-                    <div className="flex items-center gap-2">
-                      <span style={{ color: C.white, fontWeight: 900, fontSize: 18 }}>#{o.code}</span>
-                      <ChannelPill channel={o.channel} />
-                      <StatusPill status={o.status} small />
-                    </div>
-                    <span style={{ color: "#7a7a7a", fontSize: 11 }}>pronto há {elapsed(o.createdAt, now)}</span>
-                  </div>
-
-                  {o.routeId && (
-                    <div className="mb-2 flex items-center gap-1.5 text-xs font-extrabold" style={{ color: C.orange }}>
-                      <span>🛵 ROTA COMPOSTA:</span>
-                      <span>Parada #{o.routeSeq || 1}</span>
-                      <span style={{ color: "#7a7a7a", fontWeight: 400 }}>({o.routeId.slice(-6).toUpperCase()})</span>
-                    </div>
-                  )}
-
-                  <div style={{ color: "#c9c9c9", fontSize: 13, fontWeight: 700 }}>{o.customer.name}</div>
-                  <div style={{ color: "#7a7a7a", fontSize: 11.5 }}>
-                    {mod.isMesa ? `🍽️ ${mod.badge} · Consumo no local` : mod.isPickup ? "🏪 Retirada na loja" : `🛵 ${o.customer.addr}`}
-                  </div>
-
-                  {o.paymentStatus === "pendente" ? (
-                    <div className="mt-2.5 p-2 rounded-lg flex items-center justify-between" style={{ background: "#eab30818", border: "1px solid #eab30844" }}>
-                      <div className="flex items-center gap-1.5">
-                        <span>⏳</span>
-                        <span style={{ color: "#fef08a", fontSize: 11, fontWeight: 700 }}>Pgto Pendente ({o.payment})</span>
-                      </div>
-                      <button
-                        onClick={() => store.confirmPaymentManual(o.id)}
-                        className="px-2 py-1 rounded-md font-bold text-[11px] text-black transition active:scale-95"
-                        style={{ background: "#22c55e" }}
-                      >
-                        ✓ Confirmar Pgto
-                      </button>
-                    </div>
-                  ) : (
-                    <div className="mt-2 flex items-center gap-1.5" style={{ color: "#22c55e", fontSize: 11, fontWeight: 700 }}>
-                      <span>✓ Pagamento Confirmado</span>
-                      <span style={{ color: "#8a8a8a", fontWeight: 400 }}>({o.payment})</span>
-                    </div>
-                  )}
-
-                  <div className="mt-3">
-                    <Btn small full variant="dark" onClick={async () => {
-                      try {
-                        await api(`/api/print/expedition/${o.id}`, { method: "POST" });
-                        store.toast("Comanda enviada à impressora ✓");
-                      } catch {
-                        printExpedition(o);
-                      }
-                    }}>🖨 IMPRIMIR EXPEDIÇÃO</Btn>
-                  </div>
-
-                  {mod.isMesa ? (
-                    <div className="mt-2">
-                      <Btn full variant="green" onClick={() => store.setStatus(o.id, "ENTREGUE")}>
-                        🍽️ LEVAR À {mod.badge} & CONCLUIR
-                      </Btn>
-                    </div>
-                  ) : mod.isPickup ? (
-                    <div className="mt-2">
-                      <Btn full variant="green" onClick={() => store.setStatus(o.id, "ENTREGUE")}>
-                        🏪 CLIENTE RETIROU NO BALCÃO
-                      </Btn>
-                    </div>
-                  ) : (
-                    <div className="mt-3">
-                      {o.status === "PRONTO" && <Btn full onClick={() => store.setStatus(o.id, "EMBALADO")}>EMBALAR PEDIDO</Btn>}
-                      {o.status === "EMBALADO" && <Btn full onClick={() => store.setStatus(o.id, "AGUARDANDO")}>CHAMAR ENTREGADOR</Btn>}
-                      {o.status === "AGUARDANDO" && (
-                        <div>
-                          <div style={{ color: "#8a8a8a", fontSize: 11.5, marginBottom: 7 }}>Atribuir entregador individual</div>
-                          <div className="flex flex-wrap gap-2">
-                            {store.drivers.map((d) => (
-                              <Btn key={d.id} small variant="dark" onClick={() => store.assignDriver(o.id, d.id)}>
-                                🛵 {d.name.split(" ")[0]}
-                              </Btn>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </div>
-              </Card>
-            );
-          })}
-        </div>
-
-        <div className="space-y-3">
-          <div style={{ color: C.white, fontWeight: 900, fontSize: 14 }}>Entregadores</div>
-          {store.drivers.map((d) => {
-            const load = store.orders.filter((o) => o.driverId === d.id && o.status === "ROTA").length;
-            return (
-              <Card key={d.id} className="p-3">
-                <div className="flex items-center gap-3">
-                  <div className="flex items-center justify-center rounded-full" style={{ width: 38, height: 38, background: C.gray800, fontSize: 18 }}>🛵</div>
-                  <div className="flex-1">
-                    <div style={{ color: C.white, fontWeight: 800, fontSize: 13 }}>{d.name}</div>
-                    <div style={{ color: "#7a7a7a", fontSize: 11 }}>{d.vehicle}</div>
-                  </div>
-                  <span style={{ color: load ? C.orange : C.green, fontSize: 11, fontWeight: 800 }}>
-                    {load ? `${load} em rota` : "livre"}
-                  </span>
-                </div>
-                <div className="mt-2.5 flex items-center justify-between pt-2" style={{ borderTop: `1px solid ${C.gray800}` }}>
-                  <span style={{ color: "#7a7a7a", fontSize: 11 }}>Turno & diária:</span>
-                  <button
-                    onClick={() => setSettlementDriver(d)}
-                    className="px-2 py-1 rounded-lg font-bold text-xs active:scale-95 transition flex items-center gap-1"
-                    style={{ background: "#16653433", color: C.green, border: `1px solid ${C.green}55` }}
-                  >
-                    <span>🤝</span>
-                    <span>Fechar Acerto</span>
-                  </button>
-                </div>
-              </Card>
-            );
-          })}
-        </div>
-      </div>
-
-      {/* BARRA FLUTUANTE DE ROTA COMPOSTA / MULTI-STOP */}
-      {selectedOrderIds.length > 0 && (
-        <div
-          className="fixed bottom-4 left-4 right-4 z-40 max-w-4xl mx-auto p-4 rounded-2xl shadow-2xl flex flex-wrap items-center justify-between gap-3 animate-bounce-subtle"
-          style={{ background: "#1c1917", border: `2px solid ${C.orange}`, boxShadow: "0 10px 30px rgba(0,0,0,0.8)" }}
-        >
-          <div className="flex items-center gap-3">
-            <span className="text-2xl">📦</span>
-            <div>
-              <div style={{ color: C.white, fontWeight: 900, fontSize: 15 }}>
-                {selectedOrderIds.length} {selectedOrderIds.length === 1 ? "entrega selecionada" : "entregas selecionadas na rota"}
-              </div>
-              <div style={{ color: "#a0a0a0", fontSize: 11 }}>
-                Despache para um motoboy em rota otimizada multi-paradas
-              </div>
-            </div>
-          </div>
-
-          <div className="flex flex-wrap items-center gap-2">
-            <select
-              value={batchDriverId}
-              onChange={(e) => setBatchDriverId(e.target.value)}
-              className="px-3 py-2 rounded-xl text-xs font-bold text-white cursor-pointer"
-              style={{ background: C.gray850, border: `1px solid ${C.gray700}` }}
-            >
-              <option value="">-- Selecione o Entregador --</option>
-              {store.drivers.map((d) => (
-                <option key={d.id} value={d.id}>
-                  🛵 {d.name} ({d.vehicle || "Moto"})
-                </option>
-              ))}
-            </select>
-
-            <button
-              disabled={dispatchingRoute || !batchDriverId}
-              onClick={handleBatchDispatch}
-              className="px-4 py-2 rounded-xl font-black text-xs text-black active:scale-95 transition flex items-center gap-1.5 disabled:opacity-50"
-              style={{ background: C.green }}
-            >
-              <span>{dispatchingRoute ? "⏳" : "🚀"}</span>
-              <span>{dispatchingRoute ? "Despachando..." : `DESPACHAR ROTA (${selectedOrderIds.length})`}</span>
-            </button>
-
-            <a
-              href={buildGoogleMapsMultiStopUrl(
-                selectedOrderIds.map((id) => store.orders.find((o) => o.id === id)).filter(Boolean),
-                store.settings?.address
-              )}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="px-3 py-2 rounded-xl font-bold text-xs text-white flex items-center gap-1 active:scale-95 text-decoration-none"
-              style={{ background: "#4285F4" }}
-            >
-              <span>🗺️</span>
-              <span>Ver no Maps</span>
-            </a>
-
-            <button
-              onClick={() => setSelectedOrderIds([])}
-              className="px-3 py-2 rounded-xl font-bold text-xs text-gray-400 hover:text-white"
-            >
-              Limpar
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* Modais de Acerto */}
-      {settlementDriver && (
-        <DriverSettlementModal
-          driver={settlementDriver}
-          store={store}
-          onClose={() => setSettlementDriver(null)}
-        />
-      )}
-      {showHistoryModal && (
-        <SettlementsHistoryModal
-          store={store}
-          onClose={() => setShowHistoryModal(false)}
-        />
-      )}
-    </div>
+    <React.Suspense fallback={<div style={{ padding: 20, textAlign: 'center', color: '#888' }}>Carregando ExpeditionApp...</div>}>
+      <ExpeditionAppModular store={store} now={now}  />
+    </React.Suspense>
   );
 }
 
-// ============================================================
-// PAINEL TV — CHAMADOR DE SENHAS & STATUS DO SALÃO
-// ============================================================
-
-function TVPanelApp({ store, now }) {
-  const [fullscreen, setFullscreen] = useState(false);
-  const [soundOn, setSoundOn] = useState(() => localStorage.getItem("sarro_sound_tv") !== "0");
-  const lastReadyRef = useRef("");
-
-  const inPrep = store.orders.filter((o) => ["NOVO", "CONFIRMADO", "PREPARO"].includes(o.status));
-  const isReady = store.orders.filter((o) => ["PRONTO", "EMBALADO", "AGUARDANDO"].includes(o.status));
-
-  useEffect(() => {
-    const readyCodes = isReady.map((o) => o.code).join(",");
-    if (lastReadyRef.current && lastReadyRef.current !== readyCodes) {
-      if (soundOn && isReady.length > 0) {
-        playReadyChime();
-      }
-    }
-    lastReadyRef.current = readyCodes;
-  }, [isReady, soundOn]);
-
-  const toggleFs = () => {
-    if (!document.fullscreenElement) {
-      document.documentElement.requestFullscreen?.().then(() => setFullscreen(true)).catch(() => {});
-    } else {
-      document.exitFullscreen?.().then(() => setFullscreen(false)).catch(() => {});
-    }
-  };
-
-  return (
-    <div style={{ background: "#050505", minHeight: "100vh", color: C.white }} className="p-4 md:p-6 flex flex-col select-none">
-      {/* Top Header */}
-      <div className="flex items-center justify-between border-b border-gray-800 pb-4 mb-4">
-        <div className="flex items-center gap-3">
-          <Logo size={44} withText={false} />
-          <div>
-            <div style={{ fontFamily: font.display, fontStyle: "italic", fontSize: 26, color: C.orange, letterSpacing: "-0.02em" }}>
-              TÔ NO SARRO!
-            </div>
-            <div style={{ color: "#8a8a8a", fontSize: 11, fontWeight: 800, textTransform: "uppercase", letterSpacing: 1 }}>
-              PAINEL DE PEDIDOS & SENHAS
-            </div>
-          </div>
-        </div>
-
-        <div className="flex items-center gap-3">
-          <div style={{ fontFamily: font.display, fontSize: 30, color: C.yellowLight, fontVariantNumeric: "tabular-nums" }}>
-            {new Date(now).toLocaleTimeString("pt-BR")}
-          </div>
-
-          <button
-            onClick={() => {
-              const next = !soundOn;
-              setSoundOn(next);
-              localStorage.setItem("sarro_sound_tv", next ? "1" : "0");
-              if (next) playReadyChime();
-            }}
-            className="rounded-xl px-3 py-1.5 font-bold text-xs flex items-center gap-1.5 transition active:scale-95"
-            style={{
-              background: soundOn ? "#16653444" : C.gray850,
-              border: `1px solid ${soundOn ? C.green : C.gray800}`,
-              color: soundOn ? C.green : "#888",
-            }}
-          >
-            <span>{soundOn ? "🔔 Som TV Ativo" : "🔕 Mudo"}</span>
-          </button>
-
-          <button
-            onClick={toggleFs}
-            className="rounded-xl px-3 py-1.5 font-bold text-xs transition active:scale-95"
-            style={{ background: C.gray800, border: `1px solid ${C.gray700}`, color: C.white }}
-          >
-            {fullscreen ? "⤢ Sair da Tela Cheia" : "⤢ Tela Cheia"}
-          </button>
-        </div>
-      </div>
-
-      {/* Grid com 2 colunas gigantes de TV */}
-      <div className="grid md:grid-cols-2 gap-5 flex-1">
-        {/* Coluna 1: EM PREPARO */}
-        <div className="rounded-2xl p-4 md:p-5 flex flex-col" style={{ background: "#0d0d0d", border: `2px solid ${C.yellow}44` }}>
-          <div className="flex items-center justify-between border-b border-gray-800 pb-3 mb-4">
-            <div className="flex items-center gap-2">
-              <span className="text-2xl">🔥</span>
-              <span style={{ fontFamily: font.display, fontStyle: "italic", fontSize: 24, color: C.yellowLight }}>
-                EM PREPARO ({inPrep.length})
-              </span>
-            </div>
-            <span style={{ color: "#777", fontSize: 12, fontWeight: 700 }}>Na chapa</span>
-          </div>
-
-          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 overflow-y-auto max-h-[72vh] pr-1">
-            {inPrep.length === 0 && (
-              <div className="col-span-full py-16 text-center text-gray-500 font-bold">
-                Nenhum pedido na fila no momento.
-              </div>
-            )}
-            {inPrep.map((o) => {
-              const mod = getOrderModality(o);
-              return (
-                <div
-                  key={o.id}
-                  className="rounded-xl p-3 text-center border transition"
-                  style={{ background: C.gray850, borderColor: `${C.yellow}33` }}
-                >
-                  <div style={{ color: C.yellowLight, fontFamily: font.display, fontStyle: "italic", fontSize: 30 }}>
-                    #{o.code}
-                  </div>
-                  <div className="truncate font-bold text-white text-xs mt-1">
-                    {o.customer?.name?.split(" ")[0] || "Cliente"}
-                  </div>
-                  <div
-                    className="rounded-md px-2 py-0.5 font-black text-[10px] mt-1.5 inline-block"
-                    style={{ background: mod.bg, color: mod.color, border: `1px solid ${mod.border}44` }}
-                  >
-                    {mod.icon} {mod.badge}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-
-        {/* Coluna 2: PRONTOS */}
-        <div className="rounded-2xl p-4 md:p-5 flex flex-col" style={{ background: "#0d0d0d", border: `2px solid ${C.green}` }}>
-          <div className="flex items-center justify-between border-b border-gray-800 pb-3 mb-4">
-            <div className="flex items-center gap-2">
-              <span className="text-2xl">✅</span>
-              <span style={{ fontFamily: font.display, fontStyle: "italic", fontSize: 24, color: C.green }}>
-                PRONTOS PARA RETIRADA ({isReady.length})
-              </span>
-            </div>
-            <span style={{ color: C.green, fontSize: 12, fontWeight: 800 }}>Retire no balcão</span>
-          </div>
-
-          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 overflow-y-auto max-h-[72vh] pr-1">
-            {isReady.length === 0 && (
-              <div className="col-span-full py-16 text-center text-gray-500 font-bold">
-                Aguardando próximos pedidos prontos...
-              </div>
-            )}
-            {isReady.map((o) => {
-              const mod = getOrderModality(o);
-              return (
-                <div
-                  key={o.id}
-                  className="rounded-xl p-3.5 text-center transition animate-pulse"
-                  style={{
-                    background: "linear-gradient(135deg, #064e3b, #022c22)",
-                    border: `2px solid ${C.green}`,
-                    boxShadow: "0 0 16px rgba(16,185,129,.2)",
-                  }}
-                >
-                  <div style={{ color: C.white, fontFamily: font.display, fontStyle: "italic", fontSize: 34 }}>
-                    #{o.code}
-                  </div>
-                  <div className="truncate font-black text-white text-sm mt-1">
-                    {o.customer?.name?.split(" ")[0] || "Cliente"}
-                  </div>
-                  <div className="rounded-md px-2 py-0.5 font-black text-xs mt-2 inline-block bg-black/40 text-emerald-300">
-                    {mod.icon} {mod.badge}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// ============================================================
-// ENTREGADOR
-// ============================================================
-
-function DriverApp({ store, now }) {
-  // O entregador logado enxerga só o que é dele (o servidor também valida).
-  const meDriver = store.drivers.find((d) => d.id === store.me?.driverId) || store.drivers[0];
-  const meId = meDriver?.id;
-  const mine = store.orders.filter((o) => o.driverId === meId && ["ROTA", "ENTREGUE"].includes(o.status));
-  const open = store.orders.filter((o) => o.status === "AGUARDANDO" && o.type === "delivery");
-  const activeRouteOrders = mine.filter((o) => o.status === "ROTA").sort((a, b) => (a.routeSeq || 0) - (b.routeSeq || 0));
-
-  // Estados de atividades operacionais do entregador
-  const [arrivedMap, setArrivedMap] = useState({});
-  const [routeModal, setRouteModal] = useState(null);
-  const [confirmModal, setConfirmModal] = useState(null);
-  const [problemModal, setProblemModal] = useState(null);
-  const [showSettlementModal, setShowSettlementModal] = useState(false);
-
-  const cleanPhone = (phone) => {
-    let d = String(phone || "").replace(/\D/g, "");
-    if (d.length >= 10 && !d.startsWith("55")) d = "55" + d;
-    return d;
-  };
-
-  const openMaps = (addr, type = "google") => {
-    const enc = encodeURIComponent(addr || "");
-    const url = type === "waze"
-      ? `https://waze.com/ul?q=${enc}&navigate=yes`
-      : `https://www.google.com/maps/dir/?api=1&destination=${enc}`;
-    if (typeof window !== "undefined" && window.open) window.open(url, "_blank");
-  };
-
-  const openWhatsApp = (phone, msg = "") => {
-    const p = cleanPhone(phone);
-    const enc = encodeURIComponent(msg);
-    const url = `https://wa.me/${p}${msg ? `?text=${enc}` : ""}`;
-    if (typeof window !== "undefined" && window.open) window.open(url, "_blank");
-  };
-
-  const copyAddress = (addr) => {
-    if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
-      navigator.clipboard.writeText(addr).then(() => {
-        store.toast("Endereço copiado para a área de transferência! 📋");
-      }).catch(() => store.toast("Endereço: " + addr));
-    } else {
-      store.toast("Endereço: " + addr);
-    }
-  };
-
-  const handleArrived = (o) => {
-    setArrivedMap((prev) => ({ ...prev, [o.id]: true }));
-    const msg = `Olá, ${o.customer?.name || "cliente"}! 🛵 Sou o entregador do Tô no Sarro. Já cheguei no seu endereço (${o.customer?.addr || ""}) com o pedido #${o.code}. Estou no portão/portaria te aguardando! 🔥`;
-    openWhatsApp(o.customer?.phone, msg);
-    store.toast(`📍 Chegada registrada no pedido #${o.code}! WhatsApp do cliente aberto.`);
-  };
-
-  return (
-    <div style={{ background: C.black, minHeight: "100%" }} className="p-4 pb-10">
-      <div className="flex items-center justify-between mb-4">
-        <Logo size={38} />
-        <div className="flex items-center gap-2">
-          <span
-            className="rounded-lg px-2.5 py-1.5 font-bold"
-            style={{ background: C.gray850, color: C.white, border: `1px solid ${C.gray800}`, fontSize: 12 }}
-          >
-            🛵 {meDriver ? meDriver.name.split(" ")[0] : "…"} · {meDriver?.vehicle}
-          </span>
-          <button
-            onClick={() => setShowSettlementModal(true)}
-            className="rounded-lg px-2.5 py-1.5 font-bold text-xs flex items-center gap-1.5 active:scale-95"
-            style={{ background: "#16653433", color: C.green, border: `1px solid ${C.green}55` }}
-          >
-            <span>🤝</span>
-            <span>Meu Acerto</span>
-          </button>
-          {store.me && (
-            <button
-              onClick={store.logout}
-              className="rounded-lg px-2 py-1 font-bold"
-              style={{ border: `1px solid ${C.gray800}`, color: "#8a8a8a", fontSize: 11 }}
-            >
-              Sair
-            </button>
-          )}
-        </div>
-      </div>
-
-      <div className="flex items-end justify-between gap-3">
-        <h2 style={{ fontFamily: font.display, fontStyle: "italic", fontSize: 26, color: C.white, letterSpacing: "-0.02em" }}>
-          🛵 MINHAS ENTREGAS
-        </h2>
-        <div className="pb-1"><SyncBadge store={store} now={now} /></div>
-      </div>
-      <div style={{ color: "#7a7a7a", fontSize: 12, marginBottom: 16 }}>
-        {meDriver?.name || "Entregador"} · {mine.filter((o) => o.status === "ROTA").length} em rota hoje
-      </div>
-
-      {/* ROTA COMPOSTA MULTI-PARADAS ATIVA */}
-      {activeRouteOrders.length >= 2 && (
-        <div
-          className="mb-5 p-4 rounded-2xl"
-          style={{
-            background: "linear-gradient(135deg, #1c1917, #292524)",
-            border: `2px solid ${C.orange}`,
-            boxShadow: "0 6px 20px rgba(255,107,0,0.15)",
-          }}
-        >
-          <div className="flex items-center justify-between mb-2">
-            <div className="flex items-center gap-2">
-              <span className="text-xl">🛵</span>
-              <div>
-                <div style={{ color: C.white, fontWeight: 900, fontSize: 15 }}>
-                  ROTA COMPOSTA MULTI-PARADAS ({activeRouteOrders.length} entregas)
-                </div>
-                <div style={{ color: "#a0a0a0", fontSize: 11 }}>
-                  Siga a sequência de paradas para entrega mais rápida
-                </div>
-              </div>
-            </div>
-            <span className="px-2.5 py-1 rounded-full text-xs font-black" style={{ background: C.orange, color: C.black }}>
-              EM ANDAMENTO
-            </span>
-          </div>
-
-          <div className="space-y-1.5 my-3">
-            {activeRouteOrders.map((ro, idx) => (
-              <div key={ro.id} className="p-2.5 rounded-xl flex items-center justify-between text-xs" style={{ background: C.gray900, border: `1px solid ${C.gray800}` }}>
-                <div className="flex items-center gap-2">
-                  <span className="w-5 h-5 rounded-full flex items-center justify-center font-black text-[10px]" style={{ background: C.orange, color: C.black }}>
-                    {ro.routeSeq || idx + 1}
-                  </span>
-                  <span style={{ color: C.white, fontWeight: 800 }}>#{ro.code}</span>
-                  <span style={{ color: "#c0c0c0" }}>{ro.customer?.name} ({ro.customer?.addr?.split(",")[0]})</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <span style={{ color: C.yellowLight, fontWeight: 800 }}>{brl(ro.total)}</span>
-                  <span style={{ color: "#8a8a8a", fontSize: 10 }}>({ro.payment})</span>
-                </div>
-              </div>
-            ))}
-          </div>
-
-          <button
-            onClick={() => {
-              const url = buildGoogleMapsMultiStopUrl(activeRouteOrders, store.settings?.address);
-              if (typeof window !== "undefined" && window.open) window.open(url, "_blank");
-            }}
-            className="w-full py-3.5 rounded-xl font-black text-sm text-white flex items-center justify-center gap-2 transition active:scale-95 shadow-lg"
-            style={{ background: "#4285F4" }}
-          >
-            <span>🗺️</span>
-            <span>INICIAR NAVEGAÇÃO MULTI-PARADAS NO GOOGLE MAPS</span>
-          </button>
-        </div>
-      )}
-
-      {open.length > 0 && (
-        <div className="mb-5">
-          <div style={{ color: C.yellowLight, fontWeight: 900, fontSize: 13, marginBottom: 8 }}>Disponíveis para aceitar</div>
-          <div className="space-y-2">
-            {open.map((o) => (
-              <Card key={o.id} className="p-3.5" style={{ borderColor: `${C.yellow}44` }}>
-                <div className="flex items-center justify-between">
-                  <span style={{ color: C.white, fontWeight: 900, fontSize: 15 }}>#{o.code}</span>
-                  <span style={{ color: C.yellowLight, fontWeight: 900, fontSize: 14 }}>{brl(o.total)}</span>
-                </div>
-                <div style={{ color: "#9a9a9a", fontSize: 12, marginTop: 4 }}>{o.customer.addr}</div>
-                <div className="mt-3"><Btn full onClick={() => store.assignDriver(o.id, meId)}>ACEITAR ENTREGA</Btn></div>
-              </Card>
-            ))}
-          </div>
-        </div>
-      )}
-
-      <div className="space-y-3">
-        {mine.length === 0 && open.length === 0 && (
-          <Card className="p-8 text-center">
-            <div style={{ fontSize: 40 }}>🛵</div>
-            <div style={{ color: C.white, fontWeight: 800, marginTop: 10 }}>Sem entregas por enquanto</div>
-            <div style={{ color: "#8a8a8a", fontSize: 12.5, marginTop: 4 }}>Assim que a expedição liberar um pedido, ele aparece aqui.</div>
-          </Card>
-        )}
-
-        {mine.map((o) => {
-          const done = o.status === "ENTREGUE";
-          const isArrived = !!arrivedMap[o.id];
-          return (
-            <Card key={o.id} className="p-4" style={{ borderColor: done ? C.gray800 : `${C.orange}55`, opacity: done ? 0.6 : 1 }}>
-              <div className="flex items-center justify-between mb-2">
-                <div className="flex items-center gap-2">
-                  <span style={{ color: C.white, fontFamily: font.display, fontStyle: "italic", fontSize: 20 }}>#{o.code}</span>
-                  {o.routeSeq && (
-                    <span
-                      className="rounded-full px-2 py-0.5 text-[10px] font-black"
-                      style={{ background: C.orange, color: C.black }}
-                    >
-                      {o.routeSeq}ª PARADA
-                    </span>
-                  )}
-                  {isArrived && !done && (
-                    <span
-                      className="rounded-full px-2 py-0.5 text-xs font-bold"
-                      style={{ background: "#16653433", color: C.green, border: `1px solid ${C.green}55` }}
-                    >
-                      📍 No local
-                    </span>
-                  )}
-                </div>
-                <StatusPill status={o.status} small />
-              </div>
-
-              {/* Informações detalhadas com atalhos interativos */}
-              <div className="space-y-1.5 text-xs">
-                <div className="flex justify-between py-1.5" style={{ borderBottom: `1px solid ${C.gray850}` }}>
-                  <span style={{ color: "#7a7a7a" }}>Cliente</span>
-                  <span style={{ color: C.white, fontWeight: 700 }}>{o.customer.name}</span>
-                </div>
-
-                <div className="flex justify-between items-center py-1.5" style={{ borderBottom: `1px solid ${C.gray850}` }}>
-                  <span style={{ color: "#7a7a7a" }}>Endereço</span>
-                  <div className="text-right max-w-[70%]">
-                    <div style={{ color: C.white, fontWeight: 600 }}>{o.customer.addr}</div>
-                    {!done && (
-                      <button
-                        onClick={() => setRouteModal(o)}
-                        className="mt-0.5 font-bold text-xs inline-flex items-center gap-1"
-                        style={{ color: C.orange, background: "none", border: "none", padding: 0, cursor: "pointer" }}
-                      >
-                        🗺️ Ver mapa / GPS
-                      </button>
-                    )}
-                  </div>
-                </div>
-
-                <div className="flex justify-between items-center py-1.5" style={{ borderBottom: `1px solid ${C.gray850}` }}>
-                  <span style={{ color: "#7a7a7a" }}>Telefone</span>
-                  <div className="flex items-center gap-1.5">
-                    <span style={{ color: C.white, fontWeight: 600 }}>{o.customer.phone}</span>
-                    {!done && (
-                      <>
-                        <button
-                          onClick={() => openWhatsApp(o.customer.phone, `Olá, ${o.customer.name}! Sou o entregador do Tô no Sarro referente ao pedido #${o.code}.`)}
-                          className="rounded px-1.5 py-0.5 font-bold text-xs"
-                          style={{ background: "#25D36622", color: "#25D366", border: "1px solid #25D36644" }}
-                        >
-                          💬 Zap
-                        </button>
-                        <a
-                          href={`tel:${o.customer.phone}`}
-                          className="rounded px-1.5 py-0.5 font-bold text-xs"
-                          style={{ background: C.gray800, color: C.white, textDecoration: "none" }}
-                        >
-                          📞
-                        </a>
-                      </>
-                    )}
-                  </div>
-                </div>
-
-                <div className="flex justify-between py-1.5" style={{ borderBottom: `1px solid ${C.gray850}` }}>
-                  <span style={{ color: "#7a7a7a" }}>Valor & Pagamento</span>
-                  <span style={{ color: C.yellowLight, fontWeight: 800 }}>{brl(o.total)} · {o.payment}</span>
-                </div>
-
-                <div className="flex justify-between py-1.5" style={{ borderBottom: `1px solid ${C.gray850}` }}>
-                  <span style={{ color: "#7a7a7a" }}>Saiu há</span>
-                  <span style={{ color: C.white, fontWeight: 600 }}>{elapsed(o.startedAt || o.createdAt, now)}</span>
-                </div>
-              </div>
-
-              {/* Botões de Ação com atividades reais */}
-              {!done && (
-                <div className="grid grid-cols-2 gap-2 mt-4">
-                  <Btn
-                    variant={isArrived ? "green" : "dark"}
-                    onClick={() => handleArrived(o)}
-                  >
-                    {isArrived ? "📍 NO LOCAL (REAVISAR)" : "CHEGUEI NO LOCAL"}
-                  </Btn>
-                  <Btn
-                    variant="green"
-                    onClick={() => setConfirmModal(o)}
-                  >
-                    PEDIDO ENTREGUE
-                  </Btn>
-                  <Btn
-                    variant="dark"
-                    onClick={() => setRouteModal(o)}
-                  >
-                    🗺 VER ROTA
-                  </Btn>
-                  <Btn
-                    variant="danger"
-                    onClick={() => setProblemModal(o)}
-                  >
-                    PROBLEMA
-                  </Btn>
-                </div>
-              )}
-            </Card>
-          );
-        })}
-      </div>
-
-      {/* Modal 1: Rota no Mapa (Google Maps / Waze / Copiar) */}
-      {routeModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: "rgba(0,0,0,.82)" }}>
-          <Card className="w-full max-w-md p-5 space-y-4" style={{ border: `1px solid ${C.orange}55`, background: C.gray900 }}>
-            <div className="flex items-center justify-between">
-              <div style={{ color: C.white, fontFamily: font.display, fontStyle: "italic", fontSize: 22 }}>
-                🗺️ ROTA — PEDIDO #{routeModal.code}
-              </div>
-              <button onClick={() => setRouteModal(null)} className="text-gray-400 hover:text-white text-xl">✕</button>
-            </div>
-
-            <div className="p-3.5 rounded-xl" style={{ background: C.gray850 }}>
-              <div style={{ color: "#8a8a8a", fontSize: 11 }}>Destino de Entrega</div>
-              <div style={{ color: C.white, fontWeight: 800, fontSize: 14, marginTop: 4 }}>{routeModal.customer.name}</div>
-              <div style={{ color: C.yellowLight, fontSize: 13, marginTop: 4, lineHeight: 1.4 }}>{routeModal.customer.addr}</div>
-            </div>
-
-            <div className="space-y-2">
-              <button
-                onClick={() => { openMaps(routeModal.customer.addr, "google"); setRouteModal(null); }}
-                className="w-full flex items-center justify-center gap-2 rounded-xl py-3 font-bold text-white transition active:scale-95"
-                style={{ background: "#4285F4" }}
-              >
-                <span>🗺️</span>
-                <span>Abrir no Google Maps</span>
-              </button>
-
-              <button
-                onClick={() => { openMaps(routeModal.customer.addr, "waze"); setRouteModal(null); }}
-                className="w-full flex items-center justify-center gap-2 rounded-xl py-3 font-bold text-black transition active:scale-95"
-                style={{ background: "#33CCFF" }}
-              >
-                <span>🚗</span>
-                <span>Abrir no Waze</span>
-              </button>
-
-              <button
-                onClick={() => copyAddress(routeModal.customer.addr)}
-                className="w-full flex items-center justify-center gap-2 rounded-xl py-2.5 font-bold transition active:scale-95"
-                style={{ background: C.gray800, color: "#c0c0c0", border: `1px solid ${C.gray700}`, fontSize: 12.5 }}
-              >
-                <span>📋</span>
-                <span>Copiar Endereço</span>
-              </button>
-            </div>
-
-            <Btn full variant="dark" onClick={() => setRouteModal(null)}>Voltar</Btn>
-          </Card>
-        </div>
-      )}
-
-      {/* Modal 2: Confirmação de Entrega com Verificação de Pagamento */}
-      {confirmModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: "rgba(0,0,0,.82)" }}>
-          <Card className="w-full max-w-md p-5 space-y-4" style={{ border: `2px solid ${C.green}`, background: C.gray900 }}>
-            <div className="flex items-center justify-between">
-              <div style={{ color: C.white, fontFamily: font.display, fontStyle: "italic", fontSize: 22 }}>
-                ✅ CONFIRMAR ENTREGA #{confirmModal.code}
-              </div>
-              <button onClick={() => setConfirmModal(null)} className="text-gray-400 hover:text-white text-xl">✕</button>
-            </div>
-
-            <div className="p-3.5 rounded-xl space-y-2 text-xs" style={{ background: C.gray850 }}>
-              <div className="flex justify-between">
-                <span style={{ color: "#8a8a8a" }}>Cliente:</span>
-                <span style={{ color: C.white, fontWeight: 700 }}>{confirmModal.customer.name}</span>
-              </div>
-              <div className="flex justify-between">
-                <span style={{ color: "#8a8a8a" }}>Endereço:</span>
-                <span style={{ color: C.white, textAlign: "right", maxWidth: "70%" }}>{confirmModal.customer.addr}</span>
-              </div>
-              <div className="flex justify-between pt-2" style={{ borderTop: `1px solid ${C.gray800}` }}>
-                <span style={{ color: "#8a8a8a" }}>Total do pedido:</span>
-                <span style={{ color: C.yellowLight, fontWeight: 900, fontSize: 15 }}>{brl(confirmModal.total)}</span>
-              </div>
-            </div>
-
-            {/* Alerta de cobrança */}
-            <div
-              className="p-3 rounded-xl text-center font-bold text-xs"
-              style={{
-                background: ["PIX", "CARTAO_ONLINE"].includes(confirmModal.payment) ? "#16653433" : "#854d0e33",
-                border: `1px solid ${["PIX", "CARTAO_ONLINE"].includes(confirmModal.payment) ? C.green : C.yellow}`,
-                color: ["PIX", "CARTAO_ONLINE"].includes(confirmModal.payment) ? C.green : C.yellowLight,
-              }}
-            >
-              {["PIX", "CARTAO_ONLINE"].includes(confirmModal.payment) ? (
-                <span>🟢 JÁ PAGO ONLINE (InfinitePay/Pix) — Não cobrar nada do cliente!</span>
-              ) : confirmModal.payment === "Cartão" ? (
-                <span>💳 COBRAR NO CARTÃO — Passar {brl(confirmModal.total)} na maquininha</span>
-              ) : (
-                <span>💵 COBRAR EM DINHEIRO — Receber {brl(confirmModal.total)} em espécie</span>
-              )}
-            </div>
-
-            <div className="space-y-2 pt-2">
-              <button
-                onClick={() => {
-                  store.setStatus(confirmModal.id, "ENTREGUE");
-                  store.toast(`🎉 Pedido #${confirmModal.code} entregue com sucesso!`);
-                  setConfirmModal(null);
-                }}
-                className="w-full flex items-center justify-center gap-2 rounded-xl py-3.5 font-black text-black transition active:scale-95"
-                style={{ background: C.green, fontSize: 14 }}
-              >
-                <span>✅</span>
-                <span>CONFIRMAR ENTREGA</span>
-              </button>
-
-              <button
-                onClick={() => {
-                  store.setStatus(confirmModal.id, "ENTREGUE");
-                  const msg = `Olá, ${confirmModal.customer.name}! Seu pedido #${confirmModal.code} do Tô no Sarro foi entregue. Bom apetite e muito obrigado pela preferência! Se puder nos avaliar com 5 estrelas ficaremos muito gratos! ⭐⭐⭐⭐⭐`;
-                  openWhatsApp(confirmModal.customer.phone, msg);
-                  store.toast(`🎉 Pedido #${confirmModal.code} entregue + WhatsApp de agradecimento enviado!`);
-                  setConfirmModal(null);
-                }}
-                className="w-full flex items-center justify-center gap-2 rounded-xl py-2.5 font-bold transition active:scale-95 text-xs"
-                style={{ background: "#25D36622", color: "#25D366", border: "1px solid #25D36666" }}
-              >
-                <span>💬</span>
-                <span>Confirmar e agradecer no WhatsApp</span>
-              </button>
-
-              <Btn full variant="dark" onClick={() => setConfirmModal(null)}>Cancelar</Btn>
-            </div>
-          </Card>
-        </div>
-      )}
-
-      {/* Modal 3: Relatar Problema na Entrega */}
-      {problemModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: "rgba(0,0,0,.82)" }}>
-          <Card className="w-full max-w-md p-5 space-y-4" style={{ border: `2px solid ${C.red}`, background: C.gray900 }}>
-            <div className="flex items-center justify-between">
-              <div style={{ color: C.red, fontFamily: font.display, fontStyle: "italic", fontSize: 22 }}>
-                ⚠️ RELATAR PROBLEMA #{problemModal.code}
-              </div>
-              <button onClick={() => setProblemModal(null)} className="text-gray-400 hover:text-white text-xl">✕</button>
-            </div>
-
-            <div style={{ color: "#a0a0a0", fontSize: 12 }}>
-              Selecione uma ação rápida para resolver com o cliente ou acionar a loja:
-            </div>
-
-            <div className="space-y-2.5">
-              {/* Opção 1: Cliente não atende */}
-              <div className="p-3 rounded-xl" style={{ background: C.gray850, border: `1px solid ${C.gray800}` }}>
-                <div style={{ color: C.white, fontWeight: 800, fontSize: 13 }}>📵 Cliente não atende telefone / interfone</div>
-                <div className="flex gap-2 mt-2">
-                  <button
-                    onClick={() => {
-                      const msg = `Olá, ${problemModal.customer.name}! Sou o entregador do Tô no Sarro com seu pedido #${problemModal.code}. Já estou no portão/portaria te chamando mas não consegui contato. Por favor me responda aqui! 🛵`;
-                      openWhatsApp(problemModal.customer.phone, msg);
-                    }}
-                    className="flex-1 py-1.5 rounded-lg font-bold text-xs"
-                    style={{ background: "#25D366", color: C.black }}
-                  >
-                    💬 WhatsApp
-                  </button>
-                  <a
-                    href={`tel:${problemModal.customer.phone}`}
-                    className="flex-1 py-1.5 rounded-lg font-bold text-xs text-center flex items-center justify-center text-decoration-none"
-                    style={{ background: C.gray700, color: C.white }}
-                  >
-                    📞 Ligar
-                  </a>
-                </div>
-              </div>
-
-              {/* Opção 2: Endereço não encontrado */}
-              <div className="p-3 rounded-xl" style={{ background: C.gray850, border: `1px solid ${C.gray800}` }}>
-                <div style={{ color: C.white, fontWeight: 800, fontSize: 13 }}>📍 Endereço não localizado ou incompleto</div>
-                <button
-                  onClick={() => {
-                    const msg = `Olá, ${problemModal.customer.name}! Sou o entregador do Tô no Sarro com o pedido #${problemModal.code}. Estou na sua rua mas não localizei o número ${problemModal.customer.addr}. Pode me enviar a localização em tempo real ou ponto de referência?`;
-                    openWhatsApp(problemModal.customer.phone, msg);
-                  }}
-                  className="w-full mt-2 py-1.5 rounded-lg font-bold text-xs"
-                  style={{ background: C.gray700, color: C.yellowLight }}
-                >
-                  💬 Pedir localização no WhatsApp
-                </button>
-              </div>
-
-              {/* Opção 3: Suporte da Central / Loja */}
-              <div className="p-3 rounded-xl" style={{ background: C.gray850, border: `1px solid ${C.gray800}` }}>
-                <div style={{ color: C.white, fontWeight: 800, fontSize: 13 }}>🚨 Problema na rota ou maquininha (falar com a loja)</div>
-                <div className="flex gap-2 mt-2">
-                  <button
-                    onClick={() => {
-                      const storePhone = store.settings?.phone || "(81) 98765-4321";
-                      const msg = `🚨 SUPORTE ENTREGA: Sou o entregador ${meDriver?.name || "Rafael"} no pedido #${problemModal.code} (${problemModal.customer.name}). Preciso de suporte com a entrega!`;
-                      openWhatsApp(storePhone, msg);
-                    }}
-                    className="flex-1 py-1.5 rounded-lg font-bold text-xs"
-                    style={{ background: "#EF444422", color: "#EF4444", border: "1px solid #EF444466" }}
-                  >
-                    💬 WhatsApp da Loja
-                  </button>
-                  <a
-                    href={`tel:${store.settings?.phone || "(81) 98765-4321"}`}
-                    className="flex-1 py-1.5 rounded-lg font-bold text-xs text-center flex items-center justify-center text-decoration-none"
-                    style={{ background: C.gray700, color: C.white }}
-                  >
-                    📞 Ligar p/ Loja
-                  </a>
-                </div>
-              </div>
-            </div>
-
-            <Btn full variant="dark" onClick={() => setProblemModal(null)}>Fechar</Btn>
-          </Card>
-        </div>
-      )}
-
-      {/* Modal de Acerto do Entregador */}
-      {showSettlementModal && meDriver && (
-        <DriverSettlementModal
-          driver={meDriver}
-          store={store}
-          onClose={() => setShowSettlementModal(false)}
-        />
-      )}
-    </div>
-  );
-}
-
-// ============================================================
-// APP RAIZ — estado compartilhado entre todos os painéis
-//
-// Fonte da verdade: API REST (/api/bootstrap) + WebSocket (/ws).
-// O carrinho e o pedido do cliente ficam no localStorage.
-// ============================================================
-
-// Cada painel tem a PRÓPRIA URL. O cliente fica na raiz (cardápio) e não
-// esbarra no login da equipe; a equipe salva o endereço do seu painel como
-// atalho na tela inicial e abre já no lugar certo.
-const ROLES = [
-  { id: "cliente", label: "Cardápio", icon: "🍔", path: "/" },
-  { id: "admin", label: "Admin", icon: "📊", path: "/admin" },
-  { id: "cozinha", label: "Cozinha", icon: "🔥", path: "/cozinha" },
-  { id: "expedicao", label: "Expedição", icon: "📦", path: "/expedicao" },
-  { id: "entregador", label: "Entregador", icon: "🛵", path: "/entregador" },
-  { id: "paineltv", label: "Painel TV", icon: "📺", path: "/paineltv" },
-];
-
-// Papéis autorizados em cada painel (o servidor valida de novo em cada rota)
-const STAFF_GATE = {
-  admin: ["ADMIN", "GERENTE"],
-  cozinha: ["COZINHA", "GERENTE", "ADMIN"],
-  expedicao: ["EXPEDICAO", "GERENTE", "ADMIN"],
-  entregador: ["ENTREGADOR"],
-};
-
-const rolePath = (role) => ROLES.find((r) => r.id === role)?.path || "/";
-
-// Lê o painel da URL — funciona também em subdiretório (base "./" do Vite),
-// então http://host/preview/cozinha cai na cozinha. Sem caminho conhecido,
-// cai no cardápio do cliente.
 function pathRole() {
   const p = (window.location.pathname || "").replace(/\/+$/, "").toLowerCase();
   return ROLES.find((r) => r.path !== "/" && p.endsWith(r.path))?.id || "cliente";
@@ -8892,13 +3426,16 @@ export default function App() {
     if (window.location.pathname !== p) window.history.pushState({ role: r }, "", p);
   };
 
+  // Atalhos teclado Sprint6 (M=mesas, E=expedição, C=cozinha, Ctrl+K busca)
+  useKeyboardShortcuts({ store: { role, settings, setTab }, goRole });
+
   if (!ready) return <Splash error={bootError} onRetry={load} />;
 
   const gate = STAFF_GATE[role];
   const allowed = !gate || (me && gate.includes(me.role));
 
   return (
-    <div style={{ background: C.black, minHeight: "100vh", fontFamily: font.body, color: C.white }}>
+    <div style={{ background: C.black, minHeight: "100vh", fontFamily: font.body, color: C.white }} className="overflow-x-hidden">
       <style>{css}</style>
 
       {/* Barra superior de atalhos da equipe:
@@ -8934,7 +3471,7 @@ export default function App() {
           })}
           <div className="flex-1" />
           <span className="shrink-0 flex items-center gap-2">
-            <span style={{ color: "#8a8a8a", fontSize: 11 }}>
+            <span className="hidden sm:inline" style={{ color: "#8a8a8a", fontSize: 11 }}>
               {me.name.split(" ")[0]} · {me.role}
             </span>
             <button
