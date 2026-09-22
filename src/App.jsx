@@ -2861,6 +2861,25 @@ function ExpeditionApp({ store, now }) {
   );
 }
 
+const ROLES = [
+  { id: "cliente", label: "Cardápio", icon: "🍔", path: "/" },
+  { id: "admin", label: "Admin", icon: "📊", path: "/admin" },
+  { id: "cozinha", label: "Cozinha", icon: "🔥", path: "/cozinha" },
+  { id: "expedicao", label: "Expedição", icon: "📦", path: "/expedicao" },
+  { id: "entregador", label: "Entregador", icon: "🛵", path: "/entregador" },
+  { id: "paineltv", label: "Painel TV", icon: "📺", path: "/paineltv" },
+];
+
+const STAFF_GATE = {
+  admin: ["ADMIN", "GERENTE"],
+  cozinha: ["COZINHA", "GERENTE", "ADMIN"],
+  expedicao: ["EXPEDICAO", "GERENTE", "ADMIN"],
+  entregador: ["ENTREGADOR"],
+  paineltv: ["ADMIN", "GERENTE", "EXPEDICAO", "COZINHA"],
+};
+
+const rolePath = (role) => ROLES.find((r) => r.id === role)?.path || "/";
+
 function pathRole() {
   const p = (window.location.pathname || "").replace(/\/+$/, "").toLowerCase();
   return ROLES.find((r) => r.path !== "/" && p.endsWith(r.path))?.id || "cliente";
