@@ -21,6 +21,8 @@ import AdminOrders from "./AdminOrders.jsx";
 import AdminUsers from "./AdminUsers.jsx";
 import TVPanelApp from "../tv/TVPanelApp.jsx";
 import DriverApp from "../driver/DriverApp.jsx";
+import DriverSettlementModal from "../driver/DriverSettlementModal.jsx";
+import SettlementsHistoryModal from "../driver/SettlementsHistoryModal.jsx";
 
 const ADMIN_NAV = [
   { id: "dashboard", label: "Dashboard", icon: "📊" },
@@ -94,14 +96,19 @@ function AdminSettingsModular({ store, now }) {
 
 function AdminDriversSection({ store, now }) {
   const drivers = store.drivers || [];
+  const [acertoDe, setAcertoDe] = useState(null);
+  const [historicoAberto, setHistoricoAberto] = useState(false);
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
           <div style={{ color: C.white, fontWeight: 900, fontSize: 16 }}>🛵 Entregadores</div>
           <div style={{ color: "#8a8a8a", fontSize: 12, marginTop: 2 }}>{drivers.length} cadastrados · gestão de rotas e acertos</div>
         </div>
-        <Btn small variant="dark" onClick={() => window.open("/entregador", "_blank")}>Abrir painel entregador ↗</Btn>
+        <div className="flex gap-2">
+          <Btn small variant="dark" onClick={() => setHistoricoAberto(true)}>📋 Histórico de acertos</Btn>
+          <Btn small variant="dark" onClick={() => window.open("/entregador", "_blank")}>Abrir painel entregador ↗</Btn>
+        </div>
       </div>
 
       <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-3">
@@ -132,6 +139,10 @@ function AdminDriversSection({ store, now }) {
                   <div style={{ color: "#8a8a8a", fontSize: 10 }}>TOTAL</div>
                 </div>
               </div>
+              <div className="flex gap-2 mt-3">
+                <Btn small full onClick={() => setAcertoDe(d)}>🤝 Fechar acerto</Btn>
+                <Btn small variant="dark" onClick={() => window.open("/entregador", "_blank")}>🛵 Área</Btn>
+              </div>
             </Card>
           );
         })}
@@ -141,9 +152,18 @@ function AdminDriversSection({ store, now }) {
         <div style={{ color: C.white, fontWeight: 800, fontSize: 13, marginBottom: 8 }}>Preview área do entregador</div>
         <div style={{ color: "#8a8a8a", fontSize: 12, marginBottom: 10 }}>Como o entregador vê seus pedidos. Use /entregador para login real (rafael/entregador123).</div>
         <div className="rounded-xl overflow-hidden" style={{ border: `1px solid ${C.gray800}`, maxHeight: 520, overflow: "auto" }}>
-          <DriverApp store={store} now={now} />
+          <DriverApp store={store} now={now} driverOverride={drivers[0] || null} preview />
         </div>
       </Card>
+
+      {acertoDe && (
+        <DriverSettlementModal
+          driver={acertoDe}
+          store={store}
+          onClose={() => setAcertoDe(null)}
+        />
+      )}
+      {historicoAberto && <SettlementsHistoryModal store={store} onClose={() => setHistoricoAberto(false)} />}
     </div>
   );
 }
