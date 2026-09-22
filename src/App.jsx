@@ -1093,6 +1093,364 @@ function ProductCard({ p, onOpen }) {
   );
 }
 
+function smartSearch(q, products) {
+  const term = q.trim().toLowerCase();
+  if (!term) return products;
+  const words = term.split(/\s+/).filter((w) => w.length > 2);
+  const cheap = /barat|promo|desconto/.test(term);
+  const scored = products.map((p) => {
+    const hay = [p.name, p.desc, p.cat, ...(p.ingredients || [])].join(" ").toLowerCase();
+    let score = 0;
+    words.forEach((w) => {
+      if (hay.includes(w)) score += 3;
+      (SYNONYMS[w] || []).forEach((s) => { if (hay.includes(s)) score += 2; });
+      if (p.name.toLowerCase().includes(w)) score += 4;
+    });
+    if (cheap && (p.promo || p.price < 25)) score += 4;
+    return { p, score };
+  });
+  const hits = scored.filter((s) => s.score > 0).sort((a, b) => b.score - a.score);
+  return hits.map((h) => h.p);
+}
+
+// ============================================================
+// CARDÁPIO
+// ============================================================
+
+
+function MenuScreen({ store, onOpen }) {
+  const [cat, setCat] = useState("burgers");
+  const [q, setQ] = useState("");
+  const refs = useRef({});
+
+  const results = smartSearch(q, store.products);
+  const searching = q.trim().length > 0;
+
+  const go = (id) => {
+    setCat(id);
+    refs.current[id]?.scrollIntoView({ behavior: "smooth", block: "start" });
+  };
+
+  const byCat = (id) =>
+    id === "promocoes"
+      ? store.products.filter((p) => p.promo)
+      : store.products.filter((p) => p.cat === id);
+
+  return (
+    <div>
+      <div className="px-4 pt-4 pb-2 sticky top-0 z-20" style={{ background: C.black }}>
+        <div className="relative">
+          <input
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            placeholder="Busque: “burger com bacon”, “combo barato”, “açaí”…"
+            className="w-full rounded-2xl pl-10 pr-4 py-3 outline-none"
+            style={{ background: C.gray850, border: `1px solid ${C.gray800}`, color: C.white, fontSize: 13 }}
+          />
+          <span className="absolute left-3.5 top-3.5" style={{ fontSize: 15 }}>🔍</span>
+        </div>
+
+        {!searching && (
+          <div className="flex gap-2 overflow-x-auto pb-2 pt-3" style={{ scrollbarWidth: "none" }}>
+            {CATEGORIES.map((c) => {
+              const on = cat === c.id;
+              return (
+                <button
+                  key={c.id}
+                  onClick={() => go(c.id)}
+                  className="shrink-0 rounded-full px-3.5 py-2 font-bold"
+                  style={{
+                    background: on ? `linear-gradient(100deg, ${C.orange}, ${C.yellow})` : C.gray850,
+                    color: on ? C.black : "#c9c9c9",
+                    border: `1px solid ${on ? "transparent" : C.gray800}`, fontSize: 12.5, whiteSpace: "nowrap",
+                  }}
+                >
+                  {c.icon} {c.label}
+                </button>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      <div className="px-4 pb-6">
+        {searching ? (
+          <>
+            <div style={{ color: "#8a8a8a", fontSize: 12, margin: "10px 2px" }}>
+              {results.length} resultado{results.length === 1 ? "" : "s"} para “{q}”
+            </div>
+            {results.length === 0 ? (
+              <Card className="p-6 text-center">
+                <div style={{ fontSize: 34 }}>🕵️</div>
+                <div style={{ color: C.white, fontWeight: 800, marginTop: 8 }}>Não achamos esse aqui</div>
+                <div style={{ color: "#8a8a8a", fontSize: 12.5, marginTop: 4 }}>
+                  Tenta “bacon”, “combo”, “açaí” ou toca numa categoria.
+                </div>
+              </Card>
+            ) : (
+              <div className="space-y-3">
+                {results.map((p) => <ProductCard key={p.id} p={p} onOpen={onOpen} />)}
+              </div>
+            )}
+          </>
+        ) : (
+          CATEGORIES.map((c) => {
+            const items = byCat(c.id);
+            if (!items.length) return null;
+            return (
+              <div key={c.id} ref={(el) => (refs.current[c.id] = el)} className="pt-5" style={{ scrollMarginTop: 130 }}>
+                <h3 style={{ fontFamily: font.display, fontStyle: "italic", fontSize: 20, color: C.white, marginBottom: 12, letterSpacing: "-0.02em" }}>
+                  {c.icon} {c.label.toUpperCase()}
+                </h3>
+                <div className="space-y-3">
+                  {items.map((p) => <ProductCard key={p.id} p={p} onOpen={onOpen} />)}
+                </div>
+              </div>
+            );
+          })
+        )}
+      </div>
+    </div>
+  );
+}
+
+
+function HomeScreen({ store, onOpen, goMenu }) {
+  const top = store.products.filter((p) => p.badges.includes("maisvendido"));
+  const promos = store.products.filter((p) => p.promo);
+  const novos = store.products.filter((p) => p.badges.includes("novidade"));
+
+  const Row = ({ title, sub, items }) => (
+    <div className="pt-6">
+      <div className="px-4 mb-3">
+        <h3 style={{ fontFamily: font.display, fontStyle: "italic", fontSize: 20, color: C.white, letterSpacing: "-0.02em" }}>
+          {title}
+        </h3>
+        {sub && <div style={{ color: "#8a8a8a", fontSize: 12, marginTop: 2 }}>{sub}</div>}
+      </div>
+      <div className="flex gap-3 overflow-x-auto px-4 pb-1" style={{ scrollbarWidth: "none" }}>
+        {items.map((p) => (
+          <Card key={p.id} onClick={() => onOpen(p)} className="shrink-0 p-2.5 sarro-imgzoom" style={{ width: 174, cursor: "pointer" }}>
+            <div className="rounded-xl overflow-hidden mb-2" style={{ height: 110, border: `1px solid ${C.gray800}` }}>
+              <SmartImg id={p.id} emoji={p.emoji} alt={p.name} fs={44} file={p.img} v={p.updatedAt} />
+            </div>
+            <div style={{ color: C.white, fontWeight: 800, fontSize: 13.5 }}>{p.name}</div>
+            <div className="flex items-baseline gap-2 mt-1">
+              <span style={{ color: C.yellowLight, fontWeight: 900, fontSize: 14 }}>{brl(p.promo || p.price)}</span>
+              {p.promo && <span style={{ color: "#6e6e6e", fontSize: 10.5, textDecoration: "line-through" }}>{brl(p.price)}</span>}
+            </div>
+          </Card>
+        ))}
+      </div>
+    </div>
+  );
+
+  return (
+    <div className="pb-6">
+      <Hero store={store} onOrder={goMenu} />
+
+      <div className="px-4 -mt-4 relative z-10">
+        <Card className="p-4 flex items-center gap-3" style={{ borderColor: `${C.orange}55` }}>
+          <div className="rounded-xl overflow-hidden shrink-0 sarro-imgzoom" style={{ width: 50, height: 50, border: `1px solid ${C.orange}55` }}>
+            <SmartImg id="p16" emoji="🛠️" alt="Monte seu Sarro" fs={24} />
+          </div>
+          <div className="flex-1">
+            <div style={{ color: C.white, fontWeight: 900, fontSize: 14 }}>Monte seu Sarro</div>
+            <div style={{ color: "#9a9a9a", fontSize: 11.5 }}>Pão, carne, queijo e molho do seu jeito</div>
+          </div>
+          <Btn small onClick={() => onOpen(store.products.find((p) => p.builder))}>Montar</Btn>
+        </Card>
+      </div>
+
+      <Row title="🔥 OS QUERIDINHOS DO SARRO" sub="O que mais sai da chapa" items={top} />
+      <Row title="💥 OFERTAS DE HOJE" sub="Enquanto durar o estoque" items={promos} />
+      {novos.length > 0 && <Row title="✨ NOVIDADES" sub="Recém-chegados no cardápio" items={novos} />}
+
+      <div className="px-4 pt-7">
+        <Card className="p-4" style={{ background: `linear-gradient(120deg, ${C.orange}22, ${C.gray850})`, borderColor: `${C.orange}44` }}>
+          <div style={{ color: C.white, fontWeight: 900, fontSize: 15 }}>🔥 Happy Hour do Sarro</div>
+          <div style={{ color: "#c9c9c9", fontSize: 12.5, marginTop: 4 }}>
+            Das 18h às 20h, todo combo sai com 15% de desconto. Sem cupom, o preço já cai no carrinho.
+          </div>
+        </Card>
+      </div>
+    </div>
+  );
+}
+
+// ============================================================
+// CARRINHO
+// ============================================================
+
+function CartScreen({ store, goCheckout, onOpen }) {
+  const { cart } = store;
+  const [code, setCode] = useState("");
+  const [err, setErr] = useState("");
+
+  const subtotal = cart.reduce((s, i) => s + i.unit * i.qty, 0);
+  const coupon = store.coupon;
+  let discount = 0;
+  let fee = store.fee;
+  if (coupon) {
+    if (coupon.type === "percent") discount = subtotal * (coupon.value / 100);
+    if (coupon.type === "fixed") discount = coupon.value;
+    if (coupon.type === "freeship") fee = 0;
+  }
+  const total = Math.max(0, subtotal + fee - discount);
+
+  const apply = async () => {
+    try {
+      const c = await store.validateCoupon(code.trim().toUpperCase(), subtotal);
+      setErr("");
+      store.setCoupon(c);
+      store.toast(`Cupom ${c.code} aplicado`);
+    } catch (e) {
+      setErr(e.message);
+    }
+  };
+
+  const upsell = store.products
+    .filter((p) => ["porcoes", "bebidas", "sobremesas"].includes(p.cat))
+    .filter((p) => !cart.find((i) => i.productId === p.id))
+    .slice(0, 4);
+
+  if (!cart.length) {
+    return (
+      <div className="px-4 py-16 text-center">
+        <div style={{ fontSize: 56 }}>🛒</div>
+        <div style={{ fontFamily: font.display, fontStyle: "italic", fontSize: 22, color: C.white, marginTop: 12 }}>
+          CARRINHO VAZIO
+        </div>
+        <p style={{ color: "#8a8a8a", fontSize: 13, marginTop: 8 }}>Escolhe um burger e a gente resolve o resto.</p>
+        <div className="mt-6 flex justify-center">
+          <Btn onClick={() => store.setTab("cardapio")}>Ver cardápio</Btn>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="px-4 py-5 pb-6">
+      <h2 style={{ fontFamily: font.display, fontStyle: "italic", fontSize: 24, color: C.white, marginBottom: 14 }}>
+        SEU PEDIDO
+      </h2>
+
+      <div className="space-y-3">
+        {cart.map((i) => (
+          <Card key={i.id} className="p-3">
+            <div className="flex gap-3">
+              <div className="shrink-0 rounded-xl overflow-hidden" style={{ width: 56, height: 56, border: `1px solid ${C.gray800}` }}>
+                <SmartImg id={i.productId} emoji={i.emoji} alt={i.name} fs={26} />
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="flex justify-between gap-2">
+                  <span style={{ color: C.white, fontWeight: 800, fontSize: 14 }}>{i.name}</span>
+                  <span style={{ color: C.yellowLight, fontWeight: 900, fontSize: 14 }}>{brl(i.unit * i.qty)}</span>
+                </div>
+                {i.opts.map((o) => (
+                  <div key={o.id + o.name} style={{ color: "#8f8f8f", fontSize: 11.5 }}>
+                    + {o.name}{o.price > 0 ? ` (${brl(o.price)})` : ""}
+                  </div>
+                ))}
+                {i.note && <div style={{ color: C.yellow, fontSize: 11.5, marginTop: 2 }}>📝 {i.note}</div>}
+                <div className="flex items-center justify-between mt-2">
+                  <div className="flex items-center gap-3 rounded-lg px-2.5 py-1" style={{ background: C.gray800 }}>
+                    <button onClick={() => store.setQty(i.id, i.qty - 1)} style={{ color: C.orange, fontWeight: 900, fontSize: 17 }}>−</button>
+                    <span style={{ color: C.white, fontWeight: 800, fontSize: 13, minWidth: 14, textAlign: "center" }}>{i.qty}</span>
+                    <button onClick={() => store.setQty(i.id, i.qty + 1)} style={{ color: C.orange, fontWeight: 900, fontSize: 17 }}>+</button>
+                  </div>
+                  <button onClick={() => store.removeItem(i.id)} style={{ color: "#7a7a7a", fontSize: 11.5 }}>Remover</button>
+                </div>
+              </div>
+            </div>
+          </Card>
+        ))}
+      </div>
+
+      <div className="pt-6">
+        <div style={{ color: C.white, fontWeight: 900, fontSize: 14, marginBottom: 10 }}>COMBINA COM SEU PEDIDO 🔥</div>
+        <div className="flex gap-3 overflow-x-auto pb-1" style={{ scrollbarWidth: "none" }}>
+          {upsell.map((p) => (
+            <Card key={p.id} className="shrink-0 p-2.5 sarro-imgzoom" style={{ width: 138 }}>
+              <div className="rounded-lg overflow-hidden mb-2" style={{ height: 66, border: `1px solid ${C.gray800}` }}>
+                <SmartImg id={p.id} emoji={p.emoji} alt={p.name} fs={30} file={p.img} v={p.updatedAt} />
+              </div>
+              <div style={{ color: C.white, fontSize: 12, fontWeight: 700, lineHeight: 1.25 }}>{p.name}</div>
+              <div style={{ color: C.yellowLight, fontWeight: 900, fontSize: 12.5, margin: "4px 0 8px" }}>{brl(p.promo || p.price)}</div>
+              <Btn small full onClick={() => onOpen(p)}>Adicionar</Btn>
+            </Card>
+          ))}
+        </div>
+      </div>
+
+      <div className="pt-6">
+        <div className="flex gap-2">
+          <input
+            value={code}
+            onChange={(e) => setCode(e.target.value.toUpperCase())}
+            placeholder="Cupom de desconto"
+            className="flex-1 rounded-xl px-3 py-3 outline-none"
+            style={{ background: C.gray850, border: `1px solid ${C.gray800}`, color: C.white, fontSize: 13 }}
+          />
+          <Btn variant="dark" onClick={apply}>Aplicar</Btn>
+        </div>
+        {err && <div style={{ color: C.red, fontSize: 11.5, marginTop: 6 }}>{err}</div>}
+        {coupon && (
+          <div className="flex items-center justify-between mt-2">
+            <span style={{ color: C.green, fontSize: 12 }}>✓ {coupon.code} — {coupon.note}</span>
+            <button onClick={() => store.setCoupon(null)} style={{ color: "#7a7a7a", fontSize: 11 }}>remover</button>
+          </div>
+        )}
+      </div>
+
+      <Card className="p-4 mt-5 space-y-2">
+        {[["Subtotal", brl(subtotal)], ["Taxa de entrega", fee === 0 ? "Grátis" : brl(fee)]].map(([k, v]) => (
+          <div key={k} className="flex justify-between" style={{ color: "#a5a5a5", fontSize: 13 }}>
+            <span>{k}</span><span>{v}</span>
+          </div>
+        ))}
+        {discount > 0 && (
+          <div className="flex justify-between" style={{ color: C.green, fontSize: 13 }}>
+            <span>Desconto</span><span>−{brl(discount)}</span>
+          </div>
+        )}
+        <div className="flex justify-between pt-2" style={{ borderTop: `1px solid ${C.gray800}` }}>
+          <span style={{ color: C.white, fontWeight: 900, fontSize: 15 }}>Total</span>
+          <span style={{ color: C.yellowLight, fontWeight: 900, fontSize: 19 }}>{brl(total)}</span>
+        </div>
+      </Card>
+
+      <div className="mt-4">
+        <Btn full onClick={() => goCheckout({ subtotal, fee, discount, total })} disabled={!store.open}>
+          {store.open ? "FINALIZAR PEDIDO" : "LOJA FECHADA — VOLTAMOS ÀS 18H"}
+        </Btn>
+      </div>
+    </div>
+  );
+}
+
+// ============================================================
+// CHECKOUT
+// ============================================================
+
+// Declarados fora do Checkout: se ficassem dentro, o React remontaria os
+// inputs a cada tick do relógio e o campo perderia o foco a cada tecla.
+
+
+
+function Field({ label, value, onChange, ph, type = "text" }) {
+  return (
+    <label className="block">
+      <span style={{ color: "#9a9a9a", fontSize: 11.5, fontWeight: 700 }}>{label}</span>
+      <input
+        value={value} onChange={(e) => onChange(e.target.value)} placeholder={ph} type={type}
+        className="w-full rounded-xl px-3 py-3 mt-1.5 outline-none"
+        style={{ background: C.gray850, border: `1px solid ${C.gray800}`, color: C.white, fontSize: 13.5 }}
+      />
+    </label>
+  );
+}
+
 function ProductModal({ p, store, onClose, onAdd }) {
   const [qty, setQty] = useState(1);
   const [sel, setSel] = useState({});
@@ -1279,51 +1637,6 @@ const SYNONYMS = {
   barato: [], vegetariano: ["grão-de-bico", "veg"], doce: ["açaí", "brownie", "milkshake"],
 };
 
-function smartSearch(q, products) {
-  const term = q.trim().toLowerCase();
-  if (!term) return products;
-  const words = term.split(/\s+/).filter((w) => w.length > 2);
-  const cheap = /barat|promo|desconto/.test(term);
-  const scored = products.map((p) => {
-    const hay = [p.name, p.desc, p.cat, ...(p.ingredients || [])].join(" ").toLowerCase();
-    let score = 0;
-    words.forEach((w) => {
-      if (hay.includes(w)) score += 3;
-      (SYNONYMS[w] || []).forEach((s) => { if (hay.includes(s)) score += 2; });
-      if (p.name.toLowerCase().includes(w)) score += 4;
-    });
-    if (cheap && (p.promo || p.price < 25)) score += 4;
-    return { p, score };
-  });
-  const hits = scored.filter((s) => s.score > 0).sort((a, b) => b.score - a.score);
-  return hits.map((h) => h.p);
-}
-
-// ============================================================
-// CARDÁPIO
-// ============================================================
-
-function MenuScreen({ store, onOpen }) {
-  return (
-    <React.Suspense fallback={<div style={{ padding: 20, textAlign: 'center', color: '#888' }}>Carregando MenuScreen...</div>}>
-      <MenuScreenModular store={store} onOpen={onOpen}  />
-    </React.Suspense>
-  );
-}
-
-function Field({ label, value, onChange, ph, type = "text" }) {
-  return (
-    <label className="block">
-      <span style={{ color: "#9a9a9a", fontSize: 11.5, fontWeight: 700 }}>{label}</span>
-      <input
-        value={value} onChange={(e) => onChange(e.target.value)} placeholder={ph} type={type}
-        className="w-full rounded-xl px-3 py-3 mt-1.5 outline-none"
-        style={{ background: C.gray850, border: `1px solid ${C.gray800}`, color: C.white, fontSize: 13.5 }}
-      />
-    </label>
-  );
-}
-
 function Choice({ on, onClick, icon, title, sub }) {
   return (
     <button
@@ -1342,12 +1655,197 @@ function Choice({ on, onClick, icon, title, sub }) {
 }
 
 function Checkout({ store, totals, onBack, onDone }) {
+  const [step, setStep] = useState(1);
+  const [f, setF] = useState({
+    name: "", phone: "", cpf: "", type: "delivery",
+    street: "", number: "", district: "", city: "Paulista/PE", ref: "",
+    payment: "PIX", changeFor: "", needChange: false,
+  });
+  const set = (k, v) => setF((p) => ({ ...p, [k]: v }));
+
+  const fee = f.type === "pickup" ? 0 : totals.fee;
+  const total = Math.max(0, totals.subtotal + fee - totals.discount);
+
+  const steps = ["Você", "Entrega", "Endereço", "Pagamento", "Confirmar"];
+  const valid = {
+    1: f.name.trim().length > 2 && f.phone.replace(/\D/g, "").length >= 10,
+    2: true,
+    3: f.type === "pickup" || (f.street.trim() && f.number.trim() && f.district.trim()),
+    4: f.payment !== "Dinheiro" || !f.needChange || f.changeFor.trim(),
+    5: true,
+  };
+
+  const finish = () => {
+    // O servidor recalcula preços, cupom, taxa e total — aqui vai só a intenção.
+    onDone({
+      customer: {
+        name: f.name,
+        phone: f.phone,
+        addr: f.type === "pickup" ? "Retirada na loja" : `${f.street}, ${f.number} — ${f.district}, ${f.city}`,
+      },
+      type: f.type,
+      payment: f.payment,
+      changeFor: f.payment === "Dinheiro" && f.needChange ? f.changeFor : undefined,
+      couponCode: store.coupon?.code || undefined,
+      note: f.ref,
+      items: store.cart.map((i) => ({
+        productId: i.productId,
+        qty: i.qty,
+        optionIds: i.optionIds || [],
+        note: i.note || "",
+      })),
+    });
+  };
+
   return (
-    <React.Suspense fallback={<div style={{ padding: 20, textAlign: 'center', color: '#888' }}>Carregando Checkout...</div>}>
-      <CheckoutModular store={store} totals={totals} onBack={onBack} onDone={onDone}  />
-    </React.Suspense>
+    <div className="px-4 py-5 pb-6">
+      <button onClick={step === 1 ? onBack : () => setStep(step - 1)} style={{ color: "#8a8a8a", fontSize: 13 }}>
+        ← Voltar
+      </button>
+
+      <div className="flex gap-1.5 mt-4 mb-5">
+        {steps.map((s, i) => (
+          <div key={s} className="flex-1">
+            <div style={{ height: 4, borderRadius: 9, background: i < step ? C.orange : C.gray800 }} />
+            <div style={{ color: i < step ? C.white : "#6a6a6a", fontSize: 9.5, marginTop: 5, fontWeight: 700 }}>{s}</div>
+          </div>
+        ))}
+      </div>
+
+      {step === 1 && (
+        <div className="space-y-4">
+          <h3 style={{ fontFamily: font.display, fontStyle: "italic", fontSize: 22, color: C.white }}>QUEM TÁ PEDINDO?</h3>
+          <Field label="Nome completo" value={f.name} onChange={(v) => set("name", v)} ph="João Silva" />
+          <Field label="WhatsApp" value={f.phone} onChange={(v) => set("phone", v)} ph="(81) 99999-9999" />
+          <Field label="CPF na nota (opcional)" value={f.cpf} onChange={(v) => set("cpf", v)} ph="000.000.000-00" />
+        </div>
+      )}
+
+      {step === 2 && (
+        <div className="space-y-3">
+          <h3 style={{ fontFamily: font.display, fontStyle: "italic", fontSize: 22, color: C.white, marginBottom: 6 }}>
+            COMO VOCÊ QUER RECEBER?
+          </h3>
+          <Choice on={f.type === "delivery"} onClick={() => set("type", "delivery")} icon="🛵"
+            title="Delivery" sub={`35–45 min · taxa ${brl(store.fee)}`} />
+          <Choice on={f.type === "pickup"} onClick={() => set("type", "pickup")} icon="🏪"
+            title="Retirar na loja" sub="Pronto em ~20 min · sem taxa" />
+        </div>
+      )}
+
+      {step === 3 && (
+        f.type === "pickup" ? (
+          <div>
+            <h3 style={{ fontFamily: font.display, fontStyle: "italic", fontSize: 22, color: C.white }}>RETIRADA NA LOJA</h3>
+            <Card className="p-4 mt-4">
+              <div style={{ color: C.white, fontWeight: 800, fontSize: 14 }}>TÔ NO SARRO! Burgers & Açaí</div>
+              <div style={{ color: "#9a9a9a", fontSize: 12.5, marginTop: 6, lineHeight: 1.5 }}>
+                Av. Cláudio José Gueiros Leite, 3200 — Janga, Paulista/PE<br />
+                Aberto de terça a domingo, 18h às 23h30
+              </div>
+            </Card>
+          </div>
+        ) : (
+          <div className="space-y-4">
+            <h3 style={{ fontFamily: font.display, fontStyle: "italic", fontSize: 22, color: C.white }}>ONDE ENTREGAMOS?</h3>
+            <Field label="Rua" value={f.street} onChange={(v) => set("street", v)} ph="Rua das Palmeiras" />
+            <div className="grid grid-cols-2 gap-3">
+              <Field label="Número" value={f.number} onChange={(v) => set("number", v)} ph="220" />
+              <Field label="Bairro" value={f.district} onChange={(v) => set("district", v)} ph="Janga" />
+            </div>
+            <Field label="Cidade" value={f.city} onChange={(v) => set("city", v)} ph="Paulista/PE" />
+            <Field label="Ponto de referência" value={f.ref} onChange={(v) => set("ref", v)} ph="Portão preto, ao lado da padaria" />
+          </div>
+        )
+      )}
+
+      {step === 4 && (
+        <div className="space-y-3">
+          <h3 style={{ fontFamily: font.display, fontStyle: "italic", fontSize: 22, color: C.white, marginBottom: 6 }}>
+            COMO VAI PAGAR?
+          </h3>
+          <Choice on={f.payment === "PIX"} onClick={() => set("payment", "PIX")} icon="⚡" title="Pix" sub="Aprovação na hora · checkout seguro InfinitePay" />
+          <Choice on={f.payment === "CARTAO_ONLINE"} onClick={() => set("payment", "CARTAO_ONLINE")} icon="💳" title="Cartão online" sub="Crédito em até 12x · link seguro InfinitePay" />
+          <Choice on={f.payment === "Cartão"} onClick={() => set("payment", "Cartão")} icon="🛵" title="Cartão na entrega" sub="Maquininha com o entregador" />
+          <Choice on={f.payment === "Dinheiro"} onClick={() => set("payment", "Dinheiro")} icon="💵" title="Dinheiro" sub="Pagamento na entrega" />
+
+          {f.payment === "CARTAO_ONLINE" && (
+            <Card className="p-4">
+              <div style={{ color: "#9a9a9a", fontSize: 12, lineHeight: 1.5 }}>
+                Você recebe um <strong style={{ color: C.yellowLight }}>link seguro da InfinitePay</strong> ♾️ para pagar com
+                crédito em até 12x. Nenhum dado de cartão passa pelo nosso sistema.
+              </div>
+            </Card>
+          )}
+
+          {f.payment === "Dinheiro" && (
+            <Card className="p-4 space-y-3">
+              <div style={{ color: C.white, fontWeight: 800, fontSize: 13.5 }}>Precisa de troco?</div>
+              <div className="flex gap-2">
+                <Btn small variant={f.needChange ? "primary" : "dark"} onClick={() => set("needChange", true)}>Sim</Btn>
+                <Btn small variant={!f.needChange ? "primary" : "dark"} onClick={() => set("needChange", false)}>Não precisa</Btn>
+              </div>
+              {f.needChange && <Field label="Troco para quanto?" value={f.changeFor} onChange={(v) => set("changeFor", v)} ph="R$ 100,00" />}
+            </Card>
+          )}
+
+          {f.payment === "PIX" && (
+            <Card className="p-4">
+              <div style={{ color: "#9a9a9a", fontSize: 12, lineHeight: 1.5 }}>
+                Ao confirmar, a gente te leva para o <strong style={{ color: C.yellowLight }}>checkout seguro da InfinitePay</strong> ♾️
+                com o QR Code do Pix. A confirmação é automática — quando cair, seu pedido entra na cozinha na hora.
+              </div>
+            </Card>
+          )}
+        </div>
+      )}
+
+      {step === 5 && (
+        <div>
+          <h3 style={{ fontFamily: font.display, fontStyle: "italic", fontSize: 22, color: C.white }}>CONFIRA TUDO</h3>
+          <Card className="p-4 mt-4 space-y-2">
+            {store.cart.map((i) => (
+              <div key={i.id} className="flex justify-between" style={{ color: "#d0d0d0", fontSize: 13 }}>
+                <span>{i.qty}x {i.name}</span><span>{brl(i.unit * i.qty)}</span>
+              </div>
+            ))}
+            <div className="pt-2 space-y-1" style={{ borderTop: `1px solid ${C.gray800}` }}>
+              <div className="flex justify-between" style={{ color: "#9a9a9a", fontSize: 12.5 }}>
+                <span>Entrega</span><span>{fee === 0 ? "Grátis" : brl(fee)}</span>
+              </div>
+              {totals.discount > 0 && (
+                <div className="flex justify-between" style={{ color: C.green, fontSize: 12.5 }}>
+                  <span>Desconto</span><span>−{brl(totals.discount)}</span>
+                </div>
+              )}
+              <div className="flex justify-between pt-1">
+                <span style={{ color: C.white, fontWeight: 900 }}>Total</span>
+                <span style={{ color: C.yellowLight, fontWeight: 900, fontSize: 18 }}>{brl(total)}</span>
+              </div>
+            </div>
+          </Card>
+          <Card className="p-4 mt-3" style={{ fontSize: 12.5, color: "#9a9a9a", lineHeight: 1.6 }}>
+            <div><strong style={{ color: C.white }}>{f.name}</strong> · {f.phone}</div>
+            <div>{f.type === "pickup" ? "🏪 Retirada na loja" : `🛵 ${f.street}, ${f.number} — ${f.district}`}</div>
+            <div>💳 {f.payment}{f.needChange && f.changeFor ? ` · troco para ${f.changeFor}` : ""}</div>
+          </Card>
+        </div>
+      )}
+
+      <div className="mt-6">
+        <Btn full disabled={!valid[step]} onClick={() => (step === 5 ? finish() : setStep(step + 1))}>
+          {step === 5 ? `CONFIRMAR PEDIDO · ${brl(total)}` : "Continuar"}
+        </Btn>
+      </div>
+    </div>
   );
 }
+
+// ============================================================
+// ACOMPANHAMENTO
+// ============================================================
+
+
 
 function QRCodeImage({ value, size = 160, className = "" }) {
   const [src, setSrc] = useState("");
@@ -1419,12 +1917,146 @@ const TRACK_STEPS_PICKUP = [
 ];
 
 function TrackScreen({ order, store, now }) {
+  // Atualização do próprio pedido: polling autenticado por token
+  // (o canal público não carrega pedidos de outros clientes).
+  useEffect(() => {
+    if (!order) return;
+    store.refreshMyOrder?.().catch(() => {});
+    const t = setInterval(() => store.refreshMyOrder?.().catch(() => {}), 6000);
+    return () => clearInterval(t);
+  }, [order?.id]);
+  // Enquanto o Pix/cartão não cai, o servidor consulta a InfinitePay a cada 6s
+  useEffect(() => {
+    if (order?.paymentStatus !== "pendente") return;
+    const t = setInterval(() => store.checkPayment(order.id).catch(() => {}), 6000);
+    return () => clearInterval(t);
+  }, [order?.id, order?.paymentStatus]);
+
+  if (!order) {
+    return (
+      <div className="px-4 py-16 text-center">
+        <div style={{ fontSize: 52 }}>📦</div>
+        <div style={{ color: C.white, fontFamily: font.display, fontStyle: "italic", fontSize: 20, marginTop: 10 }}>
+          NENHUM PEDIDO ATIVO
+        </div>
+        <p style={{ color: "#8a8a8a", fontSize: 13, marginTop: 6 }}>Quando você pedir, o acompanhamento aparece aqui.</p>
+        <div className="mt-5 flex justify-center"><Btn onClick={() => store.setTab("cardapio")}>Ver cardápio</Btn></div>
+      </div>
+    );
+  }
+
+  const idx = TRACK_STEPS.findIndex((s) => s.key === order.status);
+  const pos = order.status === "AGUARDANDO" ? 4 : idx;
+  const done = order.status === "ENTREGUE";
+  const driver = store.drivers.find((d) => d.id === order.driverId);
+
   return (
-    <React.Suspense fallback={<div style={{ padding: 20, textAlign: 'center', color: '#888' }}>Carregando TrackScreen...</div>}>
-      <TrackScreenModular order={order} store={store} now={now}  />
-    </React.Suspense>
+    <div className="px-4 py-5 pb-6">
+      <div
+        className="rounded-2xl p-5 mb-4"
+        style={{ background: `linear-gradient(130deg, ${C.orange}, ${C.yellow})`, color: C.black }}
+      >
+        <div style={{ fontSize: 11, fontWeight: 800, opacity: 0.75 }}>Pedido #{order.code}</div>
+          <div style={{ fontFamily: font.display, fontStyle: "italic", fontSize: 26, lineHeight: 1.02, marginTop: 4 }}>
+            {done ? "SEU SARRO CHEGOU! 🔥" : order.type === "pickup" ? "SEU SARRO TÁ SAINDO!" : "SEU SARRO ESTÁ A CAMINHO!"}
+        </div>
+        <div style={{ fontSize: 12.5, fontWeight: 700, marginTop: 8 }}>
+          {done ? "Bom apetite. Volta sempre!" : order.type === "pickup" ? "Pronto para retirada em ~20 min" : "Previsão: 35–45 minutos"}
+        </div>
+      </div>
+
+      {order.paymentStatus === "pendente" && (
+        <Card className="p-4 mb-3" style={{ borderColor: `${C.yellow}66`, background: `${C.yellow}12` }}>
+          <div style={{ color: C.yellowLight, fontWeight: 900, fontSize: 14 }}>
+            ⏳ Aguardando pagamento {order.payment === "Cartão online" ? "do cartão" : "Pix"}
+          </div>
+          <div style={{ color: "#c9c9c9", fontSize: 12, marginTop: 4, lineHeight: 1.5 }}>
+            Assim que a InfinitePay confirmar ♾️, seu pedido entra na fila da cozinha automaticamente.
+          </div>
+          {order.payUrl && (
+            <div className="mt-3">
+              <Btn full onClick={() => window.open(order.payUrl, "_blank")}>
+                PAGAR AGORA · {order.payment === "Cartão online" ? "CARTÃO ♾️" : "PIX ♾️"}
+              </Btn>
+            </div>
+          )}
+        </Card>
+      )}
+
+      <Card className="p-5">
+        {TRACK_STEPS.map((s, i) => {
+          const isDone = i <= pos;
+          const isNow = i === pos && !done;
+          return (
+            <div key={s.key} className="flex gap-3">
+              <div className="flex flex-col items-center">
+                <div
+                  className="flex items-center justify-center shrink-0"
+                  style={{
+                    width: 30, height: 30, borderRadius: 99, fontSize: 13,
+                    background: isDone ? C.orange : C.gray800,
+                    color: isDone ? C.black : "#6a6a6a",
+                    animation: isNow ? "sarropulse 1.4s ease-in-out infinite" : "none",
+                  }}
+                >
+                  {s.icon}
+                </div>
+                {i < TRACK_STEPS.length - 1 && (
+                  <div style={{ width: 2, flex: 1, minHeight: 26, background: i < pos ? C.orange : C.gray800 }} />
+                )}
+              </div>
+              <div className="pb-4">
+                <div style={{ color: isDone ? C.white : "#6a6a6a", fontWeight: isNow ? 900 : 700, fontSize: 13.5 }}>
+                  {s.label}
+                </div>
+                {isNow && (
+                  <div style={{ color: C.yellowLight, fontSize: 11.5, marginTop: 2 }}>
+                    agora · {elapsed(order.createdAt, now)} desde o pedido
+                  </div>
+                )}
+              </div>
+            </div>
+          );
+        })}
+      </Card>
+
+      {driver && !done && (
+        <Card className="p-4 mt-3 flex items-center gap-3">
+          <div className="flex items-center justify-center rounded-full" style={{ width: 44, height: 44, background: C.gray800, fontSize: 22 }}>🛵</div>
+          <div className="flex-1">
+            <div style={{ color: C.white, fontWeight: 800, fontSize: 13.5 }}>{driver.name}</div>
+            <div style={{ color: "#8a8a8a", fontSize: 11.5 }}>{driver.vehicle} · {driver.phone}</div>
+          </div>
+        </Card>
+      )}
+
+      <Card className="p-4 mt-3">
+        <div style={{ color: C.white, fontWeight: 800, fontSize: 13, marginBottom: 8 }}>Itens</div>
+        {order.items.map((i) => (
+          <div key={i.id} className="flex justify-between" style={{ color: "#a5a5a5", fontSize: 12.5, marginBottom: 3 }}>
+            <span>{i.qty}x {i.name}</span><span>{brl(i.unit * i.qty)}</span>
+          </div>
+        ))}
+        <div className="flex justify-between pt-2 mt-2" style={{ borderTop: `1px solid ${C.gray800}` }}>
+          <span style={{ color: C.white, fontWeight: 900, fontSize: 14 }}>Total</span>
+          <span style={{ color: C.yellowLight, fontWeight: 900, fontSize: 16 }}>{brl(order.total)}</span>
+        </div>
+      </Card>
+
+      <div className="mt-4 flex gap-2">
+        <Btn variant="dark" full onClick={() => store.toast("Abrindo conversa no WhatsApp da loja")}>
+          <span className="inline-flex items-center justify-center gap-1.5">
+            <WaIcon size={14} color="#25D366" /> Falar com a loja
+          </span>
+        </Btn>
+      </div>
+    </div>
   );
 }
+// ============================================================
+// CLIENTE — SHELL (bottom nav, conta, fidelidade)
+// ============================================================
+
 
 // ============================================================
 // CLIENTE — SHELL (bottom nav, conta, fidelidade)
@@ -1534,13 +2166,76 @@ function BottomNav({ tab, setTab, cartCount }) {
   );
 }
 
-function ClientApp({ store, now, goRole }) {
+
+function ClientApp({ store, now }) {
+  const [modal, setModal] = useState(null);
+  const [checkout, setCheckout] = useState(null);
+  const cartCount = store.cart.reduce((s, i) => s + i.qty, 0);
+  const active = store.myOrder || (store.myOrderId ? store.orders.find((o) => o.id === store.myOrderId) : null);
+
+  const addToCart = (item) => {
+    store.addItem(item);
+    setModal(null);
+    store.toast(`${item.name} no carrinho`);
+  };
+
   return (
-    <React.Suspense fallback={<div style={{ padding: 20, textAlign: 'center', color: '#888' }}>Carregando ClientApp...</div>}>
-      <ClientAppModular store={store} now={now} goRole={goRole}  />
-    </React.Suspense>
+    <div style={{ background: C.black, minHeight: "100%", paddingBottom: 66 }}>
+      {checkout ? (
+        <Checkout
+          store={store} totals={checkout}
+          onBack={() => setCheckout(null)}
+          onDone={async (payload) => {
+            const ok = await store.placeOrder(payload);
+            if (ok) setCheckout(null);
+          }}
+        />
+      ) : (
+        <>
+          {store.tab === "inicio" && <HomeScreen store={store} onOpen={setModal} goMenu={() => store.setTab("cardapio")} />}
+          {store.tab === "cardapio" && <MenuScreen store={store} onOpen={setModal} />}
+          {store.tab === "carrinho" && <CartScreen store={store} onOpen={setModal} goCheckout={setCheckout} />}
+          {store.tab === "pedidos" && <TrackScreen order={active} store={store} now={now} />}
+          {store.tab === "conta" && <AccountScreen store={store} />}
+        </>
+      )}
+
+      {modal && <ProductModal key={modal.id} p={modal} store={store} onClose={() => setModal(null)} onAdd={addToCart} />}
+
+      {!checkout && store.tab !== "carrinho" && cartCount > 0 && (
+        <button
+          onClick={() => store.setTab("carrinho")}
+          className="fixed z-30 flex items-center gap-3 rounded-2xl px-4 py-3 font-black active:scale-95 transition"
+          style={{
+            left: 16, right: 16, bottom: 78,
+            background: `linear-gradient(100deg, ${C.orange}, ${C.yellow})`, color: C.black,
+            boxShadow: "0 10px 30px rgba(245,130,0,.35)",
+          }}
+        >
+          <span>🛒 {cartCount} {cartCount === 1 ? "item" : "itens"}</span>
+          <span className="flex-1 text-right">{brl(store.cart.reduce((s, i) => s + i.unit * i.qty, 0))} →</span>
+        </button>
+      )}
+
+      {!checkout && (
+        <a
+          onClick={(e) => { e.preventDefault(); store.toast("Abrindo WhatsApp da loja"); }}
+          href="#whatsapp"
+          className="fixed z-30 flex items-center justify-center rounded-full"
+          style={{ right: 16, bottom: cartCount > 0 ? 142 : 78, width: 46, height: 46, background: "linear-gradient(135deg, #25D366, #128C7E)", fontSize: 21, boxShadow: "0 8px 22px rgba(0,0,0,.5)" }}
+        >
+          <WaIcon size={24} color="#fff" />
+        </a>
+      )}
+
+      {!checkout && <BottomNav tab={store.tab} setTab={store.setTab} cartCount={cartCount} />}
+    </div>
   );
 }
+// ============================================================
+// ADMIN
+// ============================================================
+
 
 function BarChart({ data, xKey, vKey, height = 130 }) {
   const max = Math.max(...data.map((d) => d[vKey]));
