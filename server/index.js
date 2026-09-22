@@ -693,11 +693,24 @@ app.patch("/api/orders/:id/status", requireRole("ADMIN", "GERENTE", "ATENDIMENTO
   }
 
   const startedAt = o.started_at ?? (status !== "NOVO" ? Date.now() : null);
-  db.prepare("UPDATE orders SET status = ?, started_at = ?, payment_status = CASE WHEN payment_status = 'pendente' AND ? IN ('CONFIRMADO','PREPARO','PRONTO','EMBALADO','AGUARDANDO','ROTA','ENTREGUE') THEN 'pago' ELSE payment_status END WHERE id = ?")
-    .run(status, startedAt, status, o.id);
+  // Para mesa com pagamento pendente "No fechamento da mesa", NÃO marca como pago automaticamente
+  const isMesaWithPendingPayment = isMesaOrder && currentPayment === "No fechamento da mesa" && willStillBeNoFechamento;
+  if (isMesaWithPendingPayment) {
+    db.prepare("UPDATE orders SET status = ?, started_at = ? WHERE id = ?")
+      .run(status, startedAt, o.id);
+  } else {
+    db.prepare("UPDATE orders SET status = ?, started_at = ?, payment_status = CASE WHEN payment_status = 'pendente' AND ? IN ('CONFIRMADO','PREPARO','PRONTO','EMBALADO','AGUARDANDO','ROTA','ENTREGUE') THEN 'pago' ELSE payment_status END WHERE id = ?")
+      .run(status, startedAt, status, o.id);
+  }
 
   if (typeof req.body?.payment === "string" && req.body.payment.trim()) {
-    db.prepare("UPDATE orders SET payment = ? WHERE id = ?").run(req.body.payment.trim(), o.id);
+    const newPay = req.body.payment.trim();
+    // Se mudou de "No fechamento da mesa" para forma real, marca como pago
+    if (currentPayment === "No fechamento da mesa" && newPay !== "No fechamento da mesa") {
+      db.prepare("UPDATE orders SET payment = ?, payment_status = 'pago' WHERE id = ?").run(newPay, o.id);
+    } else {
+      db.prepare("UPDATE orders SET payment = ? WHERE id = ?").run(newPay, o.id);
+    }
   }
 
   // contador do entregador
