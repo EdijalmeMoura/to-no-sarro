@@ -48,9 +48,6 @@ import * as escpos from "./printing/escpos.js";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 setupErrorHandlers();
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-setupErrorHandlers();
-
 // Rate limiter simples em memória para rotas públicas
 const rateBuckets = new Map();
 function rateLimit({ windowMs = 60000, max = 20, key = (req) => req.ip } = {}) {
