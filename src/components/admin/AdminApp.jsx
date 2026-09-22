@@ -1,7 +1,6 @@
 import React, { useState } from "react";
 import { C, font } from "../../constants/theme.js";
 import { Card, Btn, Logo } from "../ui/index.jsx";
-import { api } from "../../utils/api.js";
 import AdminDashboard from "./AdminDashboard.jsx";
 import AdminCashRegister from "./AdminCashRegister.jsx";
 import AdminProducts from "./AdminProducts.jsx";
@@ -20,6 +19,8 @@ import ServiceChargeCard from "./ServiceChargeCard.jsx";
 import AdminTables from "../tables/AdminTables.jsx";
 import AdminOrders from "./AdminOrders.jsx";
 import AdminUsers from "./AdminUsers.jsx";
+import TVPanelApp from "../tv/TVPanelApp.jsx";
+import DriverApp from "../driver/DriverApp.jsx";
 
 const ADMIN_NAV = [
   { id: "dashboard", label: "Dashboard", icon: "📊" },
@@ -33,6 +34,8 @@ const ADMIN_NAV = [
   { id: "estoque", label: "Estoque", icon: "📦" },
   { id: "financeiro", label: "Financeiro", icon: "💰" },
   { id: "relatorios", label: "Relatórios", icon: "📈" },
+  { id: "paineltv", label: "Painel TV", icon: "📺" },
+  { id: "entregadores", label: "Entregadores", icon: "🛵" },
   { id: "integracoes", label: "Integrações", icon: "🔌" },
   { id: "config", label: "Configurações", icon: "⚙️" },
 ];
@@ -40,7 +43,6 @@ const ADMIN_NAV = [
 function AdminSettingsModular({ store, now }) {
   return (
     <div className="space-y-4">
-      {/* MODALIDADES - primeiro e em destaque, ocupa largura total */}
       <AdminModalitiesCard store={store} />
 
       <div className="grid lg:grid-cols-2 gap-3">
@@ -50,14 +52,17 @@ function AdminSettingsModular({ store, now }) {
         <ServiceChargeCard store={store} />
       </div>
 
-      {/* USUÁRIOS E PERMISSÕES - funcional com botão novo usuário */}
-      <Card className="p-4">
+      {/* USUÁRIOS E PERMISSÕES - sempre visível */}
+      <Card className="p-4" style={{ borderColor: `${C.orange}44` }}>
         <div className="flex items-center gap-2 mb-1">
           <span style={{ fontSize: 18 }}>👥</span>
           <div style={{ color: C.white, fontWeight: 900, fontSize: 15 }}>Usuários e permissões</div>
+          <span className="ml-auto rounded-full px-2 py-0.5 font-bold" style={{ background: `${C.orange}22`, color: C.orange, fontSize: 10, border: `1px solid ${C.orange}44` }}>
+            ADMIN
+          </span>
         </div>
         <div style={{ color: "#8a8a8a", fontSize: 11.5, marginBottom: 12, lineHeight: 1.4 }}>
-          Gerencie acessos da equipe: cozinha, expedição, entregadores, gerente e admin. O botão <strong style={{ color: C.white }}>+ Novo usuário</strong> está funcional — cria login com senha, perfil e vínculo com entregador quando for ENTREGADOR.
+          Gerencie acessos da equipe: cozinha, expedição, entregadores, gerente e admin. O botão <strong style={{ color: C.white }}>+ Novo usuário</strong> cria login com senha, perfil e vínculo com entregador quando for ENTREGADOR. Toggle ativa/desativa, ✎ editar, 🗑 excluir.
         </div>
         <AdminUsers store={store} now={now} />
       </Card>
@@ -80,7 +85,63 @@ function AdminSettingsModular({ store, now }) {
           ))}
         </div>
         <div className="mt-3 rounded-lg px-3 py-2" style={{ background: `${C.orange}12`, border: `1px solid ${C.orange}33`, color: C.orange, fontSize: 11 }}>
-          💡 Contas padrão: <strong>admin/admin123</strong>, <strong>cozinha/cozinha123</strong>, <strong>expedicao/expedicao123</strong>, <strong>rafael/entregador123</strong>, <strong>jonas/entregador123</strong>, <strong>bia/entregador123</strong> — se não aparecerem, o banco será re-semeado no próximo boot do servidor.
+          💡 Contas padrão: <strong>admin/admin123</strong>, <strong>cozinha/cozinha123</strong>, <strong>expedicao/expedicao123</strong>, <strong>rafael/entregador123</strong>, <strong>jonas/entregador123</strong>, <strong>bia/entregador123</strong> — se não aparecerem, o banco será re-semeado no próximo boot do servidor via ensureDefaultUsers().
+        </div>
+      </Card>
+    </div>
+  );
+}
+
+function AdminDriversSection({ store, now }) {
+  const drivers = store.drivers || [];
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <div>
+          <div style={{ color: C.white, fontWeight: 900, fontSize: 16 }}>🛵 Entregadores</div>
+          <div style={{ color: "#8a8a8a", fontSize: 12, marginTop: 2 }}>{drivers.length} cadastrados · gestão de rotas e acertos</div>
+        </div>
+        <Btn small variant="dark" onClick={() => window.open("/entregador", "_blank")}>Abrir painel entregador ↗</Btn>
+      </div>
+
+      <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-3">
+        {drivers.map((d) => {
+          const pending = store.orders.filter((o) => o.driverId === d.id && o.status === "ROTA").length;
+          const delivered = store.orders.filter((o) => o.driverId === d.id && o.status === "ENTREGUE").length;
+          return (
+            <Card key={d.id} className="p-4">
+              <div className="flex items-center gap-3">
+                <div className="rounded-full flex items-center justify-center" style={{ width: 44, height: 44, background: C.gray800, fontSize: 22 }}>🛵</div>
+                <div className="flex-1 min-w-0">
+                  <div style={{ color: C.white, fontWeight: 900, fontSize: 14 }} className="truncate">{d.name}</div>
+                  <div style={{ color: "#8a8a8a", fontSize: 11 }} className="truncate">{d.vehicle} · {d.phone} · {d.status}</div>
+                </div>
+                <span className="rounded-full px-2 py-0.5 font-bold" style={{ background: d.status === "livre" ? `${C.green}22` : `${C.orange}22`, color: d.status === "livre" ? C.green : C.orange, fontSize: 10 }}>{d.status?.toUpperCase()}</span>
+              </div>
+              <div className="flex gap-2 mt-3">
+                <div className="flex-1 rounded-lg p-2 text-center" style={{ background: C.gray850 }}>
+                  <div style={{ color: C.orange, fontWeight: 900, fontSize: 16 }}>{pending}</div>
+                  <div style={{ color: "#8a8a8a", fontSize: 10 }}>EM ROTA</div>
+                </div>
+                <div className="flex-1 rounded-lg p-2 text-center" style={{ background: C.gray850 }}>
+                  <div style={{ color: C.green, fontWeight: 900, fontSize: 16 }}>{delivered}</div>
+                  <div style={{ color: "#8a8a8a", fontSize: 10 }}>ENTREGUES</div>
+                </div>
+                <div className="flex-1 rounded-lg p-2 text-center" style={{ background: C.gray850 }}>
+                  <div style={{ color: C.white, fontWeight: 900, fontSize: 16 }}>{d.deliveries || 0}</div>
+                  <div style={{ color: "#8a8a8a", fontSize: 10 }}>TOTAL</div>
+                </div>
+              </div>
+            </Card>
+          );
+        })}
+      </div>
+
+      <Card className="p-4">
+        <div style={{ color: C.white, fontWeight: 800, fontSize: 13, marginBottom: 8 }}>Preview área do entregador</div>
+        <div style={{ color: "#8a8a8a", fontSize: 12, marginBottom: 10 }}>Como o entregador vê seus pedidos. Use /entregador para login real (rafael/entregador123).</div>
+        <div className="rounded-xl overflow-hidden" style={{ border: `1px solid ${C.gray800}`, maxHeight: 520, overflow: "auto" }}>
+          <DriverApp store={store} now={now} />
         </div>
       </Card>
     </div>
@@ -91,23 +152,12 @@ export default function AdminApp({ store, now }) {
   const [sec, setSec] = useState("dashboard");
   const [menu, setMenu] = useState(false);
   const tablesOn = !!store.settings?.tablesEnabled;
-  // Mostrar mesas sempre no menu, mas com indicação visual se desativado
   const navItems = ADMIN_NAV;
   const title = ADMIN_NAV.find((n) => n.id === sec)?.label || "Admin";
 
-  const toggleTablesQuick = async () => {
-    try {
-      const next = !tablesOn;
-      await api("/api/settings", { method: "PATCH", body: { tables_enabled: next } });
-      store.toast(next ? "🍽️ Mesas ATIVADO!" : "🍽️ Mesas desativado");
-    } catch (e) {
-      store.toast(e.message);
-    }
-  };
-
   return (
     <div className="flex h-screen overflow-hidden" style={{ background: C.black }}>
-      {/* SIDEBAR - sem rolagem, altura total, overflow hidden */}
+      {/* SIDEBAR - sem toggle de mesas */}
       <aside
         className="hidden md:flex flex-col shrink-0 p-3"
         style={{ width: 220, background: C.gray900, borderRight: `1px solid ${C.gray800}`, height: "100vh", overflow: "hidden" }}
@@ -119,7 +169,7 @@ export default function AdminApp({ store, now }) {
           </div>
         </div>
 
-        <nav className="flex-1 space-y-0.5 overflow-hidden pr-1">
+        <nav className="flex-1 space-y-0.5 overflow-y-auto no-scrollbar pr-1">
           {navItems.map((n) => {
             const isMesas = n.id === "mesas";
             const disabled = isMesas && !tablesOn;
@@ -138,33 +188,15 @@ export default function AdminApp({ store, now }) {
               >
                 <span className="shrink-0">{n.icon}</span>
                 <span className="truncate flex-1">{n.label}</span>
-                {isMesas && (
-                  <span className="ml-auto text-[9px] font-bold rounded-full px-1.5 py-0.5" style={{ background: tablesOn ? `${C.green}22` : `${C.gray700}`, color: tablesOn ? C.green : "#777" }}>
-                    {tablesOn ? "ON" : "OFF"}
+                {isMesas && !tablesOn && (
+                  <span className="ml-auto text-[9px] font-bold rounded-full px-1.5 py-0.5" style={{ background: C.gray700, color: "#777" }}>
+                    OFF
                   </span>
                 )}
               </button>
             );
           })}
         </nav>
-
-        {/* Toggle rápido de mesas - sempre visível no sidebar */}
-        <div className="shrink-0 mt-2 p-2.5 rounded-xl" style={{ background: C.gray850, border: `1px solid ${C.gray800}` }}>
-          <div className="flex items-center justify-between gap-2">
-            <div className="min-w-0">
-              <div style={{ color: C.white, fontWeight: 800, fontSize: 11.5 }} className="truncate">🍽️ Mesas</div>
-              <div style={{ color: tablesOn ? C.green : "#777", fontSize: 10, fontWeight: 700 }}>{tablesOn ? "ATIVAS" : "DESATIVADAS"}</div>
-            </div>
-            <button
-              onClick={toggleTablesQuick}
-              className="rounded-full shrink-0 transition"
-              style={{ width: 36, height: 20, background: tablesOn ? C.green : C.gray700, position: "relative" }}
-              title={tablesOn ? "Desativar mesas" : "Ativar mesas"}
-            >
-              <span style={{ position: "absolute", top: 2, left: tablesOn ? 18 : 2, width: 16, height: 16, borderRadius: 99, background: C.white, transition: "left .2s" }} />
-            </button>
-          </div>
-        </div>
 
         <div className="shrink-0 rounded-xl p-2.5 mt-2 flex items-center justify-between" style={{ background: C.gray850 }}>
           <div className="min-w-0">
@@ -177,7 +209,7 @@ export default function AdminApp({ store, now }) {
         </div>
       </aside>
 
-      {/* MAIN - único com rolagem */}
+      {/* MAIN */}
       <main className="flex-1 min-w-0 h-screen overflow-y-auto overflow-x-hidden p-3 sm:p-4 md:p-6" style={{ background: C.black }}>
         <div className="flex items-center justify-between mb-4 sm:mb-5">
           <div className="flex items-center gap-3 min-w-0">
@@ -187,32 +219,24 @@ export default function AdminApp({ store, now }) {
             </h2>
             {sec === "mesas" && !tablesOn && <span className="ml-2 text-[10px] font-bold rounded-full px-2 py-0.5 shrink-0" style={{ background: `${C.red}22`, color: C.red }}>DESATIVADO</span>}
           </div>
+          <div className="flex items-center gap-2">
+            {sec === "paineltv" && <Btn small variant="dark" onClick={() => window.open("/paineltv", "_blank")}>Abrir em nova aba ↗</Btn>}
+            {sec === "entregadores" && <Btn small variant="dark" onClick={() => window.open("/entregador", "_blank")}>Painel entregador ↗</Btn>}
+          </div>
         </div>
 
         {menu && (
           <div className="md:hidden grid grid-cols-2 gap-2 mb-4">
-            {navItems.map((n) => {
-              const isMesas = n.id === "mesas";
-              const disabled = isMesas && !tablesOn;
-              return (
-                <button
-                  key={n.id}
-                  onClick={() => { setSec(n.id); setMenu(false); }}
-                  className="rounded-xl px-3 py-2.5 text-left flex items-center gap-2"
-                  style={{ background: sec === n.id ? `${C.orange}1c` : C.gray850, color: sec === n.id ? C.orange : disabled ? "#555" : "#c0c0c0", fontSize: 12.5, fontWeight: 700 }}
-                >
-                  <span>{n.icon}</span><span className="truncate">{n.label}</span>
-                  {isMesas && <span className="ml-auto text-[9px]">{tablesOn ? "ON" : "OFF"}</span>}
-                </button>
-              );
-            })}
-            {/* Toggle mobile */}
-            <button onClick={toggleTablesQuick} className="col-span-2 rounded-xl px-3 py-2.5 flex items-center justify-between" style={{ background: C.gray850, border: `1px solid ${C.gray800}` }}>
-              <span style={{ color: C.white, fontSize: 12.5, fontWeight: 700 }}>🍽️ Mesas {tablesOn ? "ATIVAS" : "DESATIVADAS"}</span>
-              <span className="rounded-full" style={{ width: 36, height: 20, background: tablesOn ? C.green : C.gray700, position: "relative", display: "inline-block" }}>
-                <span style={{ position: "absolute", top: 2, left: tablesOn ? 18 : 2, width: 16, height: 16, borderRadius: 99, background: C.white }} />
-              </span>
-            </button>
+            {navItems.map((n) => (
+              <button
+                key={n.id}
+                onClick={() => { setSec(n.id); setMenu(false); }}
+                className="rounded-xl px-3 py-2.5 text-left flex items-center gap-2"
+                style={{ background: sec === n.id ? `${C.orange}1c` : C.gray850, color: sec === n.id ? C.orange : "#c0c0c0", fontSize: 12.5, fontWeight: 700 }}
+              >
+                <span>{n.icon}</span><span className="truncate">{n.label}</span>
+              </button>
+            ))}
           </div>
         )}
 
@@ -227,11 +251,11 @@ export default function AdminApp({ store, now }) {
               <div className="text-4xl mb-3">🍽️</div>
               <div style={{ color: C.white, fontWeight: 900, fontSize: 16, marginBottom: 8 }}>Módulo de Mesas Desativado</div>
               <p style={{ color: "#8a8a8a", fontSize: 13, marginBottom: 16 }}>
-                O atendimento em mesas está desativado. Ative no botão abaixo ou em Configurações.
+                O atendimento em mesas está desativado. Ative em Configurações → Modalidades → Mesas / Salão.
               </p>
               <div className="flex flex-col sm:flex-row gap-2 justify-center">
-                <Btn variant="primary" onClick={toggleTablesQuick}>🍽️ Ativar Mesas Agora</Btn>
-                <Btn variant="dark" onClick={() => setSec("config")}>Ir para Configurações</Btn>
+                <Btn variant="primary" onClick={() => setSec("config")}>Ir para Configurações</Btn>
+                <Btn variant="dark" onClick={() => window.open("/mesas", "_blank")}>Preview mesas</Btn>
               </div>
             </Card>
           )
@@ -243,6 +267,8 @@ export default function AdminApp({ store, now }) {
         {sec === "estoque" && <AdminInventory store={store} />}
         {sec === "financeiro" && <AdminFinance store={store} now={now} />}
         {sec === "relatorios" && <AdminReports store={store} now={now} />}
+        {sec === "paineltv" && <TVPanelApp store={store} now={now} />}
+        {sec === "entregadores" && <AdminDriversSection store={store} now={now} />}
         {sec === "integracoes" && <AdminIntegrations store={store} />}
         {sec === "config" && <AdminSettingsModular store={store} now={now} />}
       </main>
