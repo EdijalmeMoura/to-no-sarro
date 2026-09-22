@@ -10,6 +10,15 @@ import ServiceChargeCard from "./ServiceChargeCard.jsx";
 import WaiterReport from "./WaiterReport.jsx";
 import LowStockAlerts from "./LowStockAlerts.jsx";
 
+const SALES_BY_HOUR = [
+  { h: "17h", v: 180 }, { h: "18h", v: 640 }, { h: "19h", v: 1180 },
+  { h: "20h", v: 1520 }, { h: "21h", v: 1290 }, { h: "22h", v: 760 }, { h: "23h", v: 310 },
+];
+const SALES_BY_DAY = [
+  { d: "Seg", v: 1820 }, { d: "Ter", v: 2140 }, { d: "Qua", v: 1990 },
+  { d: "Qui", v: 2630 }, { d: "Sex", v: 4180 }, { d: "Sáb", v: 5240 }, { d: "Dom", v: 3910 },
+];
+
 function AdminDashboard({ store, now, setSec }) {
   const today = store.orders.filter((o) => o.status !== "CANCELADO");
   const revenue = today.reduce((s, o) => s + o.total, 0);

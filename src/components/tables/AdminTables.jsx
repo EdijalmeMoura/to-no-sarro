@@ -8,6 +8,20 @@ import { printHTML } from "../../utils/print.js";
 import { Card, KPI, Btn } from "../ui/index.jsx";
 import SplitBillModal from "./SplitBillModal.jsx";
 
+function QRCodeImage({ value, size = 160 }) {
+  const [src, setSrc] = React.useState("");
+  React.useEffect(() => {
+    let alive = true;
+    if (!value) { setSrc(""); return; }
+    QRCode.toDataURL(value, { width: size * 2, margin: 1 })
+      .then((url) => { if (alive) setSrc(url); })
+      .catch(() => {});
+    return () => { alive = false; };
+  }, [value, size]);
+  if (!src) return <div style={{ width: size, height: size, background: "#fff" }} className="flex items-center justify-center rounded-lg"><span style={{ color: "#888", fontSize: 11 }}>Carregando QR...</span></div>;
+  return <img src={src} alt={value} style={{ width: size, height: size }} className="rounded-lg" />;
+}
+
 export default function AdminTables({ store, now }) {
   const [filter, setFilter] = useState("TODAS"); // TODAS | LIVRES | OCUPADAS
   const [openModal, setOpenModal] = useState(null); // { tableNum, tableName }
