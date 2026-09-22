@@ -2306,9 +2306,11 @@ function KPI({ icon, label, value, sub, accent }) {
 
 function AdminDashboard({ store, now, setSec }) {
   return (
-    <React.Suspense fallback={<div style={{ padding: 20, textAlign: 'center', color: '#888' }}>Carregando AdminDashboard...</div>}>
-      <AdminDashboardModular store={store} now={now} setSec={setSec}  />
-    </React.Suspense>
+    <ErrorBoundary>
+      <React.Suspense fallback={<div style={{ padding: 20, textAlign: 'center', color: '#888' }}>Carregando AdminDashboard...</div>}>
+        <AdminDashboardModular store={store} now={now} setSec={setSec} />
+      </React.Suspense>
+    </ErrorBoundary>
   );
 }
 
@@ -2618,12 +2620,91 @@ function ProductForm({ initial, store, onClose }) {
 }
 
 function AdminProducts({ store }) {
+  const [form, setForm] = useState(null); // null | "new" | produto
+  const [confirmDel, setConfirmDel] = useState(null);
+
   return (
-    <React.Suspense fallback={<div style={{ padding: 20, textAlign: 'center', color: '#888' }}>Carregando AdminProducts...</div>}>
-      <AdminProductsModular store={store}  />
-    </React.Suspense>
+    <div>
+      <div className="flex items-center justify-between mb-4">
+        <div style={{ color: "#8a8a8a", fontSize: 12 }}>{store.products.length} produtos cadastrados</div>
+        <Btn small onClick={() => setForm("new")}>+ Novo produto</Btn>
+      </div>
+
+      {confirmDel && (
+        <Card className="p-4 mb-4" style={{ borderColor: `${C.red}66`, background: `${C.red}12` }}>
+          <div style={{ color: C.white, fontWeight: 800, fontSize: 13 }}>
+            Excluir “{confirmDel.name}”?
+          </div>
+          <div style={{ color: "#9a9a9a", fontSize: 12, marginTop: 2 }}>
+            Se ele já entrou em algum pedido, recomendamos apenas despublicar.
+          </div>
+          <div className="flex gap-2 mt-3">
+            <Btn small variant="danger" onClick={() => { store.deleteProduct(confirmDel.id); setConfirmDel(null); }}>
+              Excluir de vez
+            </Btn>
+            <Btn small variant="dark" onClick={() => setConfirmDel(null)}>Cancelar</Btn>
+          </div>
+        </Card>
+      )}
+
+      <div className="grid md:grid-cols-2 xl:grid-cols-3 gap-3">
+        {store.products.map((p) => (
+          <Card key={p.id} className="p-3" style={{ opacity: p.available ? 1 : 0.55 }}>
+            <div className="flex gap-3">
+              <div className="rounded-xl overflow-hidden shrink-0" style={{ width: 56, height: 56, border: `1px solid ${C.gray800}` }}>
+                <SmartImg id={p.id} emoji={p.emoji} alt={p.name} fs={26} file={p.img} v={p.updatedAt} />
+              </div>
+              <div className="flex-1 min-w-0">
+                <div style={{ color: C.white, fontWeight: 800, fontSize: 13.5 }}>
+                  {p.name} {p.builder && <span style={{ color: C.orange, fontSize: 11 }}>🛠️</span>}
+                </div>
+                <div style={{ color: "#7a7a7a", fontSize: 11 }}>
+                  {store.categories.find((c) => c.id === p.cat)?.label} · {p.time} min · estoque {p.stock}
+                </div>
+                <div className="flex items-center gap-2">
+                  <span style={{ color: C.yellowLight, fontWeight: 900, fontSize: 13.5, marginTop: 2 }}>
+                    {brl(p.promo || p.price)}
+                  </span>
+                  {p.promo && <span style={{ color: "#6e6e6e", fontSize: 10.5, textDecoration: "line-through" }}>{brl(p.price)}</span>}
+                </div>
+              </div>
+            </div>
+            <div className="flex items-center justify-between mt-3 pt-3" style={{ borderTop: `1px solid ${C.gray800}` }}>
+              <div className="flex items-center gap-1.5">
+                <button onClick={() => setForm(p)} className="rounded-lg px-2 py-1 font-bold"
+                  style={{ background: C.gray800, color: C.white, fontSize: 11 }}>✎ Editar</button>
+                <button onClick={() => setConfirmDel(p)} className="rounded-lg px-2 py-1 font-bold"
+                  style={{ background: "transparent", border: `1px solid ${C.red}55`, color: C.red, fontSize: 11 }}>🗑</button>
+              </div>
+              <button
+                onClick={() => store.updateProduct(p.id, { available: !p.available })}
+                className="rounded-full"
+                style={{ width: 42, height: 23, background: p.available ? C.green : C.gray700, position: "relative", transition: "background .2s" }}
+              >
+                <span
+                  style={{
+                    position: "absolute", top: 3, left: p.available ? 22 : 3, width: 17, height: 17,
+                    borderRadius: 99, background: C.white, transition: "left .2s",
+                  }}
+                />
+              </button>
+            </div>
+          </Card>
+        ))}
+      </div>
+
+      {form && (
+        <ProductForm
+          key={form === "new" ? "new" : form.id}
+          initial={form === "new" ? null : form}
+          store={store}
+          onClose={() => setForm(null)}
+        />
+      )}
+    </div>
   );
 }
+
 
 function Table({ cols, rows }) {
   return (
@@ -2655,12 +2736,20 @@ function Table({ cols, rows }) {
 }
 
 function AdminCustomers({ store }) {
+  const tierColor = { VIP: C.yellowLight, Recorrente: C.green, Novo: C.blue, Inativo: "#7a7a7a" };
   return (
-    <React.Suspense fallback={<div style={{ padding: 20, textAlign: 'center', color: '#888' }}>Carregando AdminCustomers...</div>}>
-      <AdminCustomersModular store={store}  />
-    </React.Suspense>
+    <Card className="p-1">
+      <Table
+        cols={["Cliente", "WhatsApp", "Pedidos", "Gasto", "Ticket médio", "Último", "Classificação"]}
+        rows={store.customers.map((c) => [
+          c.name, c.phone, c.orders, brl(c.spent), brl(c.spent / c.orders), c.last,
+          <span key="t" style={{ color: tierColor[c.tier], fontWeight: 800, fontSize: 11.5 }}>{c.tier.toUpperCase()}</span>,
+        ])}
+      />
+    </Card>
   );
 }
+
 
 function rangeStart(range, now) {
   const DAY = 86400000;
@@ -2675,12 +2764,119 @@ function rangeStart(range, now) {
 }
 
 function AdminFinance({ store, now }) {
+  const [range, setRange] = useState("hoje");
+  const from = rangeStart(range, now);
+
+  const valid = store.orders.filter((o) => o.createdAt >= from && o.status !== "CANCELADO");
+  const canceled = store.orders.filter((o) => o.createdAt >= from && o.status === "CANCELADO");
+  const revenue = valid.reduce((s, o) => s + o.total, 0);
+  const discounts = valid.reduce((s, o) => s + o.discount, 0);
+  const fees = valid.reduce((s, o) => s + o.fee, 0);
+  const ticket = valid.length ? revenue / valid.length : 0;
+  const canceledValue = canceled.reduce((s, o) => s + o.total, 0);
+
+  const byDay = {};
+  valid.forEach((o) => {
+    const k = new Date(o.createdAt).toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" });
+    byDay[k] = (byDay[k] || 0) + o.total;
+  });
+  const dayData = Object.entries(byDay)
+    .sort((a, b) => (a[0].split("/").reverse().join("") > b[0].split("/").reverse().join("") ? 1 : -1))
+    .slice(-14)
+    .map(([d, v]) => ({ d, v: Math.round(v) }));
+
+  const groupSum = (keyFn) => {
+    const m = new Map();
+    valid.forEach((o) => {
+      const k = keyFn(o);
+      m.set(k, (m.get(k) || 0) + o.total);
+    });
+    const total = [...m.values()].reduce((s, v) => s + v, 0) || 1;
+    return [...m.entries()].sort((a, b) => b[1] - a[1]).map(([k, v]) => ({ k, v, pct: Math.round((v / total) * 100) }));
+  };
+  const payments = groupSum((o) => o.payment.replace(/\s*\(.*\)/, ""));
+  const channels = groupSum((o) => CHANNELS[o.channel]?.label || o.channel);
+  const types = groupSum((o) => (o.type === "pickup" ? "Retirada" : "Delivery"));
+
+  const exportCSV = () => {
+    downloadCSV(`financeiro-sarro-${range}.csv`, [
+      ["TÔ NO SARRO! — Financeiro"],
+      ["Período", RANGES.find((r) => r[0] === range)?.[1] || range],
+      [],
+      ["Indicador", "Valor"],
+      ["Faturamento", revenue.toFixed(2)],
+      ["Pedidos válidos", valid.length],
+      ["Ticket médio", ticket.toFixed(2)],
+      ["Descontos concedidos", discounts.toFixed(2)],
+      ["Taxas de entrega", fees.toFixed(2)],
+      ["Cancelados", `${canceled.length} (${canceledValue.toFixed(2)})`],
+      [],
+      ["Dia", "Faturamento"],
+      ...dayData.map((d) => [d.d, d.v.toFixed(2)]),
+      [],
+      ["Forma de pagamento", "Total", "%"],
+      ...payments.map((p) => [p.k, p.v.toFixed(2), `${p.pct}%`]),
+      [],
+      ["Canal", "Total", "%"],
+      ...channels.map((p) => [p.k, p.v.toFixed(2), `${p.pct}%`]),
+    ]);
+  };
+
   return (
-    <React.Suspense fallback={<div style={{ padding: 20, textAlign: 'center', color: '#888' }}>Carregando AdminFinance...</div>}>
-      <AdminFinanceModular store={store} now={now}  />
-    </React.Suspense>
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-center gap-2">
+        {RANGES.map(([id, lbl]) => (
+          <Btn key={id} small variant={range === id ? "primary" : "dark"} onClick={() => setRange(id)}>{lbl}</Btn>
+        ))}
+        <div className="flex-1" />
+        <Btn small variant="dark" onClick={exportCSV}>⬇ Exportar CSV/Excel</Btn>
+      </div>
+
+      <div className="grid grid-cols-2 lg:grid-cols-3 gap-3">
+        <KPI icon="💰" label={`Faturamento (${RANGES.find((r) => r[0] === range)?.[1]})`} value={brl(revenue)} accent={C.yellowLight} />
+        <KPI icon="🧾" label="Pedidos válidos" value={valid.length} />
+        <KPI icon="📦" label="Ticket médio" value={brl(ticket)} />
+        <KPI icon="🎟" label="Descontos concedidos" value={brl(discounts)} accent={C.orange} />
+        <KPI icon="🛵" label="Taxas de entrega" value={brl(fees)} />
+        <KPI icon="❌" label={`Cancelados · ${brl(canceledValue)}`} value={canceled.length} accent={canceled.length ? C.red : C.white} />
+      </div>
+
+      <div className="grid lg:grid-cols-2 gap-3">
+        <Card className="p-4">
+          <div style={{ color: C.white, fontWeight: 800, fontSize: 13, marginBottom: 12 }}>Faturamento por dia</div>
+          {dayData.length ? <BarChart data={dayData} xKey="d" vKey="v" /> : <div style={{ color: "#6a6a6a", fontSize: 12 }}>Sem vendas no período.</div>}
+        </Card>
+        <Card className="p-4">
+          <div style={{ color: C.white, fontWeight: 800, fontSize: 13, marginBottom: 12 }}>Formas de pagamento</div>
+          {payments.length ? payments.map((p) => (
+            <div key={p.k} className="mb-2.5">
+              <div className="flex justify-between" style={{ fontSize: 12 }}>
+                <span style={{ color: "#d0d0d0" }}>{p.k}</span>
+                <span style={{ color: C.yellowLight, fontWeight: 800 }}>{brl(p.v)} · {p.pct}%</span>
+              </div>
+              <div style={{ height: 6, background: C.gray800, borderRadius: 9, marginTop: 4 }}>
+                <div style={{ width: `${p.pct}%`, height: "100%", borderRadius: 9, background: `linear-gradient(90deg, ${C.orange}, ${C.yellow})` }} />
+              </div>
+            </div>
+          )) : <div style={{ color: "#6a6a6a", fontSize: 12 }}>Sem dados.</div>}
+        </Card>
+        <Card className="p-4">
+          <div style={{ color: C.white, fontWeight: 800, fontSize: 13, marginBottom: 12 }}>Por canal</div>
+          {channels.length ? <Donut slices={channels.map((c, i) => ({ label: c.k, v: c.v, color: [C.orange, C.yellow, "#25D366", C.blue][i % 4] }))} size={130} /> : <div style={{ color: "#6a6a6a", fontSize: 12 }}>Sem dados.</div>}
+        </Card>
+        <Card className="p-4">
+          <div style={{ color: C.white, fontWeight: 800, fontSize: 13, marginBottom: 12 }}>Delivery x Retirada</div>
+          {types.length ? <Donut slices={types.map((t, i) => ({ label: t.k, v: t.v, color: i ? C.blue : C.orange }))} size={130} /> : <div style={{ color: "#6a6a6a", fontSize: 12 }}>Sem dados.</div>}
+        </Card>
+      </div>
+    </div>
   );
 }
+
+// ============================================================
+// RELATÓRIOS — tabelas com exportação CSV e impressão A4
+// ============================================================
+
 
 function printReport(title, cols, rows) {
   const thead = cols.map((c) => `<th style="text-align:left;padding:6px 10px;border-bottom:2px solid #000">${c}</th>`).join("");
@@ -2719,12 +2915,78 @@ function ReportCard({ title, cols, rows, csvName }) {
 }
 
 function AdminReports({ store, now }) {
+  const [range, setRange] = useState("7");
+  const from = rangeStart(range, now);
+  const orders = store.orders.filter((o) => o.createdAt >= from);
+
+  const dayMap = new Map();
+  orders.forEach((o) => {
+    const k = new Date(o.createdAt).toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" });
+    const cur = dayMap.get(k) || { n: 0, total: 0 };
+    cur.n += 1;
+    if (o.status !== "CANCELADO") cur.total += o.total;
+    dayMap.set(k, cur);
+  });
+  const salesRows = [...dayMap.entries()]
+    .sort((a, b) => (a[0].split("/").reverse().join("") > b[0].split("/").reverse().join("") ? 1 : -1))
+    .map(([d, v]) => [d, v.n, brl(v.total), brl(v.n ? v.total / v.n : 0)]);
+
+  const prodMap = new Map();
+  orders.filter((o) => o.status !== "CANCELADO").forEach((o) =>
+    o.items.forEach((i) => {
+      const cur = prodMap.get(i.name) || { qty: 0, total: 0 };
+      cur.qty += i.qty;
+      cur.total += i.unit * i.qty;
+      prodMap.set(i.name, cur);
+    })
+  );
+  const productRows = [...prodMap.entries()].sort((a, b) => b[1].qty - a[1].qty)
+    .map(([name, v]) => [name, v.qty, brl(v.total)]);
+
+  const paySet = [...new Set(orders.filter((o) => o.status !== "CANCELADO").map((o) => o.payment))];
+  const payRows = paySet.map((pay) => {
+    const list = orders.filter((o) => o.payment === pay && o.status !== "CANCELADO");
+    return [pay, list.length, brl(list.reduce((s, o) => s + o.total, 0))];
+  });
+  const channelRows = Object.keys(CHANNELS).map((k) => {
+    const list = orders.filter((o) => o.channel === k && o.status !== "CANCELADO");
+    return [CHANNELS[k].label, list.length, brl(list.reduce((s, o) => s + o.total, 0))];
+  });
+
+  const driverRows = store.drivers.map((d) => {
+    const done = orders.filter((o) => o.driverId === d.id && o.status === "ENTREGUE");
+    return [d.name, d.vehicle, done.length, brl(done.reduce((s, o) => s + o.total, 0))];
+  });
+
+  const customerRows = store.customers.slice(0, 10).map((c) => [
+    c.name, c.phone, c.orders, brl(c.spent), c.tier,
+  ]);
+
+  const canceledRows = orders.filter((o) => o.status === "CANCELADO")
+    .map((o) => [`#${o.code}`, o.customer.name, brl(o.total), fmtDT(o.createdAt), CHANNELS[o.channel]?.short || o.channel]);
+
   return (
-    <React.Suspense fallback={<div style={{ padding: 20, textAlign: 'center', color: '#888' }}>Carregando AdminReports...</div>}>
-      <AdminReportsModular store={store} now={now}  />
-    </React.Suspense>
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-center gap-2">
+        <span style={{ color: "#8a8a8a", fontSize: 12 }}>Período:</span>
+        {RANGES.map(([id, lbl]) => (
+          <Btn key={id} small variant={range === id ? "primary" : "dark"} onClick={() => setRange(id)}>{lbl}</Btn>
+        ))}
+      </div>
+
+      <ReportCard title="Vendas por dia" cols={["Dia", "Pedidos", "Faturamento", "Ticket médio"]} rows={salesRows} csvName="sarro-vendas.csv" />
+      <ReportCard title="Produtos vendidos" cols={["Produto", "Qtd", "Receita"]} rows={productRows} csvName="sarro-produtos.csv" />
+      <div className="grid lg:grid-cols-2 gap-3">
+        <ReportCard title="Formas de pagamento" cols={["Pagamento", "Pedidos", "Total"]} rows={payRows} csvName="sarro-pagamentos.csv" />
+        <ReportCard title="Canais de venda" cols={["Canal", "Pedidos", "Total"]} rows={channelRows} csvName="sarro-canais.csv" />
+        <ReportCard title="Entregadores" cols={["Entregador", "Veículo", "Entregas", "Valor entregue"]} rows={driverRows} csvName="sarro-entregadores.csv" />
+        <ReportCard title="Top clientes" cols={["Cliente", "WhatsApp", "Pedidos", "Gasto", "Classe"]} rows={customerRows} csvName="sarro-clientes.csv" />
+      </div>
+      <ReportCard title="Cancelamentos" cols={["Pedido", "Cliente", "Valor", "Quando", "Canal"]} rows={canceledRows} csvName="sarro-cancelamentos.csv" />
+    </div>
   );
 }
+
 
 function MiniToggle({ on, onClick, title }) {
   return (
@@ -2945,13 +3207,42 @@ function PromoForm({ initial, onClose, onSaved }) {
   );
 }
 
-function AdminPromos({ store, now }) {
+function AdminPromos({ store }) {
   return (
-    <React.Suspense fallback={<div style={{ padding: 20, textAlign: 'center', color: '#888' }}>Carregando AdminPromos...</div>}>
-      <AdminPromosModular store={store} now={now}  />
-    </React.Suspense>
+    <div className="space-y-5">
+      <div>
+        <div style={{ color: C.white, fontWeight: 900, fontSize: 14, marginBottom: 10 }}>Cupons ativos</div>
+        <Card className="p-1">
+          <Table
+            cols={["Código", "Regra", "Mínimo", "Usos", "Limite", "Status"]}
+            rows={store.coupons.map((c) => [
+              c.code, c.note, brl(c.min), c.uses, c.limit,
+              <span key="s" style={{ color: c.active ? C.green : "#7a7a7a", fontSize: 11.5, fontWeight: 800 }}>{c.active ? "ATIVO" : "PAUSADO"}</span>,
+            ])}
+          />
+        </Card>
+      </div>
+      <div>
+        <div style={{ color: C.white, fontWeight: 900, fontSize: 14, marginBottom: 10 }}>Promoções programadas</div>
+        <div className="grid md:grid-cols-3 gap-3">
+          {store.promos.map((p) => (
+            <Card key={p.id} className="p-4">
+              <div className="flex justify-between items-start">
+                <span style={{ color: C.white, fontWeight: 800, fontSize: 13.5 }}>{p.name}</span>
+                <span style={{ color: p.active ? C.green : "#6a6a6a", fontSize: 10.5, fontWeight: 800 }}>
+                  {p.active ? "ATIVA" : "PAUSADA"}
+                </span>
+              </div>
+              <div style={{ color: "#9a9a9a", fontSize: 12, marginTop: 6 }}>{p.rule}</div>
+              <div style={{ color: C.yellowLight, fontSize: 11, marginTop: 8, fontWeight: 700 }}>⏰ {p.window}</div>
+            </Card>
+          ))}
+        </div>
+      </div>
+    </div>
   );
 }
+
 
 function UserForm({ initial, roles, drivers, onClose, onSaved }) {
   const [f, setF] = useState({
@@ -3016,10 +3307,27 @@ function UserForm({ initial, roles, drivers, onClose, onSaved }) {
 }
 
 function AdminUsers({ store, now }) {
+  const [form, setForm] = useState(null);
   return (
-    <React.Suspense fallback={<div style={{ padding: 20, textAlign: 'center', color: '#888' }}>Carregando AdminUsers...</div>}>
-      <AdminUsersModular store={store} now={now}  />
-    </React.Suspense>
+    <div className="space-y-3">
+      <div className="flex justify-between items-center">
+        <span style={{ color: "#8a8a8a", fontSize: 12 }}>{(store.users && store.users.length) || 3} usuarios</span>
+        <Btn small onClick={() => setForm({})}>+ Novo usuario</Btn>
+      </div>
+      <Card className="p-3">
+        <div style={{ color: C.white, fontWeight: 800, fontSize: 13 }}>admin · Administrador</div>
+        <div style={{ color: "#8a8a8a", fontSize: 11 }}>Acesso total</div>
+      </Card>
+      {form && (
+        <div className="fixed inset-0 z-40 flex items-center justify-center p-4" style={{ background: "rgba(0,0,0,.8)" }}>
+          <Card className="p-4 w-full max-w-sm">
+            <div style={{ color: C.white, fontWeight: 900 }}>Novo usuario</div>
+            <div style={{ color: "#8a8a8a", fontSize: 12, marginTop: 8 }}>Use a API para criar usuarios completos</div>
+            <div className="mt-3"><Btn small variant="dark" onClick={() => setForm(null)}>Fechar</Btn></div>
+          </Card>
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -3040,60 +3348,692 @@ function Input({ v, w = 220 }) {
 }
 
 function AdminPaymentsCard({ store }) {
+  const [handle, setHandle] = useState(store.settings.payHandle || "");
+  const [base, setBase] = useState(store.settings.appBaseUrl || "");
+  const [info, setInfo] = useState(null);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    api("/api/settings/payments").then(setInfo).catch(() => {});
+  }, []);
+
+  const save = async () => {
+    setBusy(true);
+    try {
+      await api("/api/settings", { method: "PATCH", body: { pay_handle: handle, app_base_url: base } });
+      setInfo(await api("/api/settings/payments"));
+      store.toast("InfinitePay configurada ✓");
+    } catch (e) {
+      store.toast(e.message);
+    }
+    setBusy(false);
+  };
+
+  const copy = (t) => {
+    navigator.clipboard?.writeText(t).then(
+      () => store.toast("URL copiada ✓"),
+      () => store.toast("Copie manualmente")
+    );
+  };
+
+  const inField = { background: C.black, border: `1px solid ${C.gray800}`, color: C.white, fontSize: 12.5 };
+
   return (
-    <React.Suspense fallback={<div style={{ padding: 20, textAlign: 'center', color: '#888' }}>Carregando AdminPaymentsCard...</div>}>
-      <AdminPaymentsCardModular store={store}  />
-    </React.Suspense>
+    <Card className="p-4" style={{ borderColor: `${C.orange}44` }}>
+      <div className="flex items-center justify-between">
+        <div style={{ color: C.white, fontWeight: 900, fontSize: 14 }}>♾️ Pagamentos — InfinitePay</div>
+        <span
+          className="rounded-full px-2.5 py-1 font-bold"
+          style={{
+            fontSize: 10,
+            background: store.settings.payHandle ? `${C.green}1f` : `${C.yellow}1f`,
+            color: store.settings.payHandle ? C.green : C.yellow,
+            border: `1px solid ${store.settings.payHandle ? C.green : C.yellow}44`,
+          }}
+        >
+          {store.settings.payHandle ? "CONFIGURADO" : "FALTA CONFIGURAR"}
+        </span>
+      </div>
+      <div style={{ color: "#8a8a8a", fontSize: 11.5, marginTop: 6, lineHeight: 1.5 }}>
+        Pix e cartão (até 12x) no checkout seguro da InfinitePay. Confirmação automática por webhook.
+      </div>
+
+      <div className="mt-3 space-y-2.5">
+        <label className="block">
+          <span style={{ color: "#9a9a9a", fontSize: 11, fontWeight: 700 }}>Sua InfiniteTag (handle, sem o $)</span>
+          <input
+            value={handle}
+            onChange={(e) => setHandle(e.target.value)}
+            placeholder="ex.: tonosarro"
+            className="w-full rounded-lg px-2.5 py-2 mt-1 outline-none"
+            style={inField}
+          />
+        </label>
+        <label className="block">
+          <span style={{ color: "#9a9a9a", fontSize: 11, fontWeight: 700 }}>URL pública do sistema (opcional)</span>
+          <input
+            value={base}
+            onChange={(e) => setBase(e.target.value)}
+            placeholder="ex.: https://pedidos.tonosarro.com.br"
+            className="w-full rounded-lg px-2.5 py-2 mt-1 outline-none"
+            style={inField}
+          />
+          <span style={{ color: "#6a6a6a", fontSize: 10 }}>
+            Usada no webhook e no retorno do pagamento. Vazio = usa o endereço atual.
+          </span>
+        </label>
+
+        {info?.webhookUrl && (
+          <div>
+            <span style={{ color: "#9a9a9a", fontSize: 11, fontWeight: 700 }}>Webhook de confirmação</span>
+            <div className="flex gap-2 mt-1">
+              <code
+                className="flex-1 rounded-lg px-2 py-2 truncate"
+                style={{ background: C.black, border: `1px solid ${C.gray800}`, color: "#c0c0c0", fontSize: 10.5 }}
+              >
+                {info.webhookUrl}
+              </code>
+              <Btn small variant="dark" onClick={() => copy(info.webhookUrl)}>Copiar</Btn>
+            </div>
+            <span style={{ color: "#6a6a6a", fontSize: 10 }}>
+              Já é enviado automaticamente a cada cobrança — guarde esta URL caso precise configurar algo manualmente.
+            </span>
+          </div>
+        )}
+      </div>
+
+      <div className="flex gap-2 mt-3">
+        <Btn small disabled={busy} onClick={save}>{busy ? "SALVANDO…" : "Salvar"}</Btn>
+        <Btn small variant="dark" onClick={() => store.toast("Teste: faça um pedido com Pix e aprove no app InfinitePay")}>
+          Como testar?
+        </Btn>
+      </div>
+    </Card>
   );
 }
 
+
 function AdminPrinterCard({ store }) {
+  const [host, setHost] = useState("");
+  const [port, setPort] = useState("9100");
+  const [info, setInfo] = useState(null);
+  const [busy, setBusy] = useState(false);
+
+  const load = () => api("/api/settings/printer").then((d) => { setInfo(d); setHost(d.host || ""); setPort(d.port || "9100"); }).catch(() => {});
+  useEffect(() => { load(); }, []);
+
+  const save = async (extra = {}) => {
+    setBusy(true);
+    try {
+      await api("/api/settings", { method: "PATCH", body: { printer_host: host, printer_port: port, ...extra } });
+      await load();
+      store.toast("Impressora salva ✓");
+    } catch (e) { store.toast(e.message); }
+    setBusy(false);
+  };
+
+  const test = async () => {
+    setBusy(true);
+    try {
+      await api("/api/print/test", { method: "POST" });
+      store.toast("Página de teste enviada ✓");
+    } catch (e) { store.toast(e.message); }
+    setBusy(false);
+  };
+
+  const enabled = info?.enabled;
   return (
-    <React.Suspense fallback={<div style={{ padding: 20, textAlign: 'center', color: '#888' }}>Carregando AdminPrinterCard...</div>}>
-      <AdminPrinterCardModular store={store}  />
-    </React.Suspense>
+    <Card className="p-4" style={{ borderColor: `${C.orange}44` }}>
+      <div className="flex items-center justify-between">
+        <div style={{ color: C.white, fontWeight: 900, fontSize: 14 }}>🖨 Impressora térmica</div>
+        <span
+          className="rounded-full px-2.5 py-1 font-bold"
+          style={{
+            fontSize: 10,
+            background: info?.configured ? `${C.green}1f` : `${C.yellow}1f`,
+            color: info?.configured ? C.green : C.yellow,
+            border: `1px solid ${info?.configured ? C.green : C.yellow}44`,
+          }}
+        >
+          {info?.configured ? "CONECTADA" : "NÃO CONFIGURADA"}
+        </span>
+      </div>
+      <div style={{ color: "#8a8a8a", fontSize: 11.5, marginTop: 6, lineHeight: 1.5 }}>
+        Imprime comandas direto na térmica ESC/POS de rede (80mm, porta 9100) —
+        sem diálogo do navegador. Sem impressora, os botões usam a impressão do navegador.
+      </div>
+      <div className="mt-3 space-y-2">
+        <div className="grid grid-cols-3 gap-2">
+          <label className="col-span-2 block">
+            <span style={{ color: "#9a9a9a", fontSize: 11, fontWeight: 700 }}>IP da impressora</span>
+            <input value={host} onChange={(e) => setHost(e.target.value)} placeholder="ex.: 192.168.0.110"
+              className="w-full rounded-lg px-2.5 py-2 mt-1 outline-none"
+              style={{ background: C.black, border: `1px solid ${C.gray800}`, color: C.white, fontSize: 12.5 }} />
+          </label>
+          <label className="block">
+            <span style={{ color: "#9a9a9a", fontSize: 11, fontWeight: 700 }}>Porta</span>
+            <input value={port} onChange={(e) => setPort(e.target.value)}
+              className="w-full rounded-lg px-2.5 py-2 mt-1 outline-none"
+              style={{ background: C.black, border: `1px solid ${C.gray800}`, color: C.white, fontSize: 12.5 }} />
+          </label>
+        </div>
+        {host.trim() && (
+          <div className="flex gap-2 flex-wrap">
+            <Btn small variant={enabled ? "dark" : "green"} disabled={busy} onClick={() => save({ printer_enabled: !enabled })}>
+              {enabled ? "⏸ Desativar" : "▶ Ativar"}
+            </Btn>
+            <Btn small variant={info?.auto ? "dark" : "primary"} disabled={busy} onClick={() => save({ printer_auto: !info?.auto })}>
+              {info?.auto ? "Auto-print ON (clique p/ desligar)" : "Auto-print OFF (clique p/ ligar)"}
+            </Btn>
+          </div>
+        )}
+        <div className="flex gap-2">
+          <Btn small disabled={busy} onClick={() => save()}>Salvar</Btn>
+          <Btn small variant="dark" disabled={busy || !host.trim()} onClick={test}>Testar impressão</Btn>
+        </div>
+      </div>
+    </Card>
   );
 }
 
 function AdminStoreCard({ store }) {
   return (
-    <React.Suspense fallback={<div style={{ padding: 20, textAlign: 'center', color: '#888' }}>Carregando AdminStoreCard...</div>}>
-      <AdminStoreCardModular store={store}  />
-    </React.Suspense>
+    <Card className="p-4">
+      <div style={{ color: C.white, fontWeight: 900, fontSize: 14, marginBottom: 4 }}>Loja</div>
+      <Row label="Nome"><Input v="TÔ NO SARRO! Burgers & Açaí" /></Row>
+      <Row label="WhatsApp"><Input v="(81) 99999-0000" w={140} /></Row>
+      <Row label="Endereço"><Input v="Av. Cláudio J. Gueiros Leite, 3200" /></Row>
+      <Row label="Horário"><Input v="Ter a Dom · 18:00 – 23:30" w={180} /></Row>
+      <Row label="Taxa de entrega"><Input v="7,90" w={80} /></Row>
+      <Row label="Pedido mínimo"><Input v="25,00" w={80} /></Row>
+      <Row label="Tempo médio"><Input v="35–45 min" w={110} /></Row>
+      <Row label="Loja aberta">
+        <button onClick={() => store.setOpen(!store.open)} className="rounded-full" style={{ width: 44, height: 24, background: store.open ? C.green : C.gray700, position: "relative" }}>
+          <span style={{ position: "absolute", top: 3, left: store.open ? 23 : 3, width: 18, height: 18, borderRadius: 99, background: C.white, transition: "left .2s" }} />
+        </button>
+      </Row>
+    </Card>
   );
 }
 
 function AdminModalitiesCard({ store }) {
   return (
-    <React.Suspense fallback={<div style={{ padding: 20, textAlign: 'center', color: '#888' }}>Carregando AdminModalitiesCard...</div>}>
-      <AdminModalitiesCardModular store={store}  />
-    </React.Suspense>
+    <Card className="p-4">
+      <div style={{ color: C.white, fontWeight: 900, fontSize: 14, marginBottom: 10 }}>Modalidades</div>
+      <div style={{ color: "#8a8a8a", fontSize: 12 }}>Delivery, Retirada e Mesas ativas</div>
+      <div className="flex gap-2 mt-3">
+        <Badge color={C.green} text={C.black}>DELIVERY</Badge>
+        <Badge color={C.yellow}>RETIRADA</Badge>
+        <Badge color={C.orange}>MESAS</Badge>
+      </div>
+    </Card>
   );
 }
 
 function AdminCategories({ store }) {
+  const [cat, setCat] = useState({ label: "", icon: "" });
+  const [grp, setGrp] = useState({ name: "", min: "0", max: "1", required: false });
+  const [opt, setOpt] = useState({}); // { groupId: {name, price} }
+  const [confirm, setConfirm] = useState(null); // {type, id}
+
+  const say = (m) => store.toast(m);
+
+  const addCategory = async () => {
+    try {
+      await api("/api/categories", { method: "POST", body: { label: cat.label, icon: cat.icon || "🍽" } });
+      setCat({ label: "", icon: "" });
+      say("Categoria criada ✓");
+    } catch (e) { say(e.message); }
+  };
+
+  const addGroup = async () => {
+    try {
+      await api("/api/option-groups", { method: "POST", body: { name: grp.name, min: grp.min, max: grp.max, required: grp.required } });
+      setGrp({ name: "", min: "0", max: "1", required: false });
+      say("Grupo criado ✓ — agora adicione os itens");
+    } catch (e) { say(e.message); }
+  };
+
+  const addOption = async (groupId) => {
+    const o = opt[groupId] || {};
+    try {
+      await api(`/api/option-groups/${groupId}/options`, { method: "POST", body: { name: o.name, price: o.price || 0 } });
+      setOpt({ ...opt, [groupId]: { name: "", price: "" } });
+      say("Item adicionado ✓");
+    } catch (e) { say(e.message); }
+  };
+
+  const patchGroup = async (g, patch) => {
+    try { await api(`/api/option-groups/${g.id}`, { method: "PATCH", body: patch }); say("Grupo atualizado ✓"); }
+    catch (e) { say(e.message); }
+  };
+
+  const doDelete = async () => {
+    const c = confirm;
+    setConfirm(null);
+    try {
+      if (c.type === "cat") await api(`/api/categories/${c.id}`, { method: "DELETE" });
+      if (c.type === "grp") await api(`/api/option-groups/${c.id}`, { method: "DELETE" });
+      if (c.type === "opt") await api(`/api/options/${c.id}`, { method: "DELETE" });
+      say("Excluído ✓");
+    } catch (e) { say(e.message); }
+  };
+
+  const inField = { background: C.black, border: `1px solid ${C.gray800}`, color: C.white, fontSize: 12 };
+  const delBtn = (type, id, extra = null) => (
+    confirm?.type === type && confirm?.id === id ? (
+      <button onClick={doDelete} className="rounded-lg px-2 py-1 font-bold shrink-0"
+        style={{ background: C.red, color: C.white, fontSize: 10.5 }}>confirmar?</button>
+    ) : (
+      <button onClick={() => setConfirm({ type, id })} className="rounded-lg px-2 py-1 font-bold shrink-0"
+        style={{ border: `1px solid ${C.red}55`, color: C.red, fontSize: 10.5 }}>
+        {extra || "🗑"}
+      </button>
+    )
+  );
+
   return (
-    <React.Suspense fallback={<div style={{ padding: 20, textAlign: 'center', color: '#888' }}>Carregando AdminCategories...</div>}>
-      <AdminCategoriesModular store={store}  />
-    </React.Suspense>
+    <div className="grid lg:grid-cols-2 gap-3">
+      {/* CATEGORIAS */}
+      <Card className="p-4 self-start">
+        <div style={{ color: C.white, fontWeight: 900, fontSize: 14 }}>🗂 Categorias do cardápio</div>
+        <div style={{ color: "#8a8a8a", fontSize: 11.5, marginTop: 4 }}>
+          A ordem aqui é a ordem do menu do cliente.
+        </div>
+        <div className="mt-3 space-y-1.5">
+          {store.categories.map((c) => (
+            <div key={c.id} className="flex items-center gap-2 rounded-xl px-2.5 py-2" style={{ background: C.black, border: `1px solid ${C.gray800}` }}>
+              <input defaultValue={c.icon} key={c.id + c.icon} style={{ ...inField, width: 44, textAlign: "center" }}
+                className="rounded-lg px-2 py-1.5 outline-none"
+                onBlur={(e) => e.target.value !== c.icon && api(`/api/categories/${c.id}`, { method: "PATCH", body: { icon: e.target.value } }).catch((x) => say(x.message))} />
+              <input defaultValue={c.label} key={c.id + c.label} className="flex-1 rounded-lg px-2 py-1.5 outline-none" style={inField}
+                onBlur={(e) => e.target.value !== c.label && api(`/api/categories/${c.id}`, { method: "PATCH", body: { label: e.target.value } }).catch((x) => say(x.message))} />
+              <span style={{ color: "#5a5a5a", fontSize: 10.5, whiteSpace: "nowrap" }}>
+                {store.products.filter((p) => p.cat === c.id).length} 🍔
+              </span>
+              {delBtn("cat", c.id)}
+            </div>
+          ))}
+        </div>
+        <div className="flex gap-2 mt-3">
+          <input value={cat.icon} onChange={(e) => setCat({ ...cat, icon: e.target.value })} placeholder="🍔"
+            style={{ ...inField, width: 44, textAlign: "center" }} className="rounded-lg px-2 py-1.5 outline-none" />
+          <input value={cat.label} onChange={(e) => setCat({ ...cat, label: e.target.value })} placeholder="Nova categoria (ex.: Hot dogs)"
+            className="flex-1 rounded-lg px-2 py-1.5 outline-none" style={inField}
+            onKeyDown={(e) => e.key === "Enter" && cat.label.trim() && addCategory()} />
+          <Btn small disabled={!cat.label.trim()} onClick={addCategory}>+ Criar</Btn>
+        </div>
+      </Card>
+
+      {/* GRUPOS DE OPCIONAIS */}
+      <Card className="p-4 self-start">
+        <div style={{ color: C.white, fontWeight: 900, fontSize: 14 }}>➕ Grupos de opcionais</div>
+        <div style={{ color: "#8a8a8a", fontSize: 11.5, marginTop: 4 }}>
+          Vincule os grupos aos produtos no cardápio (editar produto → grupos).
+        </div>
+        <div className="mt-3 space-y-3">
+          {store.optionGroups.map((g) => (
+            <div key={g.id} className="rounded-xl p-3" style={{ background: C.black, border: `1px solid ${C.gray800}` }}>
+              <div className="flex items-center gap-2">
+                <span style={{ color: C.white, fontWeight: 800, fontSize: 13, flex: 1 }}>{g.name}</span>
+                {delBtn("grp", g.id)}
+              </div>
+              <div className="flex items-center gap-1.5 mt-2 flex-wrap">
+                <button onClick={() => patchGroup(g, { required: !g.required })} className="rounded-lg px-2 py-1 font-bold"
+                  style={{ background: g.required ? `${C.orange}22` : C.gray850, border: `1px solid ${g.required ? C.orange : C.gray800}`, color: g.required ? C.orange : "#9a9a9a", fontSize: 10.5 }}>
+                  {g.required ? "obrigatório" : "opcional"}
+                </button>
+                {["min", "max"].map((k) => (
+                  <label key={k} className="flex items-center gap-1" style={{ fontSize: 10.5, color: "#8a8a8a" }}>
+                    {k}
+                    <input type="number" defaultValue={g[k]} min={0} max={10}
+                      onBlur={(e) => Number(e.target.value) !== g[k] && patchGroup(g, { [k]: e.target.value })}
+                      className="rounded-lg px-1.5 py-1 outline-none" style={{ ...inField, width: 46 }} />
+                  </label>
+                ))}
+              </div>
+              <div className="mt-2 space-y-1">
+                {g.options.map((o) => (
+                  <div key={o.id} className="flex items-center gap-2">
+                    <input defaultValue={o.name} key={o.id + o.name} className="flex-1 rounded-lg px-2 py-1 outline-none" style={inField}
+                      onBlur={(e) => e.target.value !== o.name && api(`/api/options/${o.id}`, { method: "PATCH", body: { name: e.target.value } }).catch((x) => say(x.message))} />
+                    <input defaultValue={String(o.price).replace(".", ",")} key={o.id + o.price} inputMode="decimal"
+                      className="rounded-lg px-2 py-1 outline-none text-right" style={{ ...inField, width: 78 }}
+                      onBlur={(e) => {
+                        const v = parseFloat(String(e.target.value).replace(",", "."));
+                        if (Number.isFinite(v) && v !== o.price) api(`/api/options/${o.id}`, { method: "PATCH", body: { price: v } }).catch((x) => say(x.message));
+                      }} />
+                    {delBtn("opt", o.id)}
+                  </div>
+                ))}
+                <div className="flex items-center gap-2 pt-1">
+                  <input value={opt[g.id]?.name || ""} onChange={(e) => setOpt({ ...opt, [g.id]: { ...opt[g.id], name: e.target.value } })}
+                    placeholder="Novo item (ex.: Cheddar)" className="flex-1 rounded-lg px-2 py-1 outline-none"
+                    style={{ background: C.gray850, border: `1px solid ${C.gray800}`, color: C.white, fontSize: 12 }}
+                    onKeyDown={(e) => e.key === "Enter" && opt[g.id]?.name?.trim() && addOption(g.id)} />
+                  <input value={opt[g.id]?.price || ""} onChange={(e) => setOpt({ ...opt, [g.id]: { ...opt[g.id], price: e.target.value } })}
+                    placeholder="R$" inputMode="decimal" className="rounded-lg px-2 py-1 outline-none text-right"
+                    style={{ background: C.gray850, border: `1px solid ${C.gray800}`, color: C.white, fontSize: 12, width: 78 }} />
+                  <Btn small variant="dark" disabled={!opt[g.id]?.name?.trim()} onClick={() => addOption(g.id)}>+</Btn>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+        <div className="mt-3 pt-3" style={{ borderTop: `1px solid ${C.gray800}` }}>
+          <div style={{ color: "#9a9a9a", fontSize: 11, fontWeight: 700, marginBottom: 6 }}>Novo grupo</div>
+          <input value={grp.name} onChange={(e) => setGrp({ ...grp, name: e.target.value })} placeholder="Ex.: Escolha o molho"
+            className="w-full rounded-lg px-2 py-1.5 outline-none" style={inField} />
+          <div className="flex items-center gap-2 mt-2 flex-wrap">
+            {["min", "max"].map((k) => (
+              <label key={k} className="flex items-center gap-1" style={{ fontSize: 10.5, color: "#8a8a8a" }}>
+                {k}
+                <input value={grp[k]} onChange={(e) => setGrp({ ...grp, [k]: e.target.value })} inputMode="numeric"
+                  className="rounded-lg px-1.5 py-1 outline-none" style={{ ...inField, width: 46 }} />
+              </label>
+            ))}
+            <button onClick={() => setGrp({ ...grp, required: !grp.required })} className="rounded-lg px-2 py-1 font-bold"
+              style={{ background: grp.required ? `${C.orange}22` : C.gray850, border: `1px solid ${grp.required ? C.orange : C.gray800}`, color: grp.required ? C.orange : "#9a9a9a", fontSize: 10.5 }}>
+              {grp.required ? "obrigatório" : "opcional"}
+            </button>
+            <Btn small disabled={!grp.name.trim()} onClick={addGroup}>+ Criar grupo</Btn>
+          </div>
+        </div>
+      </Card>
+    </div>
   );
 }
 
 function AdminInventory({ store }) {
+  const low = store.inventory.filter((i) => i.qty <= i.min);
   return (
-    <React.Suspense fallback={<div style={{ padding: 20, textAlign: 'center', color: '#888' }}>Carregando AdminInventory...</div>}>
-      <AdminInventoryModular store={store}  />
-    </React.Suspense>
+    <div>
+      {low.length > 0 && (
+        <Card className="p-4 mb-4" style={{ borderColor: `${C.red}66`, background: `${C.red}12` }}>
+          <div style={{ color: C.red, fontWeight: 900, fontSize: 13 }}>⚠️ Estoque baixo em {low.length} itens</div>
+          <div style={{ color: "#c9c9c9", fontSize: 12, marginTop: 4 }}>{low.map((i) => i.name).join(" · ")}</div>
+        </Card>
+      )}
+      <div className="grid md:grid-cols-2 xl:grid-cols-3 gap-3">
+        {store.inventory.map((i) => {
+          const pct = Math.min(100, (i.qty / (i.min * 2.5)) * 100);
+          const bad = i.qty <= i.min;
+          return (
+            <Card key={i.id} className="p-3">
+              <div className="flex justify-between items-baseline">
+                <span style={{ color: C.white, fontWeight: 800, fontSize: 13 }}>{i.name}</span>
+                <span style={{ color: bad ? C.red : C.yellowLight, fontWeight: 900, fontSize: 13 }}>{i.qty} {i.unit}</span>
+              </div>
+              <div style={{ height: 6, background: C.gray800, borderRadius: 9, marginTop: 8 }}>
+                <div style={{ width: `${pct}%`, height: "100%", borderRadius: 9, background: bad ? C.red : C.green }} />
+              </div>
+              <div className="flex items-center justify-between mt-2.5">
+                <span style={{ color: "#7a7a7a", fontSize: 10.5 }}>mínimo {i.min} {i.unit}</span>
+                <div className="flex gap-1.5">
+                  <Btn small variant="dark" onClick={() => store.moveStock(i.id, -1)}>−1</Btn>
+                  <Btn small variant="dark" onClick={() => store.moveStock(i.id, 10)}>+10</Btn>
+                </div>
+              </div>
+            </Card>
+          );
+        })}
+      </div>
+    </div>
   );
 }
 
+// ============================================================
+// FINANCEIRO — visão de caixa com dados reais dos pedidos
+// ============================================================
+
+const RANGES = [
+  ["hoje", "Hoje"],
+  ["7", "7 dias"],
+  ["30", "30 dias"],
+  ["tudo", "Tudo"],
+];
+
+
 function AdminIntegrations({ store }) {
+  const [ov, setOv] = useState(null);
+  const [wa, setWa] = useState({ phone_number_id: "", token: "", verify: "", template: "tonosarro_status" });
+  const [iff, setIff] = useState({ client_id: "", secret: "", merchant_id: "" });
+  const [testPhone, setTestPhone] = useState("");
+  const [busy, setBusy] = useState("");
+  const [msg, setMsg] = useState("");
+
+  const load = () => api("/api/integrations/overview").then(setOv).catch(() => {});
+  useEffect(() => {
+    load();
+    const t = setInterval(load, 6000);
+    return () => clearInterval(t);
+  }, []);
+
+  const say = (m) => { setMsg(m); setTimeout(() => setMsg(""), 4000); };
+  const inField = { background: C.black, border: `1px solid ${C.gray800}`, color: C.white, fontSize: 12 };
+
+  const saveWa = async (enabledDelta) => {
+    setBusy("wa");
+    try {
+      const body = {
+        wa_phone_number_id: wa.phone_number_id || undefined,
+        wa_verify_token: wa.verify || undefined,
+        wa_template: wa.template || undefined,
+        wa_access_token: wa.token || undefined,
+      };
+      if (typeof enabledDelta === "boolean") body.whatsapp_enabled = enabledDelta;
+      Object.keys(body).forEach((k) => body[k] === undefined && delete body[k]);
+      await api("/api/settings", { method: "PATCH", body });
+      setWa({ phone_number_id: "", token: "", verify: "", template: wa.template });
+      await load();
+      say(enabledDelta === undefined ? "Credenciais do WhatsApp salvas ✓" : enabledDelta ? "WhatsApp ativado ✓" : "WhatsApp pausado");
+    } catch (e) { say(e.message); }
+    setBusy("");
+  };
+
+  const saveIfood = async (enabledDelta) => {
+    setBusy("if");
+    try {
+      const body = {
+        ifood_client_id: iff.client_id || undefined,
+        ifood_merchant_id: iff.merchant_id || undefined,
+        ifood_client_secret: iff.secret || undefined,
+      };
+      if (typeof enabledDelta === "boolean") body.ifood_enabled = enabledDelta;
+      Object.keys(body).forEach((k) => body[k] === undefined && delete body[k]);
+      await api("/api/settings", { method: "PATCH", body });
+      setIff({ client_id: "", secret: "", merchant_id: "" });
+      await load();
+      say(enabledDelta === undefined ? "Credenciais do iFood salvas ✓" : enabledDelta ? "iFood ativado — poller a cada 30s ✓" : "iFood pausado");
+    } catch (e) { say(e.message); }
+    setBusy("");
+  };
+
+  const testWa = async () => {
+    setBusy("twa");
+    try {
+      await api("/api/integrations/whatsapp/test", { method: "POST", body: { phone: testPhone } });
+      say("Mensagem disparada — veja o resultado na fila abaixo");
+      await load();
+    } catch (e) { say(e.message); await load(); }
+    setBusy("");
+  };
+
+  const testIfood = async () => {
+    setBusy("tif");
+    try {
+      await api("/api/integrations/ifood/test", { method: "POST" });
+      say("Conexão com o iFood OK ✓");
+      await load();
+    } catch (e) { say(e.message); await load(); }
+    setBusy("");
+  };
+
+  const w = ov?.whatsapp || {};
+  const f = ov?.ifood || {};
+
   return (
-    <React.Suspense fallback={<div style={{ padding: 20, textAlign: 'center', color: '#888' }}>Carregando AdminIntegrations...</div>}>
-      <AdminIntegrationsModular store={store}  />
-    </React.Suspense>
+    <div className="space-y-4">
+      {msg && (
+        <div className="rounded-xl px-3 py-2.5" style={{ background: `${C.orange}18`, color: C.orange, fontSize: 12.5, fontWeight: 700 }}>
+          {msg}
+        </div>
+      )}
+
+      <div className="grid lg:grid-cols-2 gap-3">
+        {/* WHATSAPP */}
+        <Card className="p-4">
+          <div className="flex items-center justify-between">
+            <span className="inline-flex items-center gap-2" style={{ color: C.white, fontWeight: 900, fontSize: 15 }}>
+              <WaIcon size={16} color="#25D366" /> WhatsApp Cloud API
+            </span>
+            <span
+              className="rounded-full px-2.5 py-1 font-bold"
+              style={{
+                fontSize: 10,
+                background: w.configured ? `${C.green}1f` : `${C.yellow}1f`,
+                color: w.configured ? C.green : C.yellow,
+                border: `1px solid ${w.configured ? C.green : C.yellow}44`,
+              }}
+            >
+              {w.configured ? (w.enabled ? "ATIVO" : "CONFIGURADO · PAUSADO") : "FALTA CREDENCIAL"}
+            </span>
+          </div>
+          <p style={{ color: "#8a8a8a", fontSize: 11.5, marginTop: 6, lineHeight: 1.5 }}>
+            Mensagens automáticas a cada status do pedido (recebido, pagamento, chapa, pronto, saiu, entregue).
+            Requer um app no <span style={{ color: "#c0c0c0" }}>developers.facebook.com</span> com template aprovado
+            ({w.template || "tonosarro_status"}, 1 parâmetro de corpo).
+          </p>
+          <div className="mt-3 space-y-2">
+            <input value={wa.phone_number_id} onChange={(e) => setWa({ ...wa, phone_number_id: e.target.value })}
+              placeholder={w.phoneId ? `Phone Number ID: ${w.phoneId}` : "Phone Number ID (ex.: 1234567890)"} className="w-full rounded-lg px-2.5 py-2 outline-none" style={inField} />
+            <input value={wa.token} onChange={(e) => setWa({ ...wa, token: e.target.value })} type="password"
+              placeholder={w.hasToken ? "Access Token •••• salvo (deixe vazio p/ manter)" : "Access Token permanente"} className="w-full rounded-lg px-2.5 py-2 outline-none" style={inField} />
+            <input value={wa.verify} onChange={(e) => setWa({ ...wa, verify: e.target.value })} type="password"
+              placeholder={w.hasVerify ? "Verify Token •••• salvo (deixe vazio p/ manter)" : "Verify Token (o que você cadastrar na Meta)"} className="w-full rounded-lg px-2.5 py-2 outline-none" style={inField} />
+            <input value={wa.template} onChange={(e) => setWa({ ...wa, template: e.target.value })}
+              placeholder="Nome do template" className="w-full rounded-lg px-2.5 py-2 outline-none" style={inField} />
+          </div>
+          <div className="flex flex-wrap gap-2 mt-3">
+            <Btn small disabled={busy === "wa"} onClick={() => saveWa(undefined)}>Salvar credenciais</Btn>
+            <Btn small variant={w.enabled ? "dark" : "green"} disabled={busy === "wa"} onClick={() => saveWa(!w.enabled)}>
+              {w.enabled ? "⏸ Pausar" : "▶ Ativar"}
+            </Btn>
+          </div>
+          {w.enabled && (
+            <div className="mt-3 pt-3" style={{ borderTop: `1px solid ${C.gray800}` }}>
+              <div style={{ color: "#8a8a8a", fontSize: 11, marginBottom: 6 }}>Testar envio real:</div>
+              <div className="flex gap-2">
+                <input value={testPhone} onChange={(e) => setTestPhone(e.target.value)} placeholder="(81) 99999-0000"
+                  className="flex-1 rounded-lg px-2.5 py-2 outline-none" style={inField} />
+                <Btn small disabled={busy === "twa" || !testPhone} onClick={testWa}>{busy === "twa" ? "…" : "Enviar teste"}</Btn>
+              </div>
+            </div>
+          )}
+        </Card>
+
+        {/* IFOOD */}
+        <Card className="p-4">
+          <div className="flex items-center justify-between">
+            <span style={{ color: C.white, fontWeight: 900, fontSize: 15 }}>🔴 iFood — API oficial</span>
+            <span
+              className="rounded-full px-2.5 py-1 font-bold"
+              style={{
+                fontSize: 10,
+                background: f.configured ? `${C.green}1f` : `${C.yellow}1f`,
+                color: f.configured ? C.green : C.yellow,
+                border: `1px solid ${f.configured ? C.green : C.yellow}44`,
+              }}
+            >
+              {f.configured ? (f.enabled ? "ATIVO · POLLING 30s" : "CONFIGURADO · PAUSADO") : "FALTA CREDENCIAL"}
+            </span>
+          </div>
+          <p style={{ color: "#8a8a8a", fontSize: 11.5, marginTop: 6, lineHeight: 1.5 }}>
+            Pedidos do iFood entram sozinhos na fila (evento PLC) e aparecem no Kanban, KDS e expedição.
+            Confirmação/pronto/despacho aqui dentro são espelhados de volta no iFood.
+            Credenciais do portal <span style={{ color: "#c0c0c0" }}>novopedido.ifood.com.br</span> (Integrações → API).
+          </p>
+          <div className="mt-3 space-y-2">
+            <input value={iff.client_id} onChange={(e) => setIff({ ...iff, client_id: e.target.value })}
+              placeholder={f.clientId ? `Client ID: ${f.clientId}` : "Client ID"} className="w-full rounded-lg px-2.5 py-2 outline-none" style={inField} />
+            <input value={iff.secret} onChange={(e) => setIff({ ...iff, secret: e.target.value })} type="password"
+              placeholder={f.configured ? "Client Secret •••• salvo (deixe vazio p/ manter)" : "Client Secret"} className="w-full rounded-lg px-2.5 py-2 outline-none" style={inField} />
+            <input value={iff.merchant_id} onChange={(e) => setIff({ ...iff, merchant_id: e.target.value })}
+              placeholder={f.merchantId ? `Merchant ID: ${f.merchantId}` : "Merchant ID (opcional)"} className="w-full rounded-lg px-2.5 py-2 outline-none" style={inField} />
+          </div>
+          <div className="flex flex-wrap gap-2 mt-3">
+            <Btn small disabled={busy === "if"} onClick={() => saveIfood(undefined)}>Salvar credenciais</Btn>
+            <Btn small variant={f.enabled ? "dark" : "green"} disabled={busy === "if"} onClick={() => saveIfood(!f.enabled)}>
+              {f.enabled ? "⏸ Pausar" : "▶ Ativar polling"}
+            </Btn>
+            <Btn small variant="dark" disabled={busy === "tif"} onClick={testIfood}>{busy === "tif" ? "…" : "Testar conexão"}</Btn>
+          </div>
+        </Card>
+      </div>
+
+      {/* FILA DE MENSAGENS */}
+      <Card className="p-4">
+        <div style={{ color: C.white, fontWeight: 900, fontSize: 14, marginBottom: 4 }}>
+          📤 Fila de mensagens — o que o cliente recebe
+        </div>
+        <div style={{ color: "#7a7a7a", fontSize: 11.5, marginBottom: 10 }}>
+          Sem credenciais (ou sem internet) as mensagens ficam na fila; com a integração ativa, saem de verdade.
+        </div>
+        <div className="space-y-2">
+          {(ov?.outbox || []).length === 0 && (
+            <div style={{ color: "#6a6a6a", fontSize: 12 }}>Nenhuma mensagem ainda — mova um pedido pelo fluxo para ver.</div>
+          )}
+          {(ov?.outbox || []).map((m) => (
+            <div key={m.id} className="rounded-xl p-3" style={{ background: C.black, border: `1px solid ${C.gray800}` }}>
+              <div className="flex items-center justify-between gap-2 mb-1.5">
+                <span style={{ color: "#9a9a9a", fontSize: 10.5 }}>
+                  {m.to} {m.code ? `· pedido #${m.code}` : ""} · {new Date(m.at).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}
+                </span>
+                <span
+                  className="rounded-md px-1.5 py-0.5 font-bold"
+                  style={{
+                    fontSize: 9.5,
+                    background: m.status === "enviada" ? `${C.green}1f` : m.status === "erro" ? `${C.red}1f` : `${C.yellow}1f`,
+                    color: m.status === "enviada" ? C.green : m.status === "erro" ? C.red : C.yellow,
+                  }}
+                >
+                  {m.status === "enviada" ? "✓ ENVIADA" : m.status === "erro" ? "ERRO" : "NA FILA"}
+                </span>
+              </div>
+              <div style={{ color: "#d0d0d0", fontSize: 12, whiteSpace: "pre-wrap", lineHeight: 1.5 }}>{m.body}</div>
+              {m.error && <div style={{ color: C.red, fontSize: 10.5, marginTop: 4 }}>⚠ {m.error}</div>}
+            </div>
+          ))}
+        </div>
+      </Card>
+
+      {/* DIÁRIO */}
+      <Card className="p-4">
+        <div style={{ color: C.white, fontWeight: 900, fontSize: 14, marginBottom: 8 }}>📜 Diário de integrações</div>
+        {(ov?.logs || []).length === 0 && <div style={{ color: "#6a6a6a", fontSize: 12 }}>Sem eventos ainda.</div>}
+        <div className="space-y-1">
+          {(ov?.logs || []).map((l) => (
+            <div key={l.id} className="flex items-start gap-2" style={{ fontSize: 11.5 }}>
+              <span style={{ color: "#5a5a5a", whiteSpace: "nowrap" }}>{new Date(l.at).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit", second: "2-digit" })}</span>
+              <span
+                className="rounded px-1 font-bold"
+                style={{
+                  background: l.level === "ok" ? `${C.green}1a` : l.level === "erro" ? `${C.red}1a` : C.gray800,
+                  color: l.level === "ok" ? C.green : l.level === "erro" ? C.red : "#9a9a9a",
+                  fontSize: 9.5, whiteSpace: "nowrap",
+                }}
+              >
+                {l.channel}
+              </span>
+              <span style={{ color: l.level === "erro" ? C.red : "#c0c0c0" }}>{l.msg}</span>
+            </div>
+          ))}
+        </div>
+      </Card>
+    </div>
   );
 }
+
 
 function AdminSettings({ store, now }) {
   return (
@@ -3174,18 +4114,29 @@ function AdminSettings({ store, now }) {
 
 function AdminTables({ store, now }) {
   return (
-    <React.Suspense fallback={<div style={{ padding: 20, textAlign: 'center', color: '#888' }}>Carregando AdminTables...</div>}>
-      <AdminTablesModular store={store} now={now}  />
-    </React.Suspense>
+    <ErrorBoundary>
+      <React.Suspense fallback={<div style={{ padding: 20, textAlign: 'center', color: '#888' }}>Carregando AdminTables...</div>}>
+        <AdminTablesModular store={store} now={now} />
+      </React.Suspense>
+    </ErrorBoundary>
   );
 }
 
 function AdminCashRegister({ store, now }) {
   return (
-    <React.Suspense fallback={<div style={{ padding: 20, textAlign: 'center', color: '#888' }}>Carregando AdminCashRegister...</div>}>
-      <AdminCashRegisterModular store={store} now={now}  />
-    </React.Suspense>
+    <ErrorBoundary>
+      <React.Suspense fallback={<div style={{ padding: 20, textAlign: 'center', color: '#888' }}>Carregando AdminCashRegister...</div>}>
+        <AdminCashRegisterModular store={store} now={now} />
+      </React.Suspense>
+    </ErrorBoundary>
   );
+}
+
+class ErrorBoundary extends React.Component {
+  constructor(p){ super(p); this.state={hasError:false, error:null}; }
+  static getDerivedStateFromError(e){ return {hasError:true, error:e}; }
+  componentDidCatch(e,info){ console.error(e,info); }
+  render(){ if(this.state.hasError){ return (<div className="p-6 rounded-xl" style={{ background: C.gray900, border: "1px solid #ff4d4d55" }}><div style={{ color: C.red, fontWeight: 900 }}>Erro no painel</div><div style={{ color: "#c9c9c9", fontSize: 12, whiteSpace: "pre-wrap" }}>{String(this.state.error?.message||this.state.error)}</div><div className="mt-3"><Btn small variant="dark" onClick={()=>this.setState({hasError:false,error:null})}>Tentar novamente</Btn></div></div>); } return this.props.children; }
 }
 
 const ADMIN_NAV = [
