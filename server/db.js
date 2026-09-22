@@ -138,7 +138,9 @@ db.exec(`
     subtotal REAL DEFAULT 0,
     fee REAL DEFAULT 0,
     discount REAL DEFAULT 0,
-    total REAL DEFAULT 0
+    total REAL DEFAULT 0,
+    table_number INTEGER,
+    table_name TEXT
   );
 
   CREATE TABLE IF NOT EXISTS order_items (
@@ -220,7 +222,6 @@ db.exec(`
   );
 
   CREATE INDEX IF NOT EXISTS idx_orders_created ON orders(created_at DESC);
-  CREATE INDEX IF NOT EXISTS idx_orders_table_number ON orders(table_number);
   CREATE INDEX IF NOT EXISTS idx_orders_status ON orders(status);
   CREATE INDEX IF NOT EXISTS idx_items_order ON order_items(order_id);
   CREATE INDEX IF NOT EXISTS idx_cash_reg_status ON cash_registers(status);
@@ -262,6 +263,9 @@ addColumnIfMissing("orders", "route_seq", "route_seq INTEGER DEFAULT 1");
 addColumnIfMissing("orders", "settlement_id", "settlement_id TEXT");
 addColumnIfMissing("orders", "table_number", "table_number INTEGER");
 addColumnIfMissing("orders", "table_name", "table_name TEXT");
+// Índices que dependem de colunas adicionadas via addColumnIfMissing
+try { db.exec(`CREATE INDEX IF NOT EXISTS idx_orders_table_number ON orders(table_number)`); } catch {}
+try { db.exec(`CREATE INDEX IF NOT EXISTS idx_orders_table_name ON orders(table_name)`); } catch {}
 addColumnIfMissing("users", "active", "active INTEGER DEFAULT 1");
 addColumnIfMissing("users", "last_login_at", "last_login_at INTEGER");
 addColumnIfMissing("promos", "starts_at", "starts_at INTEGER");
