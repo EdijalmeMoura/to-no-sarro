@@ -2314,6 +2314,59 @@ function AdminDashboard({ store, now, setSec }) {
   );
 }
 
+function OrderCard({ o, store, now, compact }) {
+  const next = FLOW[FLOW.indexOf(o.status) + 1];
+  const mesaNum = getOrderTableNumber(o);
+  const modality = getOrderModality(o);
+  return (
+    <Card className="p-3">
+      <div className="flex items-center justify-between mb-2">
+        <div className="flex items-center gap-2 flex-wrap">
+          <span style={{ color: C.white, fontWeight: 900, fontSize: 14 }}>#{o.code}</span>
+          <ChannelPill channel={o.channel} />
+          {mesaNum != null && (
+            <span className="rounded-md px-1.5 py-0.5 font-bold" style={{ background: "#064e3b33", color: "#10b981", border: "1px solid #10b98155", fontSize: 9.5 }}>🍽️ M{String(mesaNum).padStart(2, "0")}</span>
+          )}
+          {o.paymentStatus === "pendente" && (
+            <span className="rounded-md px-1.5 py-0.5 font-bold" style={{ background: `${C.yellow}1f`, color: C.yellow, fontSize: 9, border: `1px solid ${C.yellow}44` }}>⏳ PGTO</span>
+          )}
+        </div>
+        <div className="flex items-center gap-1.5">
+          <span style={{ color: "#7a7a7a", fontSize: 10.5 }}>{elapsed(o.createdAt, now)}</span>
+          <button onClick={() => printReceipt(o, store.settings)} title="Imprimir cupom" className="rounded-md px-1.5 py-0.5" style={{ background: C.gray800, color: "#c9c9c9", fontSize: 11 }}>🖨</button>
+        </div>
+      </div>
+      <div style={{ color: "#c9c9c9", fontSize: 12, fontWeight: 700 }}>{o.customer.name}</div>
+      {!compact && <div style={{ color: "#7a7a7a", fontSize: 11, marginTop: 2 }}>{o.customer.addr}</div>}
+      <div className="mt-2 space-y-0.5">
+        {o.items.map((i) => (
+          <div key={i.id} style={{ color: "#9a9a9a", fontSize: 11.5 }}>{i.qty}x {i.name}{i.note ? ` · ${i.note}` : ""}</div>
+        ))}
+      </div>
+      <div className="flex items-center justify-between mt-2.5">
+        <span style={{ color: C.yellowLight, fontWeight: 900, fontSize: 13.5 }}>{brl(o.total)}</span>
+        <span style={{ color: "#7a7a7a", fontSize: 10.5 }}>{o.payment} · {modality?.badge || (o.type === "pickup" ? "Retirada" : "Delivery")}</span>
+      </div>
+      {next && o.status !== "ENTREGUE" && o.status !== "CANCELADO" && (
+        <div className="flex gap-2 mt-3">
+          <Btn small full onClick={() => store.advance(o.id)}>Avançar → {STATUS[next].label}</Btn>
+          <Btn small variant="danger" onClick={() => store.setStatus(o.id, "CANCELADO")}>Cancelar</Btn>
+        </div>
+      )}
+      {!compact && o.status === "AGUARDANDO" && store.drivers?.length > 0 && (
+        <div className="mt-2">
+          <div style={{ color: "#8a8a8a", fontSize: 10, marginBottom: 4 }}>Entregador:</div>
+          <div className="flex flex-wrap gap-1">
+            {store.drivers.map((d) => (
+              <button key={d.id} onClick={() => store.assignDriver(o.id, d.id)} className="rounded-md px-2 py-1 font-bold" style={{ background: C.gray800, border: `1px solid ${C.gray700}`, color: C.white, fontSize: 10 }}>🛵 {d.name.split(" ")[0]}</button>
+            ))}
+          </div>
+        </div>
+      )}
+    </Card>
+  );
+}
+
 function AdminOrders({ store, now }) {
   const [view, setView] = useState("kanban");
   const [filter, setFilter] = useState("TODOS");
@@ -4156,76 +4209,13 @@ const ADMIN_NAV = [
 ];
 
 function AdminApp({ store, now }) {
-  const [sec, setSec] = useState("dashboard");
-  const render = () => {
-    if (sec === "dashboard") return <AdminDashboard store={store} now={now} setSec={setSec} />;
-    if (sec === "pedidos") return <AdminOrders store={store} now={now} />;
-    if (sec === "caixa") return <AdminCashRegister store={store} now={now} />;
-    if (sec === "mesas") return <AdminTables store={store} now={now} />;
-    if (sec === "produtos") return <AdminProducts store={store} />;
-    if (sec === "categorias") return <AdminCategories store={store} />;
-    if (sec === "clientes") return <AdminCustomers store={store} />;
-    if (sec === "promos") return <AdminPromos store={store} now={now} />;
-    if (sec === "estoque") return <AdminInventory store={store} />;
-    if (sec === "financeiro") return <AdminFinance store={store} now={now} />;
-    if (sec === "relatorios") return <AdminReports store={store} now={now} />;
-    if (sec === "integracoes") return <AdminIntegrations store={store} />;
-    if (sec === "config") return <AdminSettings store={store} now={now} />;
-    return null;
-  };
+  // Usa versão modular completa com sidebar sem rolagem, mesas toggle, AdminOrders Kanban completo
   return (
-    <div className="min-h-screen flex flex-col lg:flex-row" style={{ background: C.black }}>
-      <div className="w-full lg:w-64 shrink-0 p-3 lg:sticky lg:top-0 lg:h-screen lg:overflow-y-auto" style={{ background: C.gray900, borderRight: `1px solid ${C.gray800}` }}>
-        <div className="flex items-center gap-2 mb-4">
-          <Logo size={36} />
-          <div>
-            <div style={{ fontFamily: font.display, fontStyle: "italic", fontSize: 14, color: C.white }}>TÔ NO SARRO!</div>
-            <div style={{ color: "#8a8a8a", fontSize: 10 }}>ADMIN · {store.settings?.storeName || ""}</div>
-          </div>
-        </div>
-        <div className="flex lg:flex-col gap-1.5 overflow-x-auto lg:overflow-visible pb-1">
-          {ADMIN_NAV.map((n) => {
-            const on = sec === n.id;
-            return (
-              <button
-                key={n.id}
-                onClick={() => setSec(n.id)}
-                className="shrink-0 flex items-center gap-2 rounded-xl px-3 py-2.5 font-bold text-left"
-                style={{
-                  background: on ? `linear-gradient(100deg, ${C.orange}, ${C.yellow})` : C.gray850,
-                  color: on ? C.black : "#c0c0c0",
-                  border: `1px solid ${on ? "transparent" : C.gray800}`,
-                  fontSize: 12.5,
-                  whiteSpace: "nowrap",
-                }}
-              >
-                <span>{n.icon}</span> {n.label}
-              </button>
-            );
-          })}
-        </div>
-        <div className="mt-4 pt-4" style={{ borderTop: `1px solid ${C.gray800}` }}>
-          <div className="flex items-center justify-between">
-            <span style={{ color: "#8a8a8a", fontSize: 11 }}>Status da loja</span>
-            <MiniToggle on={store.settings?.open} onClick={() => store.setOpen(!store.settings?.open)} />
-          </div>
-          <div style={{ color: store.settings?.open ? C.green : C.red, fontSize: 11, fontWeight: 800, marginTop: 4 }}>
-            {store.settings?.open ? "Aberta" : "Fechada"}
-          </div>
-        </div>
-      </div>
-      <div className="flex-1 p-3 sm:p-4 max-w-[1400px] w-full mx-auto">
-        <div className="flex items-center justify-between mb-4 gap-2">
-          <h2 style={{ fontFamily: font.display, fontStyle: "italic", fontSize: 22, color: C.white }}>
-            {ADMIN_NAV.find((n) => n.id === sec)?.label?.toUpperCase()}
-          </h2>
-          <div className="flex items-center gap-2">
-            <SyncBadge store={store} now={now} />
-          </div>
-        </div>
-        {render()}
-      </div>
-    </div>
+    <ErrorBoundary>
+      <React.Suspense fallback={<div style={{ padding: 20, textAlign: 'center', color: '#888' }}>Carregando Admin…</div>}>
+        <AdminAppModular store={store} now={now} />
+      </React.Suspense>
+    </ErrorBoundary>
   );
 }
 
