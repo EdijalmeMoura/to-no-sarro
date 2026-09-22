@@ -2345,7 +2345,7 @@ app.use("/api", (_req, res) => res.status(404).json({ error: "Rota não encontra
 // Com barra no fim (/admin/) os assets relativos do Vite resolveriam em
 // /admin/assets/... e a tela ficaria em branco — canonicaliza tirando a barra,
 // preservando prefixo (subdiretório/preview).
-const PANEL_PATHS = ["/admin", "/cozinha", "/expedicao", "/entregador"];
+const PANEL_PATHS = ["/admin", "/cozinha", "/expedicao", "/entregador", "/paineltv"];
 
 app.use((req, res, next) => {
   if (req.method !== "GET") return next();
