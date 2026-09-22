@@ -3047,6 +3047,54 @@ function AdminPaymentsCard({ store }) {
   );
 }
 
+function AdminPrinterCard({ store }) {
+  return (
+    <React.Suspense fallback={<div style={{ padding: 20, textAlign: 'center', color: '#888' }}>Carregando AdminPrinterCard...</div>}>
+      <AdminPrinterCardModular store={store}  />
+    </React.Suspense>
+  );
+}
+
+function AdminStoreCard({ store }) {
+  return (
+    <React.Suspense fallback={<div style={{ padding: 20, textAlign: 'center', color: '#888' }}>Carregando AdminStoreCard...</div>}>
+      <AdminStoreCardModular store={store}  />
+    </React.Suspense>
+  );
+}
+
+function AdminModalitiesCard({ store }) {
+  return (
+    <React.Suspense fallback={<div style={{ padding: 20, textAlign: 'center', color: '#888' }}>Carregando AdminModalitiesCard...</div>}>
+      <AdminModalitiesCardModular store={store}  />
+    </React.Suspense>
+  );
+}
+
+function AdminCategories({ store }) {
+  return (
+    <React.Suspense fallback={<div style={{ padding: 20, textAlign: 'center', color: '#888' }}>Carregando AdminCategories...</div>}>
+      <AdminCategoriesModular store={store}  />
+    </React.Suspense>
+  );
+}
+
+function AdminInventory({ store }) {
+  return (
+    <React.Suspense fallback={<div style={{ padding: 20, textAlign: 'center', color: '#888' }}>Carregando AdminInventory...</div>}>
+      <AdminInventoryModular store={store}  />
+    </React.Suspense>
+  );
+}
+
+function AdminIntegrations({ store }) {
+  return (
+    <React.Suspense fallback={<div style={{ padding: 20, textAlign: 'center', color: '#888' }}>Carregando AdminIntegrations...</div>}>
+      <AdminIntegrationsModular store={store}  />
+    </React.Suspense>
+  );
+}
+
 function AdminSettings({ store, now }) {
   return (
     <div className="grid lg:grid-cols-2 gap-3">
@@ -3137,6 +3185,96 @@ function AdminCashRegister({ store, now }) {
     <React.Suspense fallback={<div style={{ padding: 20, textAlign: 'center', color: '#888' }}>Carregando AdminCashRegister...</div>}>
       <AdminCashRegisterModular store={store} now={now}  />
     </React.Suspense>
+  );
+}
+
+const ADMIN_NAV = [
+  { id: "dashboard", label: "Dashboard", icon: "📊" },
+  { id: "pedidos", label: "Pedidos", icon: "🧾" },
+  { id: "caixa", label: "Caixa / PDV", icon: "💵" },
+  { id: "mesas", label: "Mesas / Salão", icon: "🍽️" },
+  { id: "produtos", label: "Produtos", icon: "🍔" },
+  { id: "categorias", label: "Categorias", icon: "📂" },
+  { id: "clientes", label: "Clientes", icon: "👥" },
+  { id: "promos", label: "Promoções", icon: "🏷️" },
+  { id: "estoque", label: "Estoque", icon: "📦" },
+  { id: "financeiro", label: "Financeiro", icon: "💰" },
+  { id: "relatorios", label: "Relatórios", icon: "📈" },
+  { id: "integracoes", label: "Integrações", icon: "🔌" },
+  { id: "config", label: "Configurações", icon: "⚙️" },
+];
+
+function AdminApp({ store, now }) {
+  const [sec, setSec] = useState("dashboard");
+  const render = () => {
+    if (sec === "dashboard") return <AdminDashboard store={store} now={now} setSec={setSec} />;
+    if (sec === "pedidos") return <AdminOrders store={store} now={now} />;
+    if (sec === "caixa") return <AdminCashRegister store={store} now={now} />;
+    if (sec === "mesas") return <AdminTables store={store} now={now} />;
+    if (sec === "produtos") return <AdminProducts store={store} />;
+    if (sec === "categorias") return <AdminCategories store={store} />;
+    if (sec === "clientes") return <AdminCustomers store={store} />;
+    if (sec === "promos") return <AdminPromos store={store} now={now} />;
+    if (sec === "estoque") return <AdminInventory store={store} />;
+    if (sec === "financeiro") return <AdminFinance store={store} now={now} />;
+    if (sec === "relatorios") return <AdminReports store={store} now={now} />;
+    if (sec === "integracoes") return <AdminIntegrations store={store} />;
+    if (sec === "config") return <AdminSettings store={store} now={now} />;
+    return null;
+  };
+  return (
+    <div className="min-h-screen flex flex-col lg:flex-row" style={{ background: C.black }}>
+      <div className="w-full lg:w-64 shrink-0 p-3 lg:sticky lg:top-0 lg:h-screen lg:overflow-y-auto" style={{ background: C.gray900, borderRight: `1px solid ${C.gray800}` }}>
+        <div className="flex items-center gap-2 mb-4">
+          <Logo size={36} />
+          <div>
+            <div style={{ fontFamily: font.display, fontStyle: "italic", fontSize: 14, color: C.white }}>TÔ NO SARRO!</div>
+            <div style={{ color: "#8a8a8a", fontSize: 10 }}>ADMIN · {store.settings?.storeName || ""}</div>
+          </div>
+        </div>
+        <div className="flex lg:flex-col gap-1.5 overflow-x-auto lg:overflow-visible pb-1">
+          {ADMIN_NAV.map((n) => {
+            const on = sec === n.id;
+            return (
+              <button
+                key={n.id}
+                onClick={() => setSec(n.id)}
+                className="shrink-0 flex items-center gap-2 rounded-xl px-3 py-2.5 font-bold text-left"
+                style={{
+                  background: on ? `linear-gradient(100deg, ${C.orange}, ${C.yellow})` : C.gray850,
+                  color: on ? C.black : "#c0c0c0",
+                  border: `1px solid ${on ? "transparent" : C.gray800}`,
+                  fontSize: 12.5,
+                  whiteSpace: "nowrap",
+                }}
+              >
+                <span>{n.icon}</span> {n.label}
+              </button>
+            );
+          })}
+        </div>
+        <div className="mt-4 pt-4" style={{ borderTop: `1px solid ${C.gray800}` }}>
+          <div className="flex items-center justify-between">
+            <span style={{ color: "#8a8a8a", fontSize: 11 }}>Status da loja</span>
+            <MiniToggle on={store.settings?.open} onClick={() => store.setOpen(!store.settings?.open)} />
+          </div>
+          <div style={{ color: store.settings?.open ? C.green : C.red, fontSize: 11, fontWeight: 800, marginTop: 4 }}>
+            {store.settings?.open ? "Aberta" : "Fechada"}
+          </div>
+        </div>
+      </div>
+      <div className="flex-1 p-3 sm:p-4 max-w-[1400px] w-full mx-auto">
+        <div className="flex items-center justify-between mb-4 gap-2">
+          <h2 style={{ fontFamily: font.display, fontStyle: "italic", fontSize: 22, color: C.white }}>
+            {ADMIN_NAV.find((n) => n.id === sec)?.label?.toUpperCase()}
+          </h2>
+          <div className="flex items-center gap-2">
+            <SyncBadge store={store} now={now} />
+          </div>
+        </div>
+        {render()}
+      </div>
+    </div>
   );
 }
 
