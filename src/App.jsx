@@ -375,7 +375,7 @@ function ProductCarouselCard({ p, onOpen }) {
 
 // Fotos dos produtos (servidas de /public/img). A foto do produto usa o id
 // (ex.: p1.jpg). Enquanto uma foto não existir, o SmartImg cai para o emoji.
-const IMG_BASE = "img/products";
+const IMG_BASE = "/img/products";
 const LOGO_ROUND = "assets/logo-round.png";
 // ============================================================
 // UTILITÁRIOS DE UI
@@ -523,7 +523,7 @@ function SmartImg({ id, emoji, alt = "", fs = 34, className = "", style = {}, fi
   const [broken, setBroken] = useState(false);
   useEffect(() => setBroken(false), [file, id, v]);
   const src = file
-    ? `img-up/${file}?v=${v}`
+    ? `/img-up/${file}?v=${v}`
     : `${IMG_BASE}/${id}.jpg?v=${v}`;
 
   if (broken) {
