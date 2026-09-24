@@ -587,9 +587,14 @@ export function getSettings() {
   const rows = db.prepare("SELECT key, value FROM settings").all();
   const s = {};
   for (const r of rows) s[r.key] = r.value;
+  let weekSchedule = null;
+  if (s.week_schedule) {
+    try { weekSchedule = JSON.parse(s.week_schedule); } catch { weekSchedule = null; }
+  }
   return {
     storeName: s.store_name,
     open: s.open === "1",
+    weekSchedule,
     fee: parseFloat(s.fee),
     minOrder: parseFloat(s.min_order),
     eta: s.eta,

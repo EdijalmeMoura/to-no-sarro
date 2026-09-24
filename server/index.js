@@ -36,11 +36,12 @@ import { attachUser, requireRole, login, logout, logoutAll, refreshSession, publ
 import { createCheckoutLink, paymentCheck, cents } from "./payments/infinitepay.js";
 import { generatePixBRCode } from "./payments/pix.js";
 import { validateOrder } from "./schemas/orders.js";
-import { validateSettings } from "./schemas/settings.js";
+import { validateSettings, weekScheduleSchema } from "./schemas/settings.js";
 import { validateProduct } from "./schemas/products.js";
 import { optimizeDeliveryRoute } from "./routing/osrm.js";
 import { logger, requestLogger, setupErrorHandlers } from "./observability/logger.js";
 import { xssSanitizer } from "./utils/sanitize.js";
+import { isScheduleOpenNow, nextOpening } from "./utils/storeHours.js";
 import { waCredentials, normalizePhone, buildOrderMessage, sendWhatsApp } from "./messaging/whatsapp.js";
 import * as ifood from "./integrations/ifood.js";
 import * as escpos from "./printing/escpos.js";
@@ -491,8 +492,13 @@ app.post("/api/orders", idempotencyMiddleware, rateLimit({ windowMs: 60000, max:
     return res.status(401).json({ error: "Canais externos exigem autenticação." });
   }
 
-  if (!isStaffChannel && !settings.open) {
-    return res.status(409).json({ error: "A loja está fechada agora. Voltamos às 18h!" });
+  const storeOpenNow = settings.open && isScheduleOpenNow(settings.weekSchedule);
+  if (!isStaffChannel && !storeOpenNow) {
+    const next = settings.open ? nextOpening(settings.weekSchedule) : null;
+    const suffix = next
+      ? ` Voltamos ${next.suffix}!`
+      : (settings.weekSchedule ? " Hoje não teremos atendimento." : " Voltamos às 18h!");
+    return res.status(409).json({ error: `A loja está fechada agora.${suffix}` });
   }
 
   let body;
@@ -2145,6 +2151,20 @@ app.patch("/api/inventory/:id", requireRole("ADMIN", "GERENTE"), (req, res) => {
 app.patch("/api/settings", requireRole("ADMIN", "GERENTE"), (req, res) => {
   const b = req.body || {};
   if (typeof b.open === "boolean") setSetting("open", b.open ? "1" : "0");
+
+  // Horários da semana (segunda a domingo): { seg: { enabled, open, close }, ... }
+  if (b.week_schedule !== undefined) {
+    if (b.week_schedule === null) {
+      setSetting("week_schedule", "");
+    } else {
+      const parsed = weekScheduleSchema.safeParse(b.week_schedule);
+      if (!parsed.success) {
+        const msg = parsed.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; ");
+        return res.status(400).json({ error: `Horários da semana inválidos — ${msg}` });
+      }
+      setSetting("week_schedule", JSON.stringify(parsed.data));
+    }
+  }
 
   // Configurações da Loja
   if (typeof b.store_name === "string" && b.store_name.trim()) setSetting("store_name", b.store_name.trim().slice(0, 80));
