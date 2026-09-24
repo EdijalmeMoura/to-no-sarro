@@ -3,6 +3,7 @@ import QRCode from "qrcode";
 import { getOrderModality as getOrderModalityUtil } from "./utils/orderModality.js";
 import { useKeyboardShortcuts } from "./hooks/useKeyboardShortcuts.js";
 import { extractTableNumber, getOrderTableNumber, buildMesaIndex } from "./utils/mesa.js";
+import { isOpenNow, nextOpening } from "./utils/storeHours.js";
 import ServiceChargeCard from "./components/admin/ServiceChargeCard.jsx";
 // Lazy load heavy panels for code splitting
 const AdminTablesModular = React.lazy(() => import("./components/tables/AdminTables.jsx"));
@@ -1005,13 +1006,13 @@ function Hero({ store, onOrder }) {
           <Logo size={50} glow style={{ width: "clamp(44px, 12vw, 54px)", height: "clamp(44px, 12vw, 54px)" }} />
           <div
             className="flex items-center gap-2 px-2.5 sm:px-3 py-1 sm:py-1.5 rounded-full shrink-0"
-            style={{ background: C.gray850, border: `1px solid ${store.open ? C.green : C.red}55` }}
+            style={{ background: C.gray850, border: `1px solid ${store.openNow ? C.green : C.red}55` }}
           >
             <span
-              style={{ width: 8, height: 8, borderRadius: 99, background: store.open ? C.green : C.red, display: "inline-block", animation: "sarropulse 1.8s infinite" }}
+              style={{ width: 8, height: 8, borderRadius: 99, background: store.openNow ? C.green : C.red, display: "inline-block", animation: "sarropulse 1.8s infinite" }}
             />
-            <span style={{ fontSize: "clamp(10px, 2.8vw, 11px)", fontWeight: 800, color: store.open ? C.green : C.red, whiteSpace: "nowrap" }}>
-              {store.open ? "Aberto agora" : "Fechado · 18h"}
+            <span style={{ fontSize: "clamp(10px, 2.8vw, 11px)", fontWeight: 800, color: store.openNow ? C.green : C.red, whiteSpace: "nowrap" }}>
+              {store.openNow ? "Aberto agora" : `Fechado${store.nextOpen ? ` · ${store.nextOpen.badge}` : ""}`}
             </span>
           </div>
         </div>
@@ -1025,7 +1026,7 @@ function Hero({ store, onOrder }) {
 
         <p style={{ color: "#bdbdbd", fontSize: "clamp(12px, 3.4vw, 13px)", marginTop: 12, maxWidth: 430, lineHeight: 1.55 }}>
           Burger artesanal na chapa e açaí batido na hora, saindo do Janga direto
-          pra sua casa. {store.open ? "Entrega em 35–45 min." : "Voltamos às 18h."}
+          pra sua casa. {store.openNow ? "Entrega em 35–45 min." : store.nextOpen ? `Voltamos ${store.nextOpen.suffix}.` : "Voltamos em breve."}
         </p>
 
         <div className="flex flex-wrap items-center gap-x-3 gap-y-3 mt-5">
@@ -1422,8 +1423,12 @@ function CartScreen({ store, goCheckout, onOpen }) {
       </Card>
 
       <div className="mt-4">
-        <Btn full onClick={() => goCheckout({ subtotal, fee, discount, total })} disabled={!store.open}>
-          {store.open ? "FINALIZAR PEDIDO" : "LOJA FECHADA — VOLTAMOS ÀS 18H"}
+        <Btn full onClick={() => goCheckout({ subtotal, fee, discount, total })} disabled={!store.openNow}>
+          {store.openNow
+            ? "FINALIZAR PEDIDO"
+            : store.nextOpen
+              ? `LOJA FECHADA — VOLTA ${store.nextOpen.suffix.toUpperCase()}`
+              : "LOJA FECHADA"}
         </Btn>
       </div>
     </div>
@@ -4632,6 +4637,9 @@ export default function App() {
       return d.order;
     },
     open: settings.open,
+    // Aberto agora = botão geral da loja + regra da semana (seg a dom)
+    openNow: isOpenNow(settings, now),
+    nextOpen: settings.open ? nextOpening(settings.weekSchedule, now) : null,
     fee: settings.fee,
 
     addItem: (item) => setCart((c) => [...c, item]),

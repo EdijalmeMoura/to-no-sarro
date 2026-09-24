@@ -1,5 +1,27 @@
 import { z } from "zod";
 
+const hhmm = z.string().regex(/^\d{2}:\d{2}$/, "use o formato HH:MM").refine((v) => {
+  const [h, m] = v.split(":").map(Number);
+  return h >= 0 && h <= 23 && m >= 0 && m <= 59;
+}, "horário inválido (00:00 – 23:59)");
+
+const dayScheduleSchema = z.object({
+  enabled: z.boolean(),
+  open: hhmm,
+  close: hhmm,
+});
+
+// Segunda a domingo, cada dia com abertura/fechamento e ativação
+export const weekScheduleSchema = z.object({
+  seg: dayScheduleSchema,
+  ter: dayScheduleSchema,
+  qua: dayScheduleSchema,
+  qui: dayScheduleSchema,
+  sex: dayScheduleSchema,
+  sab: dayScheduleSchema,
+  dom: dayScheduleSchema,
+});
+
 export const settingsSchema = z.object({
   store_name: z.string().min(3).max(80).optional(),
   whatsapp: z.string().max(30).optional(),
@@ -16,6 +38,7 @@ export const settingsSchema = z.object({
   service_charge_enabled: z.boolean().optional(),
   service_charge_percent: z.number().min(0).max(30).optional(),
   open: z.boolean().optional(),
+  week_schedule: weekScheduleSchema.optional(),
 }).passthrough();
 
 export function validateSettings(body) {
